@@ -1,0 +1,49 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }}
+#
+# Pas de "flush ruleset" : Docker gère ses propres tables (NAT, FORWARD, DOCKER-USER).
+# Cette table ne filtre que le trafic à destination de l'hôte lui-même (hook input).
+# Les ports publiés par les services Swarm passent par FORWARD et ne sont PAS filtrés ici.
+
+table inet host_fw
+delete table inet host_fw
+
+table inet host_fw {
+    set swarm_nodes {
+        type ipv4_addr
+        elements = { {{ groups['swarm'] | map('extract', hostvars, 'ansible_host') | join(', ') }} }
+    }
+
+    set admin_nets {
+        type ipv4_addr
+        flags interval
+        elements = { {{ fw_ssh_allowed | join(', ') }} }
+    }
+
+    set scrapers {
+        type ipv4_addr
+        elements = { {{ monitoring_scrapers | join(', ') }} }
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        ct state established,related accept
+        ct state invalid drop
+        iif lo accept
+        meta l4proto { icmp, ipv6-icmp } accept
+
+        ip saddr @admin_nets tcp dport 22 accept comment "SSH admin"
+{% if inventory_hostname in groups['swarm_managers'] %}
+        ip saddr @swarm_nodes tcp dport 2377 accept comment "Swarm : API de gestion du cluster"
+{% endif %}
+        ip saddr @swarm_nodes tcp dport 7946 accept comment "Swarm : découverte des noeuds"
+        ip saddr @swarm_nodes udp dport { 4789, 7946 } accept comment "Swarm : gossip et VXLAN overlay"
+        ip saddr @swarm_nodes meta l4proto esp accept comment "Swarm : overlay chiffré (IPsec)"
+
+        # node_exporter, métriques Docker{{ ', cAdvisor' if inventory_hostname in groups['swarm_workers'] else '' }} : uniquement depuis les vmagents
+        ip saddr @scrapers tcp dport { 9100, 9323{{ ', 8080' if inventory_hostname in groups['swarm_workers'] else '' }} } accept comment "Supervision"
+
+        limit rate 10/minute log prefix "host_fw drop: " level info
+    }
+}

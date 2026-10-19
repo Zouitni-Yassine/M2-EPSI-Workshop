@@ -1,0 +1,61 @@
+- name: Installer VictoriaMetrics single-node
+  ansible.builtin.include_role:
+    name: vm_install
+  vars:
+    vm_archive: victoria-metrics
+    vm_binaries: [victoria-metrics]
+
+- name: Utilisateur système victoriametrics
+  ansible.builtin.user:
+    name: victoriametrics
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Répertoire de données
+  ansible.builtin.file:
+    path: /var/lib/victoria-metrics
+    state: directory
+    owner: victoriametrics
+    mode: "0750"
+
+# Authentification Basic sur toute l'API (écriture, lecture, suppression de séries, vmui)
+- name: Répertoire de configuration
+  ansible.builtin.file:
+    path: /etc/victoria-metrics
+    state: directory
+    mode: "0755"
+
+- name: Mot de passe de l'API
+  ansible.builtin.copy:
+    dest: /etc/victoria-metrics/http_password
+    content: "{{ vm_auth_password }}"
+    owner: root
+    group: victoriametrics
+    mode: "0640"
+  no_log: true
+  notify: Redémarrer VictoriaMetrics
+
+- name: Service systemd
+  ansible.builtin.template:
+    src: victoria-metrics.service.j2
+    dest: /etc/systemd/system/victoria-metrics.service
+    mode: "0644"
+  notify: Redémarrer VictoriaMetrics
+
+- name: Redémarrer après une montée de version
+  ansible.builtin.debug:
+    msg: "Nouvelle version de VictoriaMetrics : {{ vm_version }}"
+  when: vm_install_links is changed
+  changed_when: true
+  notify: Redémarrer VictoriaMetrics
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: VictoriaMetrics actif
+  ansible.builtin.systemd_service:
+    name: victoria-metrics
+    enabled: true
+    state: started
+    daemon_reload: true

@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+default:
+  user: "{{ pve_monitor_token_id.split('!')[0] }}"
+  token_name: "{{ pve_monitor_token_id.split('!')[1] }}"
+  token_value: "{{ pve_monitor_token_secret }}"
+  verify_ssl: false # certificat auto-signé

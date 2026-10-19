@@ -1,0 +1,51 @@
+# Grafana Alloy : expédie le journal systemd (y compris les logs des conteneurs) vers Loki
+- name: Installer Alloy
+  ansible.builtin.apt:
+    name: alloy
+    state: present
+
+# Lecture du journal en lecture seule, sans accès au socket Docker
+- name: Accès de l'utilisateur alloy au journal
+  ansible.builtin.user:
+    name: alloy
+    groups: systemd-journal
+    append: true
+  notify: Redémarrer Alloy
+
+- name: Mot de passe de Loki
+  ansible.builtin.copy:
+    dest: /etc/alloy/loki_password
+    content: "{{ loki_auth_password }}"
+    owner: root
+    group: alloy
+    mode: "0640"
+  no_log: true
+  notify: Redémarrer Alloy
+
+- name: Configuration
+  ansible.builtin.template:
+    src: "{{ monitoring_config_dir }}/alloy/config.alloy.j2"
+    dest: /etc/alloy/config.alloy
+    mode: "0644"
+    validate: alloy fmt %s
+  notify: Redémarrer Alloy
+
+# Interface et métriques d'Alloy en local uniquement
+- name: Options de démarrage
+  ansible.builtin.copy:
+    dest: /etc/default/alloy
+    content: |
+      CONFIG_FILE="/etc/alloy/config.alloy"
+      CUSTOM_ARGS="--server.http.listen-addr=127.0.0.1:12345 --disable-reporting"
+      RESTART_ON_UPGRADE=true
+    mode: "0644"
+  notify: Redémarrer Alloy
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: Alloy actif
+  ansible.builtin.systemd_service:
+    name: alloy
+    enabled: true
+    state: started

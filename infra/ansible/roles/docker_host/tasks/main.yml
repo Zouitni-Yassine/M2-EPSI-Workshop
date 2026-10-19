@@ -1,0 +1,64 @@
+- name: Paquets nécessaires (SDK Docker pour les modules Ansible, nftables, node_exporter)
+  ansible.builtin.apt:
+    name:
+      - python3-docker
+      - nftables
+      - prometheus-node-exporter
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# Les logs des conteneurs partent dans journald (driver Docker), où Alloy les lit
+# sans accès au socket Docker. Taille plafonnée.
+- name: Répertoire de configuration de journald
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: "0755"
+
+- name: Journald persistant et plafonné
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/50-docker-host.conf
+    content: |
+      [Journal]
+      Storage=persistent
+      SystemMaxUse=2G
+    mode: "0644"
+  notify: Redémarrer journald
+
+- name: Configuration du daemon Docker
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Redémarrer Docker
+
+- name: Firewall de l'hôte (nftables)
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    owner: root
+    group: root
+    mode: "0755"
+    validate: nft -c -f %s
+  notify: Recharger nftables
+
+- name: Services actifs au démarrage
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - nftables
+    - prometheus-node-exporter
+
+- name: Appliquer les changements avant de passer au nœud suivant
+  ansible.builtin.meta: flush_handlers
+
+- name: Docker actif
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started

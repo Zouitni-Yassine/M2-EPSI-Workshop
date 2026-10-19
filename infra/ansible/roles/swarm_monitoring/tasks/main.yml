@@ -1,0 +1,68 @@
+# vmagent dans le Swarm : collecte les /metrics des services applicatifs sur le réseau
+# overlay "monitoring" (découverte DNS tasks.<service>), puis remote write authentifié vers
+# VictoriaMetrics. Les vmagents des LXC n'ont pas accès aux réseaux overlay, et exposer l'API
+# Docker pour la découverte Swarm serait une faille : la découverte DNS n'en a pas besoin.
+
+- name: Module docker_stack (dépendance Python)
+  ansible.builtin.apt:
+    name: python3-jsondiff
+    state: present
+
+- name: Répertoire des stacks
+  ansible.builtin.file:
+    path: /etc/swarm-stacks/monitoring
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Mot de passe de VictoriaMetrics (secret Swarm)
+  community.docker.docker_secret:
+    name: vm_auth_password
+    data: "{{ vm_auth_password }}"
+    labels:
+      com.epsi.usage: monitoring
+  no_log: true
+
+# Les configs Swarm sont immuables : le nom porte l'empreinte du contenu, une modification
+# crée une nouvelle config et met à jour le service progressivement.
+- name: Rendu de la configuration de scrape
+  ansible.builtin.set_fact:
+    swarm_scrape_config: "{{ lookup('ansible.builtin.template', monitoring_config_dir ~ '/swarm/scrape.yml.j2') }}"
+
+- name: Configuration de scrape (config Swarm)
+  community.docker.docker_config:
+    name: "vmagent_swarm_scrape_{{ swarm_scrape_config | hash('sha1') | truncate(12, true, '') }}"
+    data: "{{ swarm_scrape_config }}"
+    labels:
+      com.epsi.usage: monitoring
+
+- name: Fichier de stack
+  ansible.builtin.template:
+    src: "{{ monitoring_config_dir }}/swarm/stack.yml.j2"
+    dest: /etc/swarm-stacks/monitoring/stack.yml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Stack monitoring
+  community.docker.docker_stack:
+    name: monitoring
+    compose:
+      - /etc/swarm-stacks/monitoring/stack.yml
+    state: present
+
+# Une config encore utilisée (mise à jour en cours) ne peut pas être supprimée :
+# elle le sera au passage suivant.
+- name: Configurations de scrape présentes
+  ansible.builtin.command: docker config ls --filter label=com.epsi.usage=monitoring --format "{{ '{{' }}.Name{{ '}}' }}"
+  register: swarm_scrape_configs
+  changed_when: false
+
+- name: Supprimer les anciennes configurations de scrape
+  community.docker.docker_config:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ swarm_scrape_configs.stdout_lines | select('match', '^vmagent_swarm_scrape_')
+            | reject('equalto', 'vmagent_swarm_scrape_' ~ (swarm_scrape_config | hash('sha1') | truncate(12, true, ''))) | list }}"
+  failed_when: false

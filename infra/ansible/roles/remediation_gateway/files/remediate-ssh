@@ -1,0 +1,6 @@
+#!/bin/sh
+# Commande forcée de la clé SSH du moteur de remédiation (authorized_keys de "remediation").
+# La commande demandée par le client est découpée en arguments, sans shell ni globbing,
+# puis validée par /usr/local/sbin/remediate (exécuté en root via sudo).
+set -f
+exec sudo -n /usr/local/sbin/remediate $SSH_ORIGINAL_COMMAND

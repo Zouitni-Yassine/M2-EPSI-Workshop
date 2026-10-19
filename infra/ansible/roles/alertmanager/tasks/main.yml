@@ -1,0 +1,86 @@
+- name: Installer Alertmanager
+  ansible.builtin.apt:
+    name: prometheus-alertmanager
+    state: present
+
+# L'URL de ping est un secret : fichier séparé, lu via url_file, jamais dans la config
+- name: URL du watchdog externe
+  ansible.builtin.copy:
+    dest: /etc/prometheus/healthchecks_url
+    content: "{{ healthchecks_ping_url }}"
+    owner: root
+    group: prometheus
+    mode: "0640"
+  no_log: true
+  when: healthchecks_ping_url | length > 0
+  notify: Redémarrer Alertmanager
+
+- name: Pas d'URL de watchdog résiduelle
+  ansible.builtin.file:
+    path: /etc/prometheus/healthchecks_url
+    state: absent
+  when: healthchecks_ping_url | length == 0
+  notify: Redémarrer Alertmanager
+
+# Webhook Discord : même traitement que l'URL du watchdog (secret, lu via webhook_url_file)
+- name: Webhook Discord
+  ansible.builtin.copy:
+    dest: /etc/prometheus/discord_webhook_url
+    content: "{{ discord_webhook_url }}"
+    owner: root
+    group: prometheus
+    mode: "0640"
+  no_log: true
+  when: discord_webhook_url | length > 0
+  notify: Redémarrer Alertmanager
+
+- name: Pas de webhook Discord résiduel
+  ansible.builtin.file:
+    path: /etc/prometheus/discord_webhook_url
+    state: absent
+  when: discord_webhook_url | length == 0
+  notify: Redémarrer Alertmanager
+
+- name: Configuration
+  ansible.builtin.template:
+    src: "{{ monitoring_config_dir }}/alertmanager/alertmanager.yml.j2"
+    dest: /etc/prometheus/alertmanager.yml
+    owner: root
+    group: prometheus
+    mode: "0640"
+    validate: amtool check-config %s
+  notify: Redémarrer Alertmanager
+
+# Authentification Basic (exporter-toolkit) : hash bcrypt uniquement, Alertmanager garde en cache
+# les vérifications réussies. Sel déterministe (non secret) : la tâche reste idempotente.
+- name: Authentification de l'interface et de l'API
+  ansible.builtin.copy:
+    dest: /etc/prometheus/alertmanager-web.yml
+    content: |
+      # Géré par Ansible
+      basic_auth_users:
+        {{ monitoring_auth_user }}: {{ alertmanager_auth_password | password_hash('bcrypt', salt=((inventory_hostname ~ '-alertmanager') | hash('sha256'))[:21] ~ 'e', ident='2b') }}
+        remediation: {{ remediation_am_password | password_hash('bcrypt', salt=((inventory_hostname ~ '-alertmanager-remediation') | hash('sha256'))[:21] ~ 'e', ident='2b') }}
+    owner: root
+    group: prometheus
+    mode: "0640"
+  no_log: true
+  notify: Redémarrer Alertmanager
+
+# Instance unique : pas de cluster gossip (port 9094)
+- name: Options de démarrage
+  ansible.builtin.copy:
+    dest: /etc/default/prometheus-alertmanager
+    content: |
+      ARGS="--cluster.listen-address= --web.external-url=http://{{ ansible_host }}:9093 --web.config.file=/etc/prometheus/alertmanager-web.yml"
+    mode: "0644"
+  notify: Redémarrer Alertmanager
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: Alertmanager actif
+  ansible.builtin.systemd_service:
+    name: prometheus-alertmanager
+    enabled: true
+    state: started

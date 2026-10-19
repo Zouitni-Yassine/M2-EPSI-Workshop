@@ -1,0 +1,10 @@
+# Bornes et garde-fous (par manager)
+remediation_scale_min: 1
+remediation_scale_max: 6
+remediation_max_actions: 10      # actions modifiantes au plus...
+remediation_window_seconds: 600  # ...par fenêtre de 10 min
+remediation_cooldown_seconds: 60 # délai minimal entre deux actions sur un même service
+remediation_timeout_seconds: 180 # attente maximale de convergence d'une action
+
+# Clé du moteur : générée sur le poste de contrôle, jamais versionnée
+remediation_key_dir: /root/.remediation

@@ -1,0 +1,11 @@
+*.retry
+.ansible/
+__pycache__/
+
+# Secrets
+.env
+*.env
+.vault_pass*
+*.pem
+*.key
+id_*
