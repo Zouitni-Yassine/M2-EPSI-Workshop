@@ -52,6 +52,19 @@ export function AnomalyChart({ points, threshold }: Props) {
   const yT = y(threshold)
   const last = pts.at(-1)
 
+  if (pts.length < 2) {
+    return (
+      <Panel title="Score d'anomalie" aside="IsolationForest">
+        <div className="grid h-40 place-items-center rounded-lg bg-well/60 px-6 text-center">
+          <p className="max-w-[36ch] text-sm leading-relaxed text-text-2">
+            Détecteur ML non connecté. Le score apparaîtra dès que le moteur de détection
+            alimentera la supervision.
+          </p>
+        </div>
+      </Panel>
+    )
+  }
+
   return (
     <Panel
       title="Score d'anomalie"

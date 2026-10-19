@@ -8,7 +8,7 @@ const HEADLINE: Record<SystemState, string> = {
 
 const DETAIL: Record<SystemState, string> = {
   nominal: 'Les transactions de contrôle passent',
-  degraded: 'Anomalie confirmée par le modèle',
+  degraded: 'Les transactions de contrôle échouent',
   remediating: 'La plateforme applique le plan de reprise',
 }
 
@@ -45,7 +45,7 @@ export function StatusBand({ state, elapsed, humanActions }: Props) {
             <dd className="text-2xl font-semibold leading-tight">{humanActions}</dd>
           </div>
           <div className="text-right">
-            <dt className="text-xs font-medium text-white/75">Scénario</dt>
+            <dt className="text-xs font-medium text-white/75">Écoulé</dt>
             <dd className="text-2xl font-semibold leading-tight">{mmss}</dd>
           </div>
         </dl>

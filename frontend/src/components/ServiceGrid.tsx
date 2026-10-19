@@ -5,12 +5,14 @@ const DOT: Record<ServiceStatus, string> = {
   up: 'bg-good',
   down: 'bg-bad',
   restarting: 'bg-accent ring',
+  unknown: 'bg-edge',
 }
 
 const LABEL: Record<ServiceStatus, string> = {
   up: 'Actif',
   down: 'Arrêté',
   restarting: 'Recréation',
+  unknown: 'Inobservable',
 }
 
 export function ServiceGrid({ services }: { services: Service[] }) {
@@ -23,7 +25,7 @@ export function ServiceGrid({ services }: { services: Service[] }) {
           <li
             key={s.id}
             className={`rounded-lg border px-4 py-3 transition-colors ${
-              s.status === 'up' ? 'border-edge bg-card' : s.status === 'down' ? 'border-bad/30 bg-bad/5' : 'border-accent/30 bg-accent/5'
+              s.status === 'down' ? 'border-bad/30 bg-bad/5' : s.status === 'restarting' ? 'border-accent/30 bg-accent/5' : 'border-edge bg-card'
             }`}
           >
             <div className="flex items-center gap-2">
