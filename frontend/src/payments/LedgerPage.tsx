@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { euros } from './domain/money'
 import type { Balance, IntentStatus, PaymentIntent } from './domain/types'
-import { paymentEngine } from './engine'
+import { usePaymentEngine } from './engine'
 import { BrandLogo } from './components/BrandLogo'
 
 const STATUS_LABEL: Record<IntentStatus, string> = {
@@ -21,15 +21,16 @@ const STATUS_CHIP: Record<IntentStatus, string> = {
 }
 
 export function LedgerPage({ version }: { version: number }) {
-  const engine = useMemo(() => paymentEngine(), [])
+  const choice = usePaymentEngine()
   const [rows, setRows] = useState<PaymentIntent[]>([])
   const [balance, setBalance] = useState<Balance | null>(null)
   const [open, setOpen] = useState<PaymentIntent | null>(null)
 
   useEffect(() => {
-    void engine.list().then(setRows)
-    void engine.balance().then(setBalance)
-  }, [engine, version])
+    if (!choice) return
+    void choice.engine.list().then(setRows)
+    void choice.engine.balance().then(setBalance)
+  }, [choice, version])
 
   const accepted = rows.filter((r) => r.status === 'succeeded')
   const volume = accepted.reduce((s, r) => s + r.amount, 0)
