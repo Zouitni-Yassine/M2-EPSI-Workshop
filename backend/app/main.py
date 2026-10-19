@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import collections
 import os
+import re
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
@@ -86,9 +87,37 @@ DECLINE_MESSAGES: dict[str, str] = {
 
 BRANDS = {"visa", "mastercard", "amex"}
 
+# Cartes de test Stripe → jetons pré-tokenisés officiels. Le navigateur saisit le
+# numéro dans nos champs, le serveur le remplace par le jeton : aucun numéro n'est
+# jamais transmis à Stripe. Ne fonctionne qu'avec des cartes de test, par construction.
+TEST_TOKENS: dict[str, str] = {
+    "4242424242424242": "pm_card_visa",
+    "4000056655665556": "pm_card_visa_debit",
+    "5555555555554444": "pm_card_mastercard",
+    "2223003122003222": "pm_card_mastercard",
+    "378282246310005": "pm_card_amex",
+    "6011111111111117": "pm_card_discover",
+    "4000002500003155": "pm_card_threeDSecure2Required",
+    "4000002760003184": "pm_card_threeDSecure2Required",
+    "4000000000003220": "pm_card_threeDSecure2Required",
+    "4000000000000002": "pm_card_chargeDeclined",
+    "4000000000009995": "pm_card_chargeDeclinedInsufficientFunds",
+    "4000000000009987": "pm_card_chargeDeclinedLostCard",
+    "4000000000009979": "pm_card_chargeDeclinedStolenCard",
+    "4000000000000069": "pm_card_chargeDeclinedExpiredCard",
+    "4000000000000127": "pm_card_chargeDeclinedIncorrectCvc",
+    "4000000000000119": "pm_card_chargeDeclinedProcessingError",
+    "4100000000000019": "pm_card_radarBlock",
+}
+
 
 class CreateIntent(BaseModel):
     amount: int = Field(gt=0, le=99_999_999, description="Montant en centimes")
+    holder: str = Field(default="", max_length=120)
+
+
+class ConfirmIntent(BaseModel):
+    number: str = Field(min_length=12, max_length=23)
     holder: str = Field(default="", max_length=120)
 
 
@@ -190,7 +219,13 @@ def _card(pi: Any, charge: Any) -> dict[str, str]:
         last4 = card.last4 or ""
         holder = charge.billing_details.name or holder
     except AttributeError:
-        pass
+        # Pas de charge (refus avant capture) : la carte est dans l'erreur de paiement.
+        try:
+            card = pi.last_payment_error.payment_method.card
+            brand = card.brand if card.brand in BRANDS else "unknown"
+            last4 = card.last4 or ""
+        except AttributeError:
+            pass
     return {"brand": brand, "last4": last4, "holder": holder}
 
 
@@ -269,6 +304,25 @@ def create_intent(body: CreateIntent) -> dict[str, Any]:
         metadata={"reference": _reference(), "holder": body.holder, "idempotency_key": key},
         idempotency_key=key,
     )
+    return {**to_intent(pi), "clientSecret": pi.client_secret}
+
+
+@api.post("/payment_intents/{intent_id}/confirm")
+def confirm_intent(intent_id: str, body: ConfirmIntent) -> dict[str, Any]:
+    """Confirme avec le jeton de test correspondant au numéro saisi. Le numéro ne quitte pas ce serveur."""
+    token = TEST_TOKENS.get(re.sub(r"\D", "", body.number))
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail="Ce numéro n’est pas une carte de test Stripe. Utilisez 4242 4242 4242 4242 ou une autre carte de test.",
+        )
+    try:
+        pi = stripe.PaymentIntent.confirm(intent_id, payment_method=token, expand=["latest_charge"])
+    except stripe.CardError:
+        # Refus émetteur : l'intention porte le motif, on la relit telle quelle.
+        pi = _stripe(stripe.PaymentIntent.retrieve, intent_id, expand=["latest_charge"])
+    except stripe.StripeError as exc:
+        raise HTTPException(status_code=502, detail=f"Stripe : {exc.user_message or exc}") from exc
     return {**to_intent(pi), "clientSecret": pi.client_secret}
 
 
