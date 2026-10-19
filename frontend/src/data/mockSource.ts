@@ -91,6 +91,7 @@ export function createMockSource(): DataSource {
           canary: [...canary],
           anomaly: [...anomaly],
           threshold: ANOMALY_THRESHOLD,
+          detector: { status: 'ready', progress: 1 },
           services,
           events,
           metrics: metricsAt(t),
