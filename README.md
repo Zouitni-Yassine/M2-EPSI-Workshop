@@ -22,9 +22,10 @@ navigateur ──► frontend (React + Tailwind) ──► payment-api (FastAPI)
 
 ```bash
 # 1. Secrets, jamais commités
-cp backend/.env.example backend/.env         # STRIPE_SECRET_KEY
+cp backend/.env.example backend/.env         # STRIPE_SECRET_KEY, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET
 cp detector/.env.example detector/.env       # DETECTOR_ADMIN_TOKEN
 echo "VITE_STRIPE_PUBLISHABLE_KEY=pk_test_..." > .env
+echo "VITE_PAYPAL_CLIENT_ID=..." >> .env     # facultatif : même client ID que dans backend/.env
 
 # 2. Tout monter
 docker compose up --build

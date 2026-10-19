@@ -68,7 +68,8 @@ services:
         VITE_REMEDIATION_URL: http://localhost:8200
         VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
         VITE_CARD_ENTRY: ${VITE_CARD_ENTRY:-own}
-        VITE_PAYPAL_CLIENT_ID: ${VITE_PAYPAL_CLIENT_ID}
+        # Facultatif : sans lui, pas de bouton PayPal (le secret reste dans backend/.env).
+        VITE_PAYPAL_CLIENT_ID: ${VITE_PAYPAL_CLIENT_ID:-}
         VITE_DATA_SOURCE: api
     container_name: frontend
     ports:
