@@ -24,7 +24,7 @@ export interface TimelineEvent {
   actor: 'attaquant' | 'plateforme'
 }
 
-export type ServiceStatus = 'up' | 'down' | 'restarting'
+export type ServiceStatus = 'up' | 'down' | 'restarting' | 'unknown'
 
 export interface Service {
   id: string
