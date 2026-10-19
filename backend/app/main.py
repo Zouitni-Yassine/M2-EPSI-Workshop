@@ -101,7 +101,7 @@ def _reference() -> str:
 
 
 def _clock(ts: int | None) -> str:
-    return datetime.fromtimestamp(ts or 0).strftime("%H:%M:%S")
+    return datetime.fromtimestamp(ts or 0, tz=timezone.utc).isoformat()
 
 
 def _iso(ts: int | None) -> str:

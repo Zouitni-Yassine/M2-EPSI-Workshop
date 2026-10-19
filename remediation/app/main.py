@@ -47,7 +47,7 @@ _state: dict[str, Any] = {
 
 
 def _clock() -> str:
-    return time.strftime("%H:%M:%S")
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def event(kind: str, text: str) -> None:

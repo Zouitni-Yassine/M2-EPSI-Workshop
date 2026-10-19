@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { euros } from './domain/money'
+import { euros, localTime } from './domain/money'
 import type { Balance, IntentStatus, PaymentIntent } from './domain/types'
 import { usePaymentEngine } from './engine'
 import { BrandLogo } from './components/BrandLogo'
@@ -184,7 +184,7 @@ function Drawer({ intent, onClose }: { intent: PaymentIntent; onClose: () => voi
                 <div className="min-w-0">
                   <p className="text-sm">{h.note}</p>
                   <p className="mt-0.5 text-xs text-text-2">
-                    {h.at} · {h.status}
+                    {localTime(h.at)} · {h.status}
                   </p>
                 </div>
               </li>

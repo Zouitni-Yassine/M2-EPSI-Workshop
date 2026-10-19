@@ -38,6 +38,12 @@ function clock(): string {
   return new Date().toLocaleTimeString('fr-FR', { hour12: false })
 }
 
+/** Les services horodatent en ISO UTC ; on affiche l'heure locale du poste. */
+function localTime(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleTimeString('fr-FR', { hour12: false })
+}
+
 /**
  * Supervision en direct, sans moteur de remédiation : on interroge
  * payment-api chaque seconde (qui sonde lui-même Stripe) et le détecteur ML.
@@ -116,7 +122,7 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
           for (const e of [...body.events].reverse()) {
             if (seen.has(e.id)) continue
             seen.add(e.id)
-            const incoming: TimelineEvent = { at: e.at, kind: e.kind, text: e.text, actor: 'plateforme' }
+            const incoming: TimelineEvent = { at: localTime(e.at), kind: e.kind, text: e.text, actor: 'plateforme' }
             events = [incoming, ...events].slice(0, 12)
           }
         } catch {
