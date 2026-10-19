@@ -49,6 +49,10 @@ export interface Metrics {
 /** L'état complet du système à un instant t. */
 export interface Snapshot {
   state: SystemState
+  /** Titre du bandeau quand l'état mérite mieux que le libellé par défaut. */
+  headline?: string
+  /** Pourquoi l'état n'est pas nominal, en une phrase. */
+  reason?: string
   elapsed: number
   canary: CanaryTick[]
   anomaly: AnomalyPoint[]

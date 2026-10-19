@@ -43,7 +43,7 @@ export function createApiSource(apiUrl: string, detectorUrl?: string): DataSourc
     subscribe(onSnapshot) {
       const startedAt = Date.now()
       let seq = 0
-      let prev = { api: true, stripe: true, over: false }
+      let prev = { api: true, stripe: true, over: false, detector: true }
       let metrics: Metrics = { rps: 0, errRate: 0, p95: 0, wafBlocks: 0 }
       let anomaly: AnomalyPoint[] = []
       let threshold = 0.55
@@ -115,9 +115,22 @@ export function createApiSource(apiUrl: string, detectorUrl?: string): DataSourc
         if (prev.over && !over && detector.status === 'ready') {
           push('verify', `Score ML ${current.toFixed(2)} revenu sous le seuil`)
         }
-        prev = { api: apiUp, stripe: apiUp ? stripeUp : prev.stripe, over }
+        // Détecteur configuré mais muet : la plateforme est aveugle. Ce n'est pas « nominal ».
+        const detectorUp = !detectorUrl || detector.status !== 'absent'
+        if (prev.detector && !detectorUp) push('detect', 'Détecteur ML injoignable — la plateforme ne surveille plus rien')
+        if (!prev.detector && detectorUp) push('restore', 'Détecteur ML de retour, réapprentissage en cours')
+        prev = { api: apiUp, stripe: apiUp ? stripeUp : prev.stripe, over, detector: detectorUp }
 
-        const state: SystemState = !ok || over ? 'degraded' : 'nominal'
+        const state: SystemState = !ok || over || !detectorUp ? 'degraded' : 'nominal'
+        const reason = !apiUp
+          ? 'payment-api ne répond pas'
+          : !stripeUp
+            ? 'Stripe est injoignable depuis payment-api'
+            : over
+              ? `Le détecteur ML confirme une anomalie (score ${current.toFixed(2)})`
+              : !detectorUp
+                ? 'Détecteur ML injoignable : aucune détection possible'
+                : undefined
         const services: Service[] = [
           { id: 'api', name: 'payment-api', status: apiUp ? 'up' : 'down' },
           // Sans payment-api, personne ne sonde Stripe : on ne prétend pas savoir.
@@ -126,8 +139,13 @@ export function createApiSource(apiUrl: string, detectorUrl?: string): DataSourc
           { id: 'front', name: 'frontend', status: 'up' },
         ]
 
+        // Les paiements passent mais plus personne ne surveille : ce n'est pas la même alerte.
+        const headline = ok && !over && !detectorUp ? 'Surveillance interrompue' : undefined
+
         onSnapshot({
           state,
+          headline,
+          reason,
           elapsed: Math.floor((Date.now() - startedAt) / 1000),
           canary: [...canary],
           anomaly,

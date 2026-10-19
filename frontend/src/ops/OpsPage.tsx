@@ -26,6 +26,8 @@ export function OpsPage() {
       <div className="lg:col-span-12">
         <StatusBand
           state={snapshot.state}
+          headline={snapshot.headline}
+          reason={snapshot.reason}
           elapsed={snapshot.elapsed}
           humanActions={snapshot.humanActions}
         />

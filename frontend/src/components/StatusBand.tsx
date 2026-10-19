@@ -14,12 +14,14 @@ const DETAIL: Record<SystemState, string> = {
 
 interface Props {
   state: SystemState
+  headline?: string
+  reason?: string
   elapsed: number
   humanActions: number
 }
 
 /** Le bandeau d'état : lisible à cinq mètres, avant le moindre chiffre. */
-export function StatusBand({ state, elapsed, humanActions }: Props) {
+export function StatusBand({ state, headline, reason, elapsed, humanActions }: Props) {
   const mmss = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`
 
   return (
@@ -34,8 +36,8 @@ export function StatusBand({ state, elapsed, humanActions }: Props) {
         <div className="flex items-center gap-4">
           <StateIcon state={state} />
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{HEADLINE[state]}</h1>
-            <p className="mt-0.5 text-sm text-white/80">{DETAIL[state]}</p>
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{headline ?? HEADLINE[state]}</h1>
+            <p className="mt-0.5 text-sm text-white/80">{reason ?? DETAIL[state]}</p>
           </div>
         </div>
 
