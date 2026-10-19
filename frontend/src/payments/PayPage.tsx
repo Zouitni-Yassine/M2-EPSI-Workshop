@@ -149,6 +149,16 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
             brand={brand}
             flipped={focused === 'cvc'}
           />
+          {provider === 'stripe' ? (
+            <p className="-mt-4 flex items-start gap-2 text-xs leading-relaxed text-text-2">
+              <Shield />
+              <span>
+                Le numéro et la date sont saisis dans un cadre sécurisé Stripe : ils n’apparaissent
+                jamais ici ni dans notre code. Seuls le réseau et les quatre derniers chiffres nous
+                sont transmis, après le paiement.
+              </span>
+            </p>
+          ) : null}
           <OrderSummary />
         </section>
 
@@ -257,6 +267,15 @@ function Spinner() {
     <svg className="spin size-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.3" strokeWidth="3" />
       <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function Shield() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 shrink-0 text-good">
+      <path d="M8 1.5l5.5 2v4c0 3.2-2.3 5.6-5.5 7-3.2-1.4-5.5-3.8-5.5-7v-4l5.5-2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M5.5 8l1.8 1.8L10.5 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
