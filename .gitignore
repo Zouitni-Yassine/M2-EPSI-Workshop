@@ -5,3 +5,5 @@ dist/
 .playwright-mcp/
 *.log
 *.tsbuildinfo
+__pycache__/
+.venv/
