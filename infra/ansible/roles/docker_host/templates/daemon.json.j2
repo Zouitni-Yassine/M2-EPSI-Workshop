@@ -1,0 +1,14 @@
+{
+  "live-restore": false,
+  "log-driver": "journald",
+  "log-opts": {
+    "tag": "{{ '{{.Name}}' }}",
+    "labels": "com.docker.swarm.service.name,com.docker.stack.namespace"
+  },
+  "metrics-addr": "{{ ansible_host }}:9323",
+  "userland-proxy": false,
+  "bip": "{{ docker_bip }}",
+  "default-address-pools": [
+    { "base": "{{ docker_local_addr_pool }}", "size": {{ docker_local_subnet_size }} }
+  ]
+}

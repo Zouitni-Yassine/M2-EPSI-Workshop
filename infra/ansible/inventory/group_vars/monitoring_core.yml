@@ -1,0 +1,7 @@
+fw_open_ports:
+  - 3000 # Grafana
+  - 3100 # Loki (push des logs)
+  - 8428 # VictoriaMetrics (remote write des vmagents, vmui)
+  - 8880 # vmalert
+  - 9093 # Alertmanager
+  - 9100 # node_exporter

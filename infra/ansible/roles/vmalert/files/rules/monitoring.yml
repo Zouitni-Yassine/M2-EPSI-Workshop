@@ -1,0 +1,105 @@
+groups:
+  - name: targets
+    rules:
+      # Ceph exclu : seul le mgr actif répond, les standby sont "down" par construction
+      - alert: TargetDown
+        expr: up{job!="ceph"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} injoignable sur {{ $labels.host }}"
+
+  - name: vmagent
+    rules:
+      # Les vmagents scrapent tout en double : la perte d'un seul ne fait pas perdre de données,
+      # mais il ne reste alors plus de redondance.
+      - alert: VmagentRedundancyLost
+        expr: count(up{job="vmagent"} == 1) < 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Un seul vmagent actif : plus de redondance de collecte"
+
+      - alert: VmagentRemoteWriteBacklog
+        expr: sum by (host) (vmagent_remotewrite_pending_data_bytes) > 100e6
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} accumule des données dans son buffer disque (monitoring01 injoignable ?)"
+
+  - name: hosts
+    rules:
+      - alert: DiskSpaceLow
+        expr: |
+          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|fuse.lxcfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|fuse.lxcfs"} < 0.10
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Moins de 10 % d'espace libre sur {{ $labels.host }} ({{ $labels.mountpoint }})"
+
+  - name: proxmox
+    rules:
+      - alert: PveNodeDown
+        expr: pve_up{id=~"node/.+"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nœud Proxmox {{ $labels.id }} hors ligne"
+
+      - alert: PveExporterDown
+        expr: up{job="pve"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API Proxmox injoignable depuis {{ $labels.instance }} (plus de métriques PVE)"
+
+  - name: ceph
+    rules:
+      - alert: CephMetricsDown
+        expr: max(up{job="ceph"}) < 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Aucun mgr Ceph ne répond sur le module prometheus"
+
+      - alert: CephHealthWarning
+        expr: ceph_health_status == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ceph en HEALTH_WARN"
+
+      - alert: CephHealthError
+        expr: ceph_health_status == 2
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ceph en HEALTH_ERR"
+
+  - name: swarm
+    rules:
+      - alert: SwarmNodeNotReady
+        expr: max(swarm_manager_nodes{state!="ready"}) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value }} nœud(s) Swarm dans l'état {{ $labels.state }}"
+
+      - alert: SwarmNoLeader
+        expr: sum(swarm_manager_leader) < 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Aucun manager Swarm leader : quorum perdu ?"

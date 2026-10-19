@@ -1,0 +1,14 @@
+# Réseaux Docker : rien dans 10.0.0.0/8 (LAN 10.0.1.0/24), et pas de chevauchement
+# entre les bridges locaux (docker0, docker_gwbridge) et les overlays Swarm.
+docker_bip: 172.17.0.1/24
+docker_local_addr_pool: 172.17.0.0/16
+docker_local_subnet_size: 24
+
+swarm_default_addr_pool: 172.20.0.0/16
+swarm_subnet_size: 24
+
+swarm_advertise_addr: "{{ ansible_host }}"
+swarm_leader: "{{ groups['swarm_managers'][0] }}"
+
+# Les managers ne font que Raft et l'orchestration : pas de conteneurs applicatifs
+swarm_drain_managers: true

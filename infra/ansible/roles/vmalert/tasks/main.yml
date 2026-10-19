@@ -1,0 +1,54 @@
+- name: Installer vmalert
+  ansible.builtin.include_role:
+    name: vm_install
+  vars:
+    vm_archive: vmutils
+    vm_binaries: [vmalert]
+
+- name: Utilisateur système vmalert
+  ansible.builtin.user:
+    name: vmalert
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Répertoire des règles
+  ansible.builtin.file:
+    path: /etc/vmalert/rules
+    state: directory
+    mode: "0755"
+
+- name: Règles d'alerte
+  ansible.builtin.copy:
+    src: "rules/{{ item }}"
+    dest: "/etc/vmalert/rules/{{ item }}"
+    mode: "0644"
+    validate: /usr/local/bin/vmalert -dryRun -rule=%s
+  loop:
+    - watchdog.yml
+    - monitoring.yml
+  notify: Recharger vmalert
+
+- name: Service systemd
+  ansible.builtin.template:
+    src: vmalert.service.j2
+    dest: /etc/systemd/system/vmalert.service
+    mode: "0644"
+  notify: Redémarrer vmalert
+
+- name: Redémarrer après une montée de version
+  ansible.builtin.debug:
+    msg: "Nouvelle version de vmalert : {{ vm_version }}"
+  when: vm_install_links is changed
+  changed_when: true
+  notify: Redémarrer vmalert
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: vmalert actif
+  ansible.builtin.systemd_service:
+    name: vmalert
+    enabled: true
+    state: started
+    daemon_reload: true

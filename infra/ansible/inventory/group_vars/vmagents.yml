@@ -1,0 +1,3 @@
+fw_open_ports:
+  - 8429 # vmagent
+  - 9100 # node_exporter

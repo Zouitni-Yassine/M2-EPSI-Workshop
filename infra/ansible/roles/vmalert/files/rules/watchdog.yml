@@ -1,0 +1,11 @@
+# Alerte toujours active : Alertmanager la relaie en continu vers le watchdog externe.
+# Si ce heartbeat s'arrête, c'est que la chaîne d'alerting elle-même est en panne.
+groups:
+  - name: watchdog
+    rules:
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: Heartbeat de la chaîne d'alerting (doit toujours être active)

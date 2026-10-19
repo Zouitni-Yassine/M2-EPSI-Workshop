@@ -1,0 +1,30 @@
+- name: Installer Loki
+  ansible.builtin.apt:
+    name: loki
+    state: present
+
+- name: Répertoire de données
+  ansible.builtin.file:
+    path: /var/lib/loki
+    state: directory
+    owner: loki
+    mode: "0750"
+
+- name: Configuration (single binary, stockage local)
+  ansible.builtin.template:
+    src: config.yml.j2
+    dest: /etc/loki/config.yml
+    owner: root
+    group: root
+    mode: "0644" # pas de secret ; le paquet ne crée pas de groupe loki
+    validate: loki -config.file=%s -verify-config
+  notify: Redémarrer Loki
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: Loki actif
+  ansible.builtin.systemd_service:
+    name: loki
+    enabled: true
+    state: started

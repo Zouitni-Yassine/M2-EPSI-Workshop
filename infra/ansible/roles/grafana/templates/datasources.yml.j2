@@ -1,0 +1,30 @@
+# {{ ansible_managed }}
+apiVersion: 1
+
+datasources:
+  # VictoriaMetrics expose l'API Prometheus : source de type prometheus
+  - name: VictoriaMetrics
+    uid: victoriametrics
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:8428
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: {{ scrape_interval }}
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://127.0.0.1:3100
+    editable: false
+
+  - name: Alertmanager
+    uid: alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://127.0.0.1:9093
+    editable: false
+    jsonData:
+      implementation: prometheus

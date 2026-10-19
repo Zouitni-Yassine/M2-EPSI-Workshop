@@ -1,0 +1,51 @@
+// {{ ansible_managed }}
+
+loki.write "default" {
+  endpoint {
+    url = "{{ loki_push_url }}"
+  }
+
+  external_labels = {
+    host     = "{{ inventory_hostname }}",
+    role     = "{{ host_role }}",
+    pve_node = "{{ pve_node }}",
+  }
+}
+
+// Champs journald -> labels Loki. Les conteneurs Docker (driver journald) portent
+// le nom du service et de la stack Swarm.
+loki.relabel "journal" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "level"
+  }
+
+  rule {
+    source_labels = ["__journal_syslog_identifier"]
+    target_label  = "identifier"
+  }
+
+  rule {
+    source_labels = ["__journal_com_docker_swarm_service_name"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__journal_com_docker_stack_namespace"]
+    target_label  = "stack"
+  }
+}
+
+loki.source.journal "system" {
+  max_age       = "12h"
+  relabel_rules = loki.relabel.journal.rules
+  labels        = { job = "journal" }
+  forward_to    = [loki.write.default.receiver]
+}

@@ -1,0 +1,30 @@
+# {{ ansible_managed }}
+[Unit]
+Description=VictoriaMetrics vmalert
+Wants=network-online.target
+After=network-online.target victoria-metrics.service
+
+[Service]
+User=vmalert
+Group=vmalert
+# remoteWrite/remoteRead : l'état des alertes survit à un redémarrage
+ExecStart=/usr/local/bin/vmalert \
+  -httpListenAddr=:8880 \
+  -rule=/etc/vmalert/rules/*.yml \
+  -evaluationInterval={{ scrape_interval }} \
+  -datasource.url=http://127.0.0.1:8428 \
+  -remoteWrite.url=http://127.0.0.1:8428 \
+  -remoteRead.url=http://127.0.0.1:8428 \
+  -notifier.url=http://127.0.0.1:9093 \
+  -external.url=http://{{ ansible_host }}:3000
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

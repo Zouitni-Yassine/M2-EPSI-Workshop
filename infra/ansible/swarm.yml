@@ -1,0 +1,68 @@
+# Déploiement du cluster Docker Swarm
+#   cd /srv/M2-EPSI-Workshop/infra/ansible && ansible-playbook swarm.yml
+#
+# Idempotent : peut être relancé à tout moment, y compris après l'ajout d'un nœud.
+
+- name: Préparer les nœuds Docker (daemon, firewall, agents de supervision)
+  hosts: swarm
+  serial: 1 # redémarrage de Docker nœud par nœud : le quorum des managers est préservé
+  roles:
+    - docker_host
+    - alloy
+
+- name: Initialiser le Swarm sur le premier manager
+  hosts: swarm_managers[0]
+  tasks:
+    - name: Swarm init
+      community.docker.docker_swarm:
+        state: present
+        advertise_addr: "{{ swarm_advertise_addr }}"
+        listen_addr: "{{ swarm_advertise_addr }}:2377"
+        default_addr_pool:
+          - "{{ swarm_default_addr_pool }}"
+        subnet_size: "{{ swarm_subnet_size }}"
+      register: swarm_init
+
+- name: Joindre les autres nœuds au Swarm
+  hosts: swarm:!swarm_managers[0]
+  tasks:
+    - name: Swarm join
+      community.docker.docker_swarm:
+        state: join
+        advertise_addr: "{{ swarm_advertise_addr }}"
+        listen_addr: "{{ swarm_advertise_addr }}:2377"
+        remote_addrs:
+          - "{{ hostvars[swarm_leader].ansible_host }}:2377"
+        join_token: >-
+          {{ hostvars[swarm_leader].swarm_init.swarm_facts.JoinTokens[
+             'Manager' if inventory_hostname in groups['swarm_managers'] else 'Worker'] }}
+
+- name: Configurer les nœuds (disponibilité, labels)
+  hosts: swarm_managers[0]
+  tasks:
+    - name: Labels et disponibilité des nœuds
+      community.docker.docker_node:
+        hostname: "{{ item }}"
+        availability: >-
+          {{ 'drain' if (swarm_drain_managers and item in groups['swarm_managers']) else 'active' }}
+        labels:
+          role: "{{ 'manager' if item in groups['swarm_managers'] else 'worker' }}"
+          pve_node: "{{ hostvars[item].pve_node }}"
+        labels_state: merge
+      loop: "{{ groups['swarm'] }}"
+
+    - name: État du cluster
+      ansible.builtin.command: docker node ls
+      register: node_ls
+      changed_when: false
+
+    - name: Afficher les nœuds
+      ansible.builtin.debug:
+        var: node_ls.stdout_lines
+
+# Hors Swarm : un manager drainé n'exécute aucune tâche, même "global".
+# Les managers n'hébergent aucun conteneur, cAdvisor n'est utile que sur les workers.
+- name: Métriques des conteneurs (cAdvisor)
+  hosts: swarm_workers
+  roles:
+    - cadvisor

@@ -1,0 +1,32 @@
+# Installe des binaires VictoriaMetrics depuis une release GitHub officielle.
+# Paramètres : vm_archive ("victoria-metrics" ou "vmutils"), vm_binaries (ex. ["vmagent"])
+# Résultat : /opt/victoriametrics/<version>/<binaire>-prod, lien /usr/local/bin/<binaire>
+
+- name: Répertoire de la version {{ vm_version }}
+  ansible.builtin.file:
+    path: /opt/victoriametrics/{{ vm_version }}
+    state: directory
+    mode: "0755"
+
+- name: Télécharger {{ vm_archive }} {{ vm_version }}
+  ansible.builtin.get_url:
+    url: "{{ vm_release_url }}/{{ vm_archive }}-linux-amd64-{{ vm_version }}.tar.gz"
+    checksum: "sha256:{{ vm_release_url }}/{{ vm_archive }}-linux-amd64-{{ vm_version }}_checksums.txt"
+    dest: /opt/victoriametrics/{{ vm_version }}/{{ vm_archive }}.tar.gz
+    mode: "0644"
+
+- name: Extraire {{ vm_binaries | join(', ') }}
+  ansible.builtin.unarchive:
+    src: /opt/victoriametrics/{{ vm_version }}/{{ vm_archive }}.tar.gz
+    dest: /opt/victoriametrics/{{ vm_version }}
+    remote_src: true
+    include: "{{ vm_binaries | map('regex_replace', '$', '-prod') | list }}"
+    creates: /opt/victoriametrics/{{ vm_version }}/{{ vm_binaries[0] }}-prod
+
+- name: Lien vers la version active
+  ansible.builtin.file:
+    src: /opt/victoriametrics/{{ vm_version }}/{{ item }}-prod
+    dest: /usr/local/bin/{{ item }}
+    state: link
+  loop: "{{ vm_binaries }}"
+  register: vm_install_links

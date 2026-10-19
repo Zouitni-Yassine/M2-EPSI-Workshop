@@ -1,0 +1,9 @@
+# Déploiement complet
+#   cd /srv/M2-EPSI-Workshop/infra/ansible
+#   source /root/.monitoring-env && ansible-playbook site.yml
+
+- name: Cluster Docker Swarm
+  ansible.builtin.import_playbook: swarm.yml
+
+- name: Stack d'observabilité
+  ansible.builtin.import_playbook: monitoring.yml

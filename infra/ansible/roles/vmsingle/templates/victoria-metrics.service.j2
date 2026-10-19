@@ -1,0 +1,26 @@
+# {{ ansible_managed }}
+[Unit]
+Description=VictoriaMetrics single-node
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=victoriametrics
+Group=victoriametrics
+ExecStart=/usr/local/bin/victoria-metrics \
+  -httpListenAddr=:8428 \
+  -storageDataPath=/var/lib/victoria-metrics \
+  -retentionPeriod={{ vm_retention }} \
+  -dedup.minScrapeInterval={{ scrape_interval }}
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/victoria-metrics
+
+[Install]
+WantedBy=multi-user.target

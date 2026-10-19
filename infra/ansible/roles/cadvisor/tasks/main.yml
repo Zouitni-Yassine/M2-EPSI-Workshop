@@ -1,0 +1,26 @@
+# Réseau "host" : le port 8080 passe par le hook input, donc par le firewall de l'hôte
+# (contrairement à un port publié par Swarm). Seuls les labels Swarm utiles sont conservés.
+- name: Conteneur cAdvisor
+  community.docker.docker_container:
+    name: cadvisor
+    image: "{{ cadvisor_image }}"
+    restart_policy: unless-stopped
+    network_mode: host
+    command:
+      - -listen_ip={{ ansible_host }}
+      - -port=8080
+      - -docker_only=true
+      - -housekeeping_interval=30s
+      - -enable_metrics=cpu,memory,network,oom_event,diskIO
+      - -store_container_labels=false
+      - -whitelisted_container_labels=com.docker.swarm.service.name,com.docker.stack.namespace,com.docker.swarm.task.name
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    labels:
+      com.epsi.role: monitoring-agent

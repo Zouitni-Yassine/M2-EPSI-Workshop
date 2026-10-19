@@ -1,0 +1,78 @@
+# prometheus-pve-exporter (absent des dépôts Debian) : venv Python, version figée.
+# Écoute en local : seul le vmagent de la même machine l'interroge.
+- name: Paquets Python
+  ansible.builtin.apt:
+    name:
+      - python3-venv
+      - python3-packaging # requis par le module Ansible pip
+    state: present
+
+- name: Utilisateur système pve-exporter
+  ansible.builtin.user:
+    name: pve-exporter
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Installer prometheus-pve-exporter {{ pve_exporter_version }}
+  ansible.builtin.pip:
+    name: prometheus-pve-exporter=={{ pve_exporter_version }}
+    virtualenv: /opt/pve-exporter
+    virtualenv_command: python3 -m venv
+  notify: Redémarrer pve-exporter
+
+- name: Répertoire de configuration
+  ansible.builtin.file:
+    path: /etc/pve-exporter
+    state: directory
+    owner: root
+    group: pve-exporter
+    mode: "0750"
+
+# Token PVEAuditor (lecture seule), fourni par l'environnement
+- name: Configuration (token API)
+  ansible.builtin.template:
+    src: pve.yml.j2
+    dest: /etc/pve-exporter/pve.yml
+    owner: root
+    group: pve-exporter
+    mode: "0640"
+  no_log: true
+  notify: Redémarrer pve-exporter
+
+- name: Service systemd
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/pve-exporter.service
+    content: |
+      # Géré par Ansible
+      [Unit]
+      Description=Prometheus exporter for Proxmox VE
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      User=pve-exporter
+      Group=pve-exporter
+      ExecStart=/opt/pve-exporter/bin/pve_exporter --config.file=/etc/pve-exporter/pve.yml --web.listen-address=127.0.0.1:9221
+      Restart=always
+      RestartSec=5
+
+      NoNewPrivileges=true
+      ProtectSystem=strict
+      ProtectHome=true
+      PrivateTmp=true
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  notify: Redémarrer pve-exporter
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: pve-exporter actif
+  ansible.builtin.systemd_service:
+    name: pve-exporter
+    enabled: true
+    state: started
+    daemon_reload: true

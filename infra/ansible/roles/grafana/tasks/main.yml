@@ -1,0 +1,64 @@
+- name: Installer Grafana
+  ansible.builtin.apt:
+    name: grafana
+    state: present
+
+# admin_password n'est pris en compte qu'à la création de la base (premier démarrage)
+- name: Configuration
+  ansible.builtin.template:
+    src: grafana.ini.j2
+    dest: /etc/grafana/grafana.ini
+    owner: root
+    group: grafana
+    mode: "0640"
+  no_log: true
+  notify: Redémarrer Grafana
+
+- name: Sources de données
+  ansible.builtin.template:
+    src: datasources.yml.j2
+    dest: /etc/grafana/provisioning/datasources/monitoring.yml
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Redémarrer Grafana
+
+# Dashboards versionnés dans le dépôt (scripts/fetch-dashboards.py + dashboards maison).
+# Un dossier = un dossier Grafana. Grafana relit les fichiers toutes les 60 s.
+- name: Fournisseur de dashboards
+  ansible.builtin.copy:
+    dest: /etc/grafana/provisioning/dashboards/monitoring.yml
+    content: |
+      # Géré par Ansible
+      apiVersion: 1
+      providers:
+        - name: monitoring
+          type: file
+          disableDeletion: true
+          allowUiUpdates: false
+          updateIntervalSeconds: 60
+          options:
+            path: /var/lib/grafana/dashboards
+            foldersFromFilesStructure: true
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Redémarrer Grafana
+
+- name: Dashboards
+  ansible.builtin.copy:
+    src: dashboards/
+    dest: /var/lib/grafana/dashboards/
+    owner: root
+    group: grafana
+    mode: "0644"
+    directory_mode: "0755"
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: Grafana actif
+  ansible.builtin.systemd_service:
+    name: grafana-server
+    enabled: true
+    state: started

@@ -1,0 +1,99 @@
+# {{ ansible_managed }}
+# Identique sur tous les vmagents (pas de label propre à l'agent) : VictoriaMetrics déduplique.
+{% set core = groups['monitoring_core'][0] %}
+{% set pve_targets = groups['pve'] | map('extract', hostvars, 'ansible_host') | list %}
+
+global:
+  scrape_interval: {{ scrape_interval }}
+  scrape_timeout: 10s
+
+scrape_configs:
+  # --- Stack d'observabilité ---
+  - job_name: vmagent
+    static_configs:
+{% for h in groups['vmagents'] %}
+      - targets: ["{{ hostvars[h].ansible_host }}:8429"]
+        labels: { host: {{ h }} }
+{% endfor %}
+
+  - job_name: victoriametrics
+    static_configs:
+      - targets: ["{{ monitoring_core_ip }}:8428"]
+        labels: { host: {{ core }} }
+
+  - job_name: vmalert
+    static_configs:
+      - targets: ["{{ monitoring_core_ip }}:8880"]
+        labels: { host: {{ core }} }
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["{{ monitoring_core_ip }}:9093"]
+        labels: { host: {{ core }} }
+
+  - job_name: loki
+    static_configs:
+      - targets: ["{{ monitoring_core_ip }}:3100"]
+        labels: { host: {{ core }} }
+
+  - job_name: grafana
+    static_configs:
+      - targets: ["{{ monitoring_core_ip }}:3000"]
+        labels: { host: {{ core }} }
+
+  # --- Systèmes (node_exporter) ---
+  - job_name: node
+    static_configs:
+{% for h in groups['monitoring'] + groups['swarm'] + (groups['pve'] if hostvars[groups['pve'][0]].pve_node_exporter | default(false) else []) %}
+      - targets: ["{{ hostvars[h].ansible_host }}:9100"]
+        labels: { host: {{ h }}, role: {{ hostvars[h].host_role }}, pve_node: {{ hostvars[h].pve_node }} }
+{% endfor %}
+
+  # --- Proxmox VE ---
+  # Via l'exporter local (127.0.0.1:9221) : même adresse sur les 2 vmagents, séries identiques.
+  # Une seule cible API : les métriques "cluster" couvrent tous les nœuds et invités.
+  - job_name: pve
+    metrics_path: /pve
+    params:
+      module: [default]
+      cluster: ["1"]
+      node: ["1"]
+    static_configs:
+      - targets: ["{{ pve_targets[0] }}"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9221
+
+  # --- Ceph (module prometheus du mgr actif ; les standby ne renvoient rien) ---
+  # instance fixe : les séries ne changent pas lors d'une bascule de mgr
+  - job_name: ceph
+    honor_labels: true
+    static_configs:
+{% for h in groups['pve'] %}
+      - targets: ["{{ hostvars[h].ansible_host }}:9283"]
+        labels: { host: {{ h }} }
+{% endfor %}
+    relabel_configs:
+      - target_label: instance
+        replacement: ceph
+
+  # --- Docker Swarm ---
+  - job_name: docker
+    static_configs:
+{% for h in groups['swarm'] %}
+      - targets: ["{{ hostvars[h].ansible_host }}:9323"]
+        labels: { host: {{ h }}, role: {{ hostvars[h].host_role }}, pve_node: {{ hostvars[h].pve_node }} }
+{% endfor %}
+
+  - job_name: cadvisor
+    static_configs:
+{% for h in groups['swarm_workers'] %}
+      - targets: ["{{ hostvars[h].ansible_host }}:8080"]
+        labels: { host: {{ h }}, role: {{ hostvars[h].host_role }}, pve_node: {{ hostvars[h].pve_node }} }
+{% endfor %}
+
+  # À venir : applications (découverte des services Swarm)

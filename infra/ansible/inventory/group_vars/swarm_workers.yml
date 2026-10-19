@@ -1,0 +1,3 @@
+host_role: swarm_worker
+
+cadvisor_image: ghcr.io/google/cadvisor:v0.60.6

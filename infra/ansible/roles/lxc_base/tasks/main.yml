@@ -1,0 +1,62 @@
+- name: Paquets de base
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - nftables
+      - prometheus-node-exporter
+      - unattended-upgrades
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Mises à jour de sécurité automatiques
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    mode: "0644"
+
+# Le template LXC Proxmox active ssh.socket ET ssh.service : ils se disputent le port 22
+# et un rechargement de sshd échoue. On garde le service classique, comme sur les VM.
+- name: Désactiver l'activation SSH par socket
+  ansible.builtin.systemd_service:
+    name: ssh.socket
+    enabled: false
+    state: stopped
+  notify: Redémarrer SSH
+
+- name: Durcissement SSH (root par clé uniquement)
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/10-hardening.conf
+    content: |
+      PermitRootLogin prohibit-password
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      X11Forwarding no
+      AllowAgentForwarding no
+      MaxAuthTries 3
+      LoginGraceTime 30
+    mode: "0644"
+    validate: sshd -t -f %s
+  notify: Redémarrer SSH
+
+- name: Firewall de l'hôte (nftables)
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    mode: "0755"
+    validate: nft -c -f %s
+  notify: Recharger nftables
+
+- name: Services actifs
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - ssh
+    - nftables
+    - prometheus-node-exporter

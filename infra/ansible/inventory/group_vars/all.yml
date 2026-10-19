@@ -1,0 +1,8 @@
+# Réseaux autorisés en SSH (firewall des hôtes)
+fw_ssh_allowed:
+  - 10.0.1.0/24
+
+# Stack d'observabilité : destination des logs, sources des scrapes
+monitoring_core_ip: "{{ hostvars[groups['monitoring_core'][0]].ansible_host }}"
+loki_push_url: "http://{{ monitoring_core_ip }}:3100/loki/api/v1/push"
+monitoring_scrapers: "{{ groups['vmagents'] | map('extract', hostvars, 'ansible_host') | list }}"

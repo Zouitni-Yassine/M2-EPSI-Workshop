@@ -1,0 +1,51 @@
+- name: Installer Alertmanager
+  ansible.builtin.apt:
+    name: prometheus-alertmanager
+    state: present
+
+# L'URL de ping est un secret : fichier séparé, lu via url_file, jamais dans la config
+- name: URL du watchdog externe
+  ansible.builtin.copy:
+    dest: /etc/prometheus/healthchecks_url
+    content: "{{ healthchecks_ping_url }}"
+    owner: root
+    group: prometheus
+    mode: "0640"
+  no_log: true
+  when: healthchecks_ping_url | length > 0
+  notify: Redémarrer Alertmanager
+
+- name: Pas d'URL de watchdog résiduelle
+  ansible.builtin.file:
+    path: /etc/prometheus/healthchecks_url
+    state: absent
+  when: healthchecks_ping_url | length == 0
+  notify: Redémarrer Alertmanager
+
+- name: Configuration
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: /etc/prometheus/alertmanager.yml
+    owner: root
+    group: prometheus
+    mode: "0640"
+    validate: amtool check-config %s
+  notify: Redémarrer Alertmanager
+
+# Instance unique : pas de cluster gossip (port 9094)
+- name: Options de démarrage
+  ansible.builtin.copy:
+    dest: /etc/default/prometheus-alertmanager
+    content: |
+      ARGS="--cluster.listen-address= --web.external-url=http://{{ ansible_host }}:9093"
+    mode: "0644"
+  notify: Redémarrer Alertmanager
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: Alertmanager actif
+  ansible.builtin.systemd_service:
+    name: prometheus-alertmanager
+    enabled: true
+    state: started

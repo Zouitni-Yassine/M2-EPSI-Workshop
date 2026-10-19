@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  group_by: [alertname, job]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Heartbeat vers le watchdog externe, renvoyé chaque minute
+    - matchers: ['alertname="Watchdog"']
+      receiver: {{ 'healthchecks' if healthchecks_ping_url | length > 0 else 'blackhole' }}
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 1m
+
+receivers:
+  # À brancher : mail, Discord, Teams, moteur de remédiation...
+  - name: default
+  - name: blackhole
+{% if healthchecks_ping_url | length > 0 %}
+  - name: healthchecks
+    webhook_configs:
+      - url_file: /etc/prometheus/healthchecks_url
+        send_resolved: false
+{% endif %}

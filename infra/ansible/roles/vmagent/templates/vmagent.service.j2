@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+[Unit]
+Description=VictoriaMetrics vmagent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=vmagent
+Group=vmagent
+ExecStart=/usr/local/bin/vmagent \
+  -httpListenAddr=:8429 \
+  -promscrape.config=/etc/vmagent/scrape.yml \
+  -remoteWrite.url=http://{{ monitoring_core_ip }}:8428/api/v1/write \
+  -remoteWrite.tmpDataPath=/var/lib/vmagent/remotewrite \
+  -remoteWrite.maxDiskUsagePerURL={{ vmagent_buffer_max }}
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/vmagent
+
+[Install]
+WantedBy=multi-user.target
