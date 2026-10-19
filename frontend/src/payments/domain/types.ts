@@ -7,6 +7,9 @@ export type Brand = 'visa' | 'mastercard' | 'amex' | 'unknown'
 
 export type Provider = 'local' | 'stripe'
 
+/** Qui tient les champs de carte : nos propres inputs, ou les iframes Stripe Elements. */
+export type CardEntry = 'own' | 'elements'
+
 /**
  * Machine à états reprise de Stripe. Le moteur local et le backend
  * produisent exactement les mêmes transitions.
@@ -98,6 +101,7 @@ export type OnStep = (intent: PaymentIntent) => void
  */
 export interface PaymentEngine {
   readonly provider: Provider
+  readonly entry: CardEntry
   createIntent(amount: Cents, card: CardSummary): Promise<PaymentIntent>
   confirm(intentId: string, source: CardSource, onStep?: OnStep): Promise<PaymentIntent>
   /** Réponse au défi 3-D Secure. Stripe gère le sien ; seul le moteur local l'utilise. */

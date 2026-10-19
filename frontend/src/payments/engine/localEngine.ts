@@ -81,6 +81,7 @@ export function createLocalEngine(): PaymentEngine {
 
   return {
     provider: 'local',
+    entry: 'own',
 
     async createIntent(amount, card) {
       const intent: PaymentIntent = {

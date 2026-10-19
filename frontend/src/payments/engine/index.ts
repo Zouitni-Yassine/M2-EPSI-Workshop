@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { PaymentEngine, Provider } from '../domain/types'
 import { createLocalEngine } from './localEngine'
+import { createOwnEngine } from './ownEngine'
 import { createStripeEngine } from './stripeEngine'
 
 export interface EngineChoice {
@@ -34,7 +35,10 @@ async function choose(): Promise<EngineChoice> {
     const res = await fetch(`${api}/health`, { signal: AbortSignal.timeout(3000) })
     const body = (await res.json()) as { ok?: boolean; stripe?: boolean }
     if (!res.ok || !body.stripe) throw new Error('clé Stripe absente côté serveur')
-    return { engine: createStripeEngine(api), provider: 'stripe' }
+    // Par défaut nos propres champs (carte animée, jetons de test côté serveur) ;
+    // VITE_CARD_ENTRY=elements pour la voie de production, avec les iframes Stripe.
+    const engine = import.meta.env.VITE_CARD_ENTRY === 'elements' ? createStripeEngine(api) : createOwnEngine(api, pk)
+    return { engine, provider: 'stripe' }
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err)
     return {

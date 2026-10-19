@@ -40,6 +40,7 @@ export function createStripeEngine(baseUrl: string): PaymentEngine {
 
   return {
     provider: 'stripe',
+    entry: 'elements',
 
     async createIntent(amount, card) {
       const intent = await call<PaymentIntent>('/payment_intents', {
