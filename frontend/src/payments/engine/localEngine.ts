@@ -32,8 +32,8 @@ function reference(): string {
 
 /**
  * Reproduit la sémantique de Stripe sans réseau : mêmes cartes de test,
- * mêmes transitions, mêmes codes de refus. Le démonstrateur tourne donc
- * sur un point d'accès sans sortie Internet, ce qui est le cas le jour du jury.
+ * mêmes transitions, mêmes codes de refus. C'est le filet de sécurité si le
+ * backend ou Internet manque pendant la démonstration.
  */
 export function createLocalEngine(): PaymentEngine {
   const store = new Map<string, PaymentIntent>()
@@ -80,6 +80,8 @@ export function createLocalEngine(): PaymentEngine {
   }
 
   return {
+    provider: 'local',
+
     async createIntent(amount, card) {
       const intent: PaymentIntent = {
         id: id('pi'),
@@ -99,14 +101,17 @@ export function createLocalEngine(): PaymentEngine {
       return intent
     },
 
-    async confirm(intentId, card, onStep) {
+    async confirm(intentId, source, onStep) {
+      if (source.kind !== 'raw') {
+        throw new Error('Le moteur local attend les chiffres de la carte.')
+      }
       let i = store.get(intentId)
       if (!i) throw new Error(`Intention inconnue : ${intentId}`)
 
       i = save({ ...i, status: 'processing', rail: { ...i.rail, authorization: 'active' } }, onStep)
       await wait(900)
 
-      const outcome = outcomeFor(card.number)
+      const outcome = outcomeFor(source.card.number)
 
       if (outcome.kind === 'decline') {
         return fail(i, 'authorization', outcome.code, onStep)

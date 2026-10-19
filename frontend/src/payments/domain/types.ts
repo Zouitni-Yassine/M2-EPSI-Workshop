@@ -1,7 +1,11 @@
+import type { Stripe, StripeCardNumberElement } from '@stripe/stripe-js'
+
 /** Montants en centimes, comme Stripe. Jamais de flottant pour de l'argent. */
 export type Cents = number
 
 export type Brand = 'visa' | 'mastercard' | 'amex' | 'unknown'
+
+export type Provider = 'local' | 'stripe'
 
 /**
  * Machine à états reprise de Stripe. Le moteur local et le backend
@@ -60,6 +64,8 @@ export interface PaymentIntent {
   error?: PaymentError
   rail: Rail
   history: IntentEvent[]
+  /** Fourni par Stripe à la création ; sert à confirmer depuis le navigateur. */
+  clientSecret?: string
 }
 
 export interface Balance {
@@ -75,17 +81,26 @@ export interface CardInput {
   holder: string
 }
 
-/** Appelé à chaque transition, pour que le rail avance sous les yeux du payeur. */
+/**
+ * D'où vient la carte au moment de confirmer. En local on a les chiffres ;
+ * avec Stripe on n'a qu'un élément iframe — le numéro ne touche jamais notre code.
+ */
+export type CardSource =
+  | { kind: 'raw'; card: CardInput }
+  | { kind: 'stripe'; stripe: Stripe; element: StripeCardNumberElement; holder: string }
+
+/** Appelé à chaque transition, pour que le stepper avance sous les yeux du payeur. */
 export type OnStep = (intent: PaymentIntent) => void
 
 /**
  * Contrat du moteur de paiement. `local` le simule hors ligne,
- * `api` le délègue au backend. L'interface ne change pas.
+ * `stripe` le délègue au backend et à Stripe. L'interface ne change pas.
  */
 export interface PaymentEngine {
+  readonly provider: Provider
   createIntent(amount: Cents, card: CardSummary): Promise<PaymentIntent>
-  confirm(intentId: string, card: CardInput, onStep?: OnStep): Promise<PaymentIntent>
-  /** Réponse au défi 3-D Secure. */
+  confirm(intentId: string, source: CardSource, onStep?: OnStep): Promise<PaymentIntent>
+  /** Réponse au défi 3-D Secure. Stripe gère le sien ; seul le moteur local l'utilise. */
   authenticate(intentId: string, code: string, onStep?: OnStep): Promise<PaymentIntent>
   list(): Promise<PaymentIntent[]>
   balance(): Promise<Balance>
