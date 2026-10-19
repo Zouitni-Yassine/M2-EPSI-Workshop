@@ -1,6 +1,6 @@
 import { euros } from '../domain/money'
 import type { PaymentIntent } from '../domain/types'
-import { BrandLogo } from './BrandLogo'
+import { BrandLogo, PayPalMark } from './BrandLogo'
 
 interface Props {
   intent: PaymentIntent
@@ -9,6 +9,7 @@ interface Props {
 
 export function Outcome({ intent, onRestart }: Props) {
   const failed = intent.status === 'canceled'
+  const viaPayPal = intent.method === 'paypal'
 
   const rows: [string, string][] = [
     ['Référence', intent.reference],
@@ -34,10 +35,18 @@ export function Outcome({ intent, onRestart }: Props) {
       </div>
 
       <div className="mx-6 flex items-center gap-3 rounded-lg bg-well px-4 py-3">
-        <span className="h-6 w-9 text-[#1a1f71]">
-          <BrandLogo brand={intent.card.brand} className="h-full w-full" />
-        </span>
-        <span className="text-sm font-medium">•••• {intent.card.last4}</span>
+        {viaPayPal ? (
+          <span className="h-5 w-16">
+            <PayPalMark className="h-full w-full" />
+          </span>
+        ) : (
+          <>
+            <span className="h-6 w-9 text-[#1a1f71]">
+              <BrandLogo brand={intent.card.brand} className="h-full w-full" />
+            </span>
+            <span className="text-sm font-medium">•••• {intent.card.last4}</span>
+          </>
+        )}
         <span className="ml-auto truncate text-sm text-text-2">{intent.card.holder}</span>
       </div>
 
@@ -64,7 +73,7 @@ export function Outcome({ intent, onRestart }: Props) {
               : 'border border-edge bg-card text-text hover:bg-well'
           }`}
         >
-          {failed ? 'Réessayer avec une autre carte' : 'Nouveau paiement'}
+          {failed ? (viaPayPal ? 'Réessayer le paiement' : 'Réessayer avec une autre carte') : 'Nouveau paiement'}
         </button>
       </div>
     </div>

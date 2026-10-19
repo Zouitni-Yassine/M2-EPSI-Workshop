@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { Elements } from '@stripe/react-stripe-js'
 import { loadStripe } from '@stripe/stripe-js'
+import { PayPalProvider } from '@paypal/react-paypal-js/sdk-v6'
 import { brandOf, last4 } from './domain/card'
 import { euros } from './domain/money'
 import type { Brand, CardInput, CardSource, PaymentIntent, Rail } from './domain/types'
@@ -9,6 +10,7 @@ import { CardForm, cardComplete, type CardField } from './components/CardForm'
 import { CardPreview } from './components/CardPreview'
 import { OrderSummary, TOTAL } from './components/OrderSummary'
 import { Outcome } from './components/Outcome'
+import { PayPalPanel } from './components/PayPalPanel'
 import { Stepper } from './components/Stepper'
 import { StripeCardForm } from './components/StripeCardForm'
 import { ThreeDSChallenge } from './components/ThreeDSChallenge'
@@ -38,19 +40,35 @@ export function PayPage({ onPaid }: { onPaid: () => void }) {
     )
   }
 
+  let checkout = <Checkout choice={choice} onPaid={onPaid} />
+
   if (choice.provider === 'stripe' && stripePromise) {
-    return (
+    checkout = (
       <Elements stripe={stripePromise} options={{ fonts: [{ cssSrc: INTER_CSS }], locale: 'fr' }}>
-        <Checkout choice={choice} onPaid={onPaid} />
+        {checkout}
       </Elements>
     )
   }
 
-  return <Checkout choice={choice} onPaid={onPaid} />
+  if (choice.paypal) {
+    // Environnement figé : même un client ID live chargerait le SDK sandbox.
+    checkout = (
+      <PayPalProvider
+        clientId={choice.paypal.clientId}
+        environment="sandbox"
+        components={['paypal-payments']}
+        pageType="checkout"
+      >
+        {checkout}
+      </PayPalProvider>
+    )
+  }
+
+  return checkout
 }
 
 function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void }) {
-  const { engine, provider } = choice
+  const { engine, provider, paypal } = choice
   const elements = engine.entry === 'elements'
 
   const [card, setCard] = useState<CardInput>(EMPTY_CARD)
@@ -64,6 +82,8 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
   const [showErrors, setShowErrors] = useState(false)
   const [authError, setAuthError] = useState<string | undefined>()
   const [failure, setFailure] = useState<string | undefined>()
+  const [paypalFailure, setPayPalFailure] = useState<string | undefined>()
+  const paypalIntent = useRef<PaymentIntent | null>(null)
 
   const brand = elements ? stripeBrand : brandOf(card.number)
   const rail = intent?.rail ?? IDLE_RAIL
@@ -120,12 +140,61 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
     }
   }
 
+  async function createPayPalOrder() {
+    if (!paypal) throw new Error('PayPal n’est pas configuré.')
+    setFailure(undefined)
+    setPayPalFailure(undefined)
+    try {
+      const created = await paypal.createOrder(TOTAL)
+      paypalIntent.current = created
+      setIntent(created)
+      return { orderId: created.id }
+    } catch (err) {
+      setPayPalFailure(err instanceof Error ? err.message : 'La commande PayPal n’a pas pu être créée.')
+      throw err
+    }
+  }
+
+  async function approvePayPal(orderId: string) {
+    if (!paypal) return
+    const created = paypalIntent.current
+    if (created) {
+      // Le payeur a validé chez PayPal : il ne reste que la capture.
+      setIntent({
+        ...created,
+        status: 'processing',
+        rail: { ...created.rail, authorization: 'done', authentication: 'done', capture: 'active' },
+      })
+    }
+    setBusy(true)
+    try {
+      const final = await paypal.capture(orderId)
+      setIntent(final)
+      if (final.status === 'succeeded') onPaid()
+      if (final.status === 'processing') {
+        setPayPalFailure('PayPal n’a pas encore confirmé la capture. Le paiement apparaîtra dans Transactions une fois encaissé.')
+      }
+    } catch (err) {
+      setIntent(null)
+      setPayPalFailure(err instanceof Error ? err.message : 'La capture PayPal a échoué.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function cancelPayPal() {
+    setIntent(null)
+    setPayPalFailure('Paiement PayPal interrompu : aucun montant n’a été débité.')
+  }
+
   function restart() {
     setIntent(null)
     setCard(EMPTY_CARD)
     setShowErrors(false)
     setAuthError(undefined)
     setFailure(undefined)
+    setPayPalFailure(undefined)
+    paypalIntent.current = null
   }
 
   return (
@@ -170,80 +239,100 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
           {settled && intent ? (
             <Outcome intent={intent} onRestart={restart} />
           ) : (
-            <form
-              className="rounded-panel border border-edge bg-card shadow-panel"
-              onSubmit={(e) => {
-                e.preventDefault()
-                void pay()
-              }}
-              noValidate
-            >
-              <div className="flex items-start justify-between gap-4 border-b border-edge px-6 py-4">
-                <div>
-                  <h2 className="text-base font-semibold">Payer par carte</h2>
-                  <p className="mt-0.5 text-sm text-text-2">
-                    Visa, Mastercard et American Express acceptées.
+            <>
+              {paypal ? (
+                <>
+                  <PayPalPanel
+                    onCreate={createPayPalOrder}
+                    onApprove={approvePayPal}
+                    onCancel={cancelPayPal}
+                    // Garde le message du backend s'il est déjà affiché (429, 502…).
+                    onError={(message) => setPayPalFailure((current) => current ?? message)}
+                    error={paypalFailure}
+                    disabled={busy}
+                  />
+                  <div className="flex items-center gap-3 text-xs font-medium text-text-2" aria-hidden="true">
+                    <span className="h-px flex-1 bg-edge" />
+                    ou par carte
+                    <span className="h-px flex-1 bg-edge" />
+                  </div>
+                </>
+              ) : null}
+              <form
+                className="rounded-panel border border-edge bg-card shadow-panel"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  void pay()
+                }}
+                noValidate
+              >
+                <div className="flex items-start justify-between gap-4 border-b border-edge px-6 py-4">
+                  <div>
+                    <h2 className="text-base font-semibold">Payer par carte</h2>
+                    <p className="mt-0.5 text-sm text-text-2">
+                      Visa, Mastercard et American Express acceptées.
+                    </p>
+                  </div>
+                  {provider === 'stripe' ? (
+                    <span className="shrink-0 rounded-md bg-well px-2 py-1 text-[11px] font-semibold text-text-2">
+                      Stripe · test
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="px-6 py-6">
+                  {elements ? (
+                    <StripeCardForm
+                      holder={card.holder}
+                      onHolderChange={onHolderChange}
+                      onBrandChange={setStripeBrand}
+                      onCompleteChange={setStripeComplete}
+                      onFocusField={setFocused}
+                      sourceRef={sourceRef}
+                      disabled={busy}
+                      showErrors={showErrors}
+                    />
+                  ) : (
+                    <CardForm
+                      value={card}
+                      onChange={setCard}
+                      onFocusField={setFocused}
+                      disabled={busy}
+                      showErrors={showErrors}
+                    />
+                  )}
+                </div>
+
+                <div className="border-t border-edge px-6 py-5">
+                  {failure ? (
+                    <p className="rise mb-3 rounded-lg border border-bad/30 bg-bad/5 px-3.5 py-2.5 text-sm text-bad">
+                      {failure}
+                    </p>
+                  ) : null}
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="relative h-12 w-full overflow-hidden rounded-lg bg-accent text-[15px] font-semibold text-white transition-colors hover:bg-accent-strong disabled:cursor-wait"
+                  >
+                    {busy ? (
+                      <>
+                        <span className="sweep absolute inset-y-0 left-0 w-1/4 bg-white/15" aria-hidden="true" />
+                        <span className="relative inline-flex items-center gap-2">
+                          <Spinner />
+                          Traitement du paiement
+                        </span>
+                      </>
+                    ) : (
+                      `Payer ${euros(TOTAL)}`
+                    )}
+                  </button>
+                  <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-text-2">
+                    <Lock />
+                    Paiement chiffré. Vos données de carte ne sont jamais stockées.
                   </p>
                 </div>
-                {provider === 'stripe' ? (
-                  <span className="shrink-0 rounded-md bg-well px-2 py-1 text-[11px] font-semibold text-text-2">
-                    Stripe · test
-                  </span>
-                ) : null}
-              </div>
-
-              <div className="px-6 py-6">
-                {elements ? (
-                  <StripeCardForm
-                    holder={card.holder}
-                    onHolderChange={onHolderChange}
-                    onBrandChange={setStripeBrand}
-                    onCompleteChange={setStripeComplete}
-                    onFocusField={setFocused}
-                    sourceRef={sourceRef}
-                    disabled={busy}
-                    showErrors={showErrors}
-                  />
-                ) : (
-                  <CardForm
-                    value={card}
-                    onChange={setCard}
-                    onFocusField={setFocused}
-                    disabled={busy}
-                    showErrors={showErrors}
-                  />
-                )}
-              </div>
-
-              <div className="border-t border-edge px-6 py-5">
-                {failure ? (
-                  <p className="rise mb-3 rounded-lg border border-bad/30 bg-bad/5 px-3.5 py-2.5 text-sm text-bad">
-                    {failure}
-                  </p>
-                ) : null}
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="relative h-12 w-full overflow-hidden rounded-lg bg-accent text-[15px] font-semibold text-white transition-colors hover:bg-accent-strong disabled:cursor-wait"
-                >
-                  {busy ? (
-                    <>
-                      <span className="sweep absolute inset-y-0 left-0 w-1/4 bg-white/15" aria-hidden="true" />
-                      <span className="relative inline-flex items-center gap-2">
-                        <Spinner />
-                        Traitement du paiement
-                      </span>
-                    </>
-                  ) : (
-                    `Payer ${euros(TOTAL)}`
-                  )}
-                </button>
-                <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-text-2">
-                  <Lock />
-                  Paiement chiffré. Vos données de carte ne sont jamais stockées.
-                </p>
-              </div>
-            </form>
+              </form>
+            </>
           )}
         </section>
       </div>

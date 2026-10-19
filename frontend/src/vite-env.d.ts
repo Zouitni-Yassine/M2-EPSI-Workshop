@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   readonly VITE_REMEDIATION_URL?: string
   readonly VITE_STRIPE_PUBLISHABLE_KEY?: string
   readonly VITE_CARD_ENTRY?: 'own' | 'elements'
+  readonly VITE_PAYPAL_CLIENT_ID?: string
 }
 
 interface ImportMeta {
