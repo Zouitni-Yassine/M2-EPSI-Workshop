@@ -22,6 +22,25 @@
   when: healthchecks_ping_url | length == 0
   notify: Redémarrer Alertmanager
 
+# Webhook Discord : même traitement que l'URL du watchdog (secret, lu via webhook_url_file)
+- name: Webhook Discord
+  ansible.builtin.copy:
+    dest: /etc/prometheus/discord_webhook_url
+    content: "{{ discord_webhook_url }}"
+    owner: root
+    group: prometheus
+    mode: "0640"
+  no_log: true
+  when: discord_webhook_url | length > 0
+  notify: Redémarrer Alertmanager
+
+- name: Pas de webhook Discord résiduel
+  ansible.builtin.file:
+    path: /etc/prometheus/discord_webhook_url
+    state: absent
+  when: discord_webhook_url | length == 0
+  notify: Redémarrer Alertmanager
+
 - name: Configuration
   ansible.builtin.template:
     src: alertmanager.yml.j2

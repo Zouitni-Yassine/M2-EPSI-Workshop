@@ -18,6 +18,7 @@ pve_exporter_version: 3.10.1
 # Secrets : fournis par l'environnement (source /root/.monitoring-env)
 grafana_admin_password: "{{ lookup('ansible.builtin.env', 'GRAFANA_ADMIN_PASSWORD') }}"
 healthchecks_ping_url: "{{ lookup('ansible.builtin.env', 'HEALTHCHECKS_PING_URL') }}"
+discord_webhook_url: "{{ lookup('ansible.builtin.env', 'DISCORD_WEBHOOK_URL') }}"
 pve_monitor_token_id: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_ID') }}"
 pve_monitor_token_secret: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_SECRET') }}"
 
