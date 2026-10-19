@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import collections
 import os
+import re
 import threading
 import time
 import uuid
@@ -78,7 +79,10 @@ def restart(target: str) -> None:
         raise PermissionError(f"{target} n'est pas dans la liste des cibles autorisées")
     res = requests.post(f"{DOCKER_URL}/containers/{target}/restart", params={"t": 5}, timeout=30)
     if res.status_code not in (204, 304):
-        raise RuntimeError(f"Docker a répondu {res.status_code} : {res.text[:120]}")
+        # Le proxy répond parfois en HTML : on n'en garde que le texte, court.
+        detail = re.sub(r"<[^>]+>", " ", res.text)
+        detail = " ".join(detail.split())[:80]
+        raise RuntimeError(f"Docker a répondu {res.status_code} : {detail}")
 
 
 def remediate(score: float | None, threshold: float | None) -> None:
