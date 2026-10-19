@@ -3,8 +3,8 @@
 #   docker compose up --build
 #
 # Frontend : http://localhost:5173 · API : :8000 · Détecteur : :8100 · Remédiation : :8200
-# Le proxy Docker n'est joignable que depuis le réseau interne, et seulement
-# pour redémarrer un conteneur. C'est la seule capacité donnée au moteur.
+# Le proxy Docker n'est joignable que depuis le réseau interne, et n'accepte
+# que deux requêtes : lister les conteneurs, redémarrer payment-api.
 
 services:
   payment-api:
@@ -31,22 +31,17 @@ services:
     depends_on: [payment-api]
 
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3
+    # Pas de proxy générique : une liste blanche nginx de deux requêtes,
+    # lire la liste des conteneurs et redémarrer payment-api. Voir proxy/nginx.conf.
+    image: nginx:1.27-alpine
     container_name: docker-socket-proxy
-    environment:
-      # Liste blanche stricte : lister les conteneurs et les redémarrer. Rien d'autre.
-      CONTAINERS: 1
-      POST: 1
-      ALLOW_RESTARTS: 1
-      IMAGES: 0
-      NETWORKS: 0
-      VOLUMES: 0
-      EXEC: 0
-      BUILD: 0
-      SECRETS: 0
-      INFO: 0
     volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     networks: [internal]
 
   remediation:

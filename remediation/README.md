@@ -23,9 +23,11 @@ C'est la distinction que le sujet impose : un conteneur qui redémarre ne prouve
 Le sujet prévient (§3.4) : un moteur de remédiation a des droits élevés et ne doit pas
 devenir une porte d'entrée. Trois garde-fous :
 
-- **Il ne voit jamais le socket Docker.** Il parle à `docker-socket-proxy`, qui n'autorise
-  que `CONTAINERS` et `ALLOW_RESTARTS`. Pas d'`exec`, pas de création, pas d'images, pas de
-  volumes, pas de réseaux. Le proxy est sur un réseau Docker `internal`, injoignable de l'extérieur.
+- **Il ne voit jamais le socket Docker.** Il parle à `docker-socket-proxy`, un nginx à liste
+  blanche de deux requêtes : `GET /containers/json` et `POST /containers/payment-api/restart`
+  (`proxy/nginx.conf`). Tout le reste répond 403 — pas d'`exec`, pas de création, pas d'arrêt,
+  pas d'images. Vérifié depuis le conteneur du moteur. Le proxy tourne en lecture seule, sans
+  capacité, sur un réseau Docker `internal` injoignable de l'extérieur.
 - **Il ne redémarre que sa liste.** `TARGETS=payment-api`. Toute autre cible lève `PermissionError`.
 - **Il n'expose aucune route d'écriture.** `GET /health`, `GET /state`, c'est tout. Personne ne peut
   lui demander d'agir ; seul le verdict du détecteur le déclenche.
