@@ -41,3 +41,6 @@ packer_cache/
 *.pem
 *.key
 id_*
+
+# Configuration du backend (bucket, endpoint)
+backend.hcl
