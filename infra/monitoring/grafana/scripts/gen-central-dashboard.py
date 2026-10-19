@@ -5,8 +5,8 @@ Un seul écran pour l'état de santé de toute la plateforme : Proxmox, Ceph,
 Docker Swarm, chaîne de supervision, alertes et logs. Conçu pour être lisible
 de loin (démo incident -> reprise automatique).
 
-Usage (depuis infra/ansible) : python3 scripts/gen-central-dashboard.py
-Sortie : roles/grafana/files/dashboards/Vue centrale/central.json
+Usage (depuis infra/monitoring/grafana) : python3 scripts/gen-central-dashboard.py
+Sortie : dashboards/Vue centrale/central.json
 
 Toutes les requêtes sont en MetricsQL/PromQL (VictoriaMetrics) ou LogQL (Loki).
 Les voyants « en panne / alertes » utilisent `or vector(0)` / `or label_set(...)`
@@ -16,7 +16,7 @@ import json
 import pathlib
 
 OUT = (pathlib.Path(__file__).resolve().parent.parent
-       / "roles/grafana/files/dashboards/Vue centrale/central.json")
+       / "dashboards/Vue centrale/central.json")
 
 VM = {"type": "prometheus", "uid": "victoriametrics"}
 LOKI = {"type": "loki", "uid": "loki"}

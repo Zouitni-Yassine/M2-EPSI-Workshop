@@ -19,6 +19,23 @@
     owner: victoriametrics
     mode: "0750"
 
+# Authentification Basic sur toute l'API (écriture, lecture, suppression de séries, vmui)
+- name: Répertoire de configuration
+  ansible.builtin.file:
+    path: /etc/victoria-metrics
+    state: directory
+    mode: "0755"
+
+- name: Mot de passe de l'API
+  ansible.builtin.copy:
+    dest: /etc/victoria-metrics/http_password
+    content: "{{ vm_auth_password }}"
+    owner: root
+    group: victoriametrics
+    mode: "0640"
+  no_log: true
+  notify: Redémarrer VictoriaMetrics
+
 - name: Service systemd
   ansible.builtin.template:
     src: victoria-metrics.service.j2

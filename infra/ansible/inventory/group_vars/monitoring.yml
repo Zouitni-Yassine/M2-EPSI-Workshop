@@ -21,6 +21,9 @@ healthchecks_ping_url: "{{ lookup('ansible.builtin.env', 'HEALTHCHECKS_PING_URL'
 discord_webhook_url: "{{ lookup('ansible.builtin.env', 'DISCORD_WEBHOOK_URL') }}"
 pve_monitor_token_id: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_ID') }}"
 pve_monitor_token_secret: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_SECRET') }}"
+# VictoriaMetrics, vmagent et vmalert partagent le même mot de passe
+vm_auth_password: "{{ lookup('ansible.builtin.env', 'VM_AUTH_PASSWORD') }}"
+alertmanager_auth_password: "{{ lookup('ansible.builtin.env', 'ALERTMANAGER_AUTH_PASSWORD') }}"
 
 # Réseaux autorisés sur les ports de supervision (firewall des LXC)
 fw_monitoring_allowed:

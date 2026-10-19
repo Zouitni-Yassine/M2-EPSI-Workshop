@@ -3,6 +3,11 @@
 loki.write "default" {
   endpoint {
     url = "{{ loki_push_url }}"
+
+    basic_auth {
+      username      = "{{ monitoring_auth_user }}"
+      password_file = "/etc/alloy/loki_password"
+    }
   }
 
   external_labels = {

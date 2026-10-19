@@ -22,10 +22,27 @@
     - { path: /etc/vmagent, owner: root }
     - { path: /var/lib/vmagent, owner: vmagent }
 
+# Mots de passe : remote write et interface (VictoriaMetrics), scrape d'Alertmanager et de Loki
+- name: Mots de passe de la stack
+  ansible.builtin.copy:
+    dest: "/etc/vmagent/{{ item.name }}_password"
+    content: "{{ item.password }}"
+    owner: root
+    group: vmagent
+    mode: "0640"
+  loop:
+    - { name: vm, password: "{{ vm_auth_password }}" }
+    - { name: alertmanager, password: "{{ alertmanager_auth_password }}" }
+    - { name: loki, password: "{{ loki_auth_password }}" }
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  notify: Redémarrer vmagent
+
 # Configuration identique sur les 2 vmagents : mêmes séries, dédupliquées par VictoriaMetrics
 - name: Configuration de scrape
   ansible.builtin.template:
-    src: scrape.yml.j2
+    src: "{{ monitoring_config_dir }}/vmagent/scrape.yml.j2"
     dest: /etc/vmagent/scrape.yml
     mode: "0644"
     validate: /usr/local/bin/vmagent -promscrape.config=%s -dryRun

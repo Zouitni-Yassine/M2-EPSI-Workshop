@@ -11,6 +11,9 @@
           - grafana_admin_password | length >= 16
           - "'!' in pve_monitor_token_id"
           - pve_monitor_token_secret | length > 0
+          - vm_auth_password | length >= 16
+          - alertmanager_auth_password | length >= 16
+          - loki_auth_password | length >= 16
         fail_msg: "Secrets absents : lancer 'source /root/.monitoring-env' avant le playbook"
         quiet: true
       run_once: true

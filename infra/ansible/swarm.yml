@@ -1,11 +1,21 @@
 # Déploiement du cluster Docker Swarm
-#   cd /srv/M2-EPSI-Workshop/infra/ansible && ansible-playbook swarm.yml
+#   cd /srv/M2-EPSI-Workshop/infra/ansible
+#   source /root/.monitoring-env && ansible-playbook swarm.yml
 #
 # Idempotent : peut être relancé à tout moment, y compris après l'ajout d'un nœud.
 
 - name: Préparer les nœuds Docker (daemon, firewall, agents de supervision)
   hosts: swarm
   serial: 1 # redémarrage de Docker nœud par nœud : le quorum des managers est préservé
+  pre_tasks:
+    - name: Secret Loki présent dans l'environnement
+      ansible.builtin.assert:
+        that: loki_auth_password | length >= 16
+        fail_msg: "Secret absent : lancer 'source /root/.monitoring-env' avant le playbook"
+        quiet: true
+      run_once: true
+      delegate_to: localhost
+      become: false
   roles:
     - docker_host
     - alloy

@@ -12,7 +12,7 @@
 
 - name: Configuration (single binary, stockage local)
   ansible.builtin.template:
-    src: config.yml.j2
+    src: "{{ monitoring_config_dir }}/loki/config.yml.j2"
     dest: /etc/loki/config.yml
     owner: root
     group: root
@@ -20,11 +20,53 @@
     validate: loki -config.file=%s -verify-config
   notify: Redémarrer Loki
 
+# Loki n'a pas d'authentification intégrée : nginx en reverse proxy devant (méthode documentée par Grafana)
+- name: Installer nginx
+  ansible.builtin.apt:
+    name: nginx-light
+    state: present
+
+- name: Pas de site par défaut (port 80)
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Recharger nginx
+
+# SHA-512 crypt à 5000 tours : nginx vérifie le mot de passe à chaque requête (un push Alloy
+# par seconde et par hôte), bcrypt y coûterait trop cher. Sel déterministe : tâche idempotente.
+- name: Utilisateur autorisé
+  ansible.builtin.copy:
+    dest: /etc/nginx/loki.htpasswd
+    content: "{{ monitoring_auth_user }}:{{ loki_auth_password | password_hash('sha512', salt=((inventory_hostname ~ '-loki') | hash('sha256'))[:16], rounds=5000) }}\n"
+    owner: root
+    group: www-data
+    mode: "0640"
+  no_log: true
+
+- name: Reverse proxy authentifiant
+  ansible.builtin.template:
+    src: "{{ monitoring_config_dir }}/loki/nginx-loki.conf.j2"
+    dest: /etc/nginx/sites-available/loki.conf
+    mode: "0644"
+  notify: Recharger nginx
+
+- name: Activer le reverse proxy
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/loki.conf
+    dest: /etc/nginx/sites-enabled/loki.conf
+    state: link
+  notify: Recharger nginx
+
+- name: Configuration nginx valide
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
 - name: Appliquer les changements
   ansible.builtin.meta: flush_handlers
 
-- name: Loki actif
+- name: Loki et nginx actifs
   ansible.builtin.systemd_service:
-    name: loki
+    name: "{{ item }}"
     enabled: true
     state: started
+  loop: [loki, nginx]

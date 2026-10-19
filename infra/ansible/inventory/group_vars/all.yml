@@ -6,3 +6,12 @@ fw_ssh_allowed:
 monitoring_core_ip: "{{ hostvars[groups['monitoring_core'][0]].ansible_host }}"
 loki_push_url: "http://{{ monitoring_core_ip }}:3100/loki/api/v1/push"
 monitoring_scrapers: "{{ groups['vmagents'] | map('extract', hostvars, 'ansible_host') | list }}"
+
+# Configurations de la stack (scrape, règles, alertmanager, loki, alloy, dashboards) :
+# rangées dans infra/monitoring, déployées par les rôles Ansible
+monitoring_config_dir: "{{ playbook_dir | dirname }}/monitoring"
+
+# Authentification Basic de la stack d'observabilité : un utilisateur, un mot de passe par service.
+# Celui de Loki sert aussi aux nœuds Swarm (Alloy) : source /root/.monitoring-env avant tout playbook.
+monitoring_auth_user: monitoring
+loki_auth_password: "{{ lookup('ansible.builtin.env', 'LOKI_AUTH_PASSWORD') }}"

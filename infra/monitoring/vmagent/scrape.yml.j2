@@ -8,8 +8,9 @@ global:
   scrape_timeout: 10s
 
 scrape_configs:
-  # --- Stack d'observabilité ---
+  # --- Stack d'observabilité (authentification Basic, sauf Grafana : /metrics public) ---
   - job_name: vmagent
+    basic_auth: { username: {{ monitoring_auth_user }}, password_file: /etc/vmagent/vm_password }
     static_configs:
 {% for h in groups['vmagents'] %}
       - targets: ["{{ hostvars[h].ansible_host }}:8429"]
@@ -17,21 +18,25 @@ scrape_configs:
 {% endfor %}
 
   - job_name: victoriametrics
+    basic_auth: { username: {{ monitoring_auth_user }}, password_file: /etc/vmagent/vm_password }
     static_configs:
       - targets: ["{{ monitoring_core_ip }}:8428"]
         labels: { host: {{ core }} }
 
   - job_name: vmalert
+    basic_auth: { username: {{ monitoring_auth_user }}, password_file: /etc/vmagent/vm_password }
     static_configs:
       - targets: ["{{ monitoring_core_ip }}:8880"]
         labels: { host: {{ core }} }
 
   - job_name: alertmanager
+    basic_auth: { username: {{ monitoring_auth_user }}, password_file: /etc/vmagent/alertmanager_password }
     static_configs:
       - targets: ["{{ monitoring_core_ip }}:9093"]
         labels: { host: {{ core }} }
 
   - job_name: loki
+    basic_auth: { username: {{ monitoring_auth_user }}, password_file: /etc/vmagent/loki_password }
     static_configs:
       - targets: ["{{ monitoring_core_ip }}:3100"]
         labels: { host: {{ core }} }

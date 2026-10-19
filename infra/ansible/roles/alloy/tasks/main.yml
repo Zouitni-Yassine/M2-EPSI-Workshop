@@ -12,9 +12,19 @@
     append: true
   notify: Redémarrer Alloy
 
+- name: Mot de passe de Loki
+  ansible.builtin.copy:
+    dest: /etc/alloy/loki_password
+    content: "{{ loki_auth_password }}"
+    owner: root
+    group: alloy
+    mode: "0640"
+  no_log: true
+  notify: Redémarrer Alloy
+
 - name: Configuration
   ansible.builtin.template:
-    src: config.alloy.j2
+    src: "{{ monitoring_config_dir }}/alloy/config.alloy.j2"
     dest: /etc/alloy/config.alloy
     mode: "0644"
     validate: alloy fmt %s

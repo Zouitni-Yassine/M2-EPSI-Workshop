@@ -43,7 +43,7 @@
 
 - name: Configuration
   ansible.builtin.template:
-    src: alertmanager.yml.j2
+    src: "{{ monitoring_config_dir }}/alertmanager/alertmanager.yml.j2"
     dest: /etc/prometheus/alertmanager.yml
     owner: root
     group: prometheus
@@ -51,12 +51,27 @@
     validate: amtool check-config %s
   notify: Redémarrer Alertmanager
 
+# Authentification Basic (exporter-toolkit) : hash bcrypt uniquement, Alertmanager garde en cache
+# les vérifications réussies. Sel déterministe (non secret) : la tâche reste idempotente.
+- name: Authentification de l'interface et de l'API
+  ansible.builtin.copy:
+    dest: /etc/prometheus/alertmanager-web.yml
+    content: |
+      # Géré par Ansible
+      basic_auth_users:
+        {{ monitoring_auth_user }}: {{ alertmanager_auth_password | password_hash('bcrypt', salt=((inventory_hostname ~ '-alertmanager') | hash('sha256'))[:21] ~ 'e', ident='2b') }}
+    owner: root
+    group: prometheus
+    mode: "0640"
+  no_log: true
+  notify: Redémarrer Alertmanager
+
 # Instance unique : pas de cluster gossip (port 9094)
 - name: Options de démarrage
   ansible.builtin.copy:
     dest: /etc/default/prometheus-alertmanager
     content: |
-      ARGS="--cluster.listen-address= --web.external-url=http://{{ ansible_host }}:9093"
+      ARGS="--cluster.listen-address= --web.external-url=http://{{ ansible_host }}:9093 --web.config.file=/etc/prometheus/alertmanager-web.yml"
     mode: "0644"
   notify: Redémarrer Alertmanager
 

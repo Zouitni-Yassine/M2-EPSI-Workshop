@@ -1,8 +1,10 @@
 # {{ ansible_managed }}
 auth_enabled: false
 
+# HTTP en local uniquement : nginx (port 3100) authentifie puis relaie
 server:
-  http_listen_port: 3100
+  http_listen_address: 127.0.0.1
+  http_listen_port: 3101
   grpc_listen_address: 127.0.0.1
   grpc_listen_port: 9096
   log_level: info
@@ -38,9 +40,6 @@ compactor:
   working_directory: /var/lib/loki/compactor
   retention_enabled: true
   delete_request_store: filesystem
-
-ruler:
-  alertmanager_url: http://127.0.0.1:9093
 
 analytics:
   reporting_enabled: false

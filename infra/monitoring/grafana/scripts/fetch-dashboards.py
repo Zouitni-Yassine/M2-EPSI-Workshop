@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Télécharge les dashboards publics de grafana.com (révisions figées), les adapte
 aux sources de données provisionnées et à nos métriques/labels, puis les écrit dans
-roles/grafana/files/dashboards/<Dossier>/<uid>.json. Le résultat est versionné dans
+dashboards/<Dossier>/<uid>.json. Le résultat est versionné dans
 le dépôt : le déploiement Ansible ne dépend donc pas de grafana.com.
 
 Les corrections propres à notre stack (labels host/role, métriques non collectées,
@@ -13,14 +13,14 @@ Dashboards maintenus à la main (absents de la liste, à éditer directement) :
   - Docker Swarm/swarm-overview.json   (vue d'ensemble Swarm)
   - Docker Swarm/docker-containers.json (conteneurs cAdvisor)
 
-Usage (depuis infra/ansible) : python3 scripts/fetch-dashboards.py
+Usage (depuis infra/monitoring/grafana) : python3 scripts/fetch-dashboards.py
 """
 import json
 import pathlib
 import re
 import urllib.request
 
-# Type de source -> uid provisionné (roles/grafana/templates/datasources.yml.j2)
+# Type de source -> uid provisionné (datasources.yml.j2)
 DATASOURCE_UIDS = {"prometheus": "victoriametrics", "loki": "loki"}
 DS_VM = {"type": "prometheus", "uid": "victoriametrics"}
 
@@ -33,7 +33,7 @@ DASHBOARDS = [
     (14950, 22, "Supervision", "vmalert"),
 ]
 
-OUT = pathlib.Path(__file__).resolve().parent.parent / "roles/grafana/files/dashboards"
+OUT = pathlib.Path(__file__).resolve().parent.parent / "dashboards"
 
 
 def fetch(gid: int, rev: int) -> str:

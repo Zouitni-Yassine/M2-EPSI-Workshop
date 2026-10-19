@@ -16,14 +16,15 @@
 
 - name: Sources de données
   ansible.builtin.template:
-    src: datasources.yml.j2
+    src: "{{ monitoring_config_dir }}/grafana/datasources.yml.j2"
     dest: /etc/grafana/provisioning/datasources/monitoring.yml
     owner: root
     group: grafana
     mode: "0640"
+  no_log: true # mots de passe des sources
   notify: Redémarrer Grafana
 
-# Dashboards versionnés dans le dépôt (scripts/fetch-dashboards.py + dashboards maison).
+# Dashboards versionnés dans infra/monitoring/grafana/dashboards (générés par les scripts voisins).
 # Un dossier = un dossier Grafana. Grafana relit les fichiers toutes les 60 s.
 - name: Fournisseur de dashboards
   ansible.builtin.copy:
@@ -47,7 +48,7 @@
 
 - name: Dashboards
   ansible.builtin.copy:
-    src: dashboards/
+    src: "{{ monitoring_config_dir }}/grafana/dashboards/"
     dest: /var/lib/grafana/dashboards/
     owner: root
     group: grafana
@@ -71,7 +72,7 @@
     label: "{{ item.path }}"
   when: >-
     (item.path | relpath('/var/lib/grafana/dashboards')) not in
-    (query('community.general.filetree', role_path ~ '/files/dashboards')
+    (query('community.general.filetree', monitoring_config_dir ~ '/grafana/dashboards')
      | selectattr('state', 'eq', 'file') | map(attribute='path') | list)
 
 - name: Appliquer les changements

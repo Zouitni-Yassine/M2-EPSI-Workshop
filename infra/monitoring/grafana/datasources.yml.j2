@@ -8,6 +8,10 @@ datasources:
     type: prometheus
     access: proxy
     url: http://127.0.0.1:8428
+    basicAuth: true
+    basicAuthUser: {{ monitoring_auth_user }}
+    secureJsonData:
+      basicAuthPassword: {{ vm_auth_password }}
     isDefault: true
     editable: false
     jsonData:
@@ -18,6 +22,10 @@ datasources:
     type: loki
     access: proxy
     url: http://127.0.0.1:3100
+    basicAuth: true
+    basicAuthUser: {{ monitoring_auth_user }}
+    secureJsonData:
+      basicAuthPassword: {{ loki_auth_password }}
     editable: false
 
   - name: Alertmanager
@@ -25,6 +33,10 @@ datasources:
     type: alertmanager
     access: proxy
     url: http://127.0.0.1:9093
+    basicAuth: true
+    basicAuthUser: {{ monitoring_auth_user }}
+    secureJsonData:
+      basicAuthPassword: {{ alertmanager_auth_password }}
     editable: false
     jsonData:
       implementation: prometheus
