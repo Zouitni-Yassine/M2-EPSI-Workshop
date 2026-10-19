@@ -16,7 +16,8 @@ const LABEL: Record<ServiceStatus, string> = {
 }
 
 export function ServiceGrid({ services }: { services: Service[] }) {
-  const down = services.filter((s) => s.status !== 'up').length
+  // Un service inobservable n'est pas en anomalie : on ne sait pas, c'est tout.
+  const down = services.filter((s) => s.status === 'down' || s.status === 'restarting').length
 
   return (
     <Panel title="Conteneurs" aside={down === 0 ? 'Tous actifs' : `${down} en anomalie`}>

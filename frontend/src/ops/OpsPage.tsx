@@ -36,7 +36,7 @@ export function OpsPage() {
       </div>
 
       <div className="flex flex-col gap-5 lg:col-span-8">
-        <AnomalyChart points={snapshot.anomaly} threshold={snapshot.threshold} />
+        <AnomalyChart points={snapshot.anomaly} threshold={snapshot.threshold} detector={snapshot.detector} />
         <ServiceGrid services={snapshot.services} />
         <MetricsRow metrics={snapshot.metrics} />
       </div>

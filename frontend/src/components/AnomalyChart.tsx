@@ -1,4 +1,4 @@
-import type { AnomalyPoint } from '../types'
+import type { AnomalyPoint, DetectorState } from '../types'
 import { Panel } from './Panel'
 
 const W = 600
@@ -11,6 +11,7 @@ const BAD = '#dc2626'
 interface Props {
   points: AnomalyPoint[]
   threshold: number
+  detector: DetectorState
 }
 
 type XY = [number, number]
@@ -38,7 +39,15 @@ function smoothPath(pts: XY[]): string {
  * barrée : le tracé passe au rouge dès qu'il y entre, et c'est tout ce
  * qu'il faut lire.
  */
-export function AnomalyChart({ points, threshold }: Props) {
+export function AnomalyChart({ points, threshold, detector }: Props) {
+  if (detector.status !== 'ready' || points.length < 2) {
+    return (
+      <Panel title="Score d'anomalie" aside="IsolationForest">
+        <Waiting detector={detector} />
+      </Panel>
+    )
+  }
+
   const current = points.at(-1)?.score ?? 0
   const over = current >= threshold
   const span = Math.max(points.length - 1, 1)
@@ -48,28 +57,12 @@ export function AnomalyChart({ points, threshold }: Props) {
 
   const pts: XY[] = points.map((p, i) => [x(i), y(p.score)])
   const line = smoothPath(pts)
-  const area = pts.length >= 2 ? `${line} L ${pts.at(-1)![0]} ${H} L ${pts[0][0]} ${H} Z` : ''
+  const area = `${line} L ${pts.at(-1)![0]} ${H} L ${pts[0][0]} ${H} Z`
   const yT = y(threshold)
-  const last = pts.at(-1)
-
-  if (pts.length < 2) {
-    return (
-      <Panel title="Score d'anomalie" aside="IsolationForest">
-        <div className="grid h-40 place-items-center rounded-lg bg-well/60 px-6 text-center">
-          <p className="max-w-[36ch] text-sm leading-relaxed text-text-2">
-            Détecteur ML non connecté. Le score apparaîtra dès que le moteur de détection
-            alimentera la supervision.
-          </p>
-        </div>
-      </Panel>
-    )
-  }
+  const last = pts.at(-1)!
 
   return (
-    <Panel
-      title="Score d'anomalie"
-      aside={<span>IsolationForest · 120 dernières secondes</span>}
-    >
+    <Panel title="Score d'anomalie" aside={<span>IsolationForest · 120 dernières secondes</span>}>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
@@ -96,10 +89,7 @@ export function AnomalyChart({ points, threshold }: Props) {
         <path d={area} fill="url(#anomalyFill)" />
         <path d={line} fill="none" stroke={GOOD} strokeWidth="2.5" vectorEffect="non-scaling-stroke" clipPath="url(#belowThreshold)" />
         <path d={line} fill="none" stroke={BAD} strokeWidth="2.5" vectorEffect="non-scaling-stroke" clipPath="url(#aboveThreshold)" />
-
-        {last ? (
-          <circle cx={last[0]} cy={last[1]} r="4" fill={over ? BAD : GOOD} stroke="#fff" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-        ) : null}
+        <circle cx={last[0]} cy={last[1]} r="4" fill={over ? BAD : GOOD} stroke="#fff" strokeWidth="2" vectorEffect="non-scaling-stroke" />
       </svg>
 
       <div className="mt-4 flex items-end justify-between gap-6">
@@ -113,10 +103,38 @@ export function AnomalyChart({ points, threshold }: Props) {
           <div className="text-xs text-text-2">Seuil d’alerte</div>
           <div className="text-lg font-semibold">{threshold.toFixed(2)}</div>
         </div>
-        <p className="hidden max-w-[28ch] text-right text-xs leading-relaxed text-text-2 sm:block">
-          Débit, taux de 5xx, latence p95, CPU, RAM, blocages WAF.
+        <p className="hidden max-w-[30ch] text-right text-xs leading-relaxed text-text-2 sm:block">
+          Débit, taux de 5xx, latence p95, latence Stripe, disponibilité de l’API et de Stripe.
         </p>
       </div>
     </Panel>
+  )
+}
+
+function Waiting({ detector }: { detector: DetectorState }) {
+  if (detector.status === 'learning') {
+    const pct = Math.round(detector.progress * 100)
+    return (
+      <div className="grid h-40 place-items-center rounded-lg bg-well/60 px-6 text-center">
+        <div className="w-full max-w-[28rem]">
+          <p className="text-sm font-medium">Apprentissage du trafic normal</p>
+          <p className="mt-1 text-sm text-text-2">
+            Le modèle observe la plateforme avant de pouvoir juger un écart — {pct} %
+          </p>
+          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-edge">
+            <div className="h-full bg-accent transition-[width] duration-700" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="grid h-40 place-items-center rounded-lg bg-well/60 px-6 text-center">
+      <p className="max-w-[36ch] text-sm leading-relaxed text-text-2">
+        {detector.status === 'absent'
+          ? 'Détecteur ML non connecté. Le score apparaîtra dès que le moteur de détection alimentera la supervision.'
+          : 'Modèle prêt — en attente des premiers scores.'}
+      </p>
+    </div>
   )
 }
