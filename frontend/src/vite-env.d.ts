@@ -5,6 +5,7 @@ interface ImportMetaEnv {
   readonly VITE_WS_URL?: string
   readonly VITE_API_URL?: string
   readonly VITE_DETECTOR_URL?: string
+  readonly VITE_REMEDIATION_URL?: string
   readonly VITE_STRIPE_PUBLISHABLE_KEY?: string
 }
 

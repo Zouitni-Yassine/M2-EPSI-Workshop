@@ -19,6 +19,12 @@ interface Status {
   metrics: Metrics
 }
 
+interface RemediationState {
+  status: 'idle' | 'remediating'
+  events: (TimelineEvent & { id: string })[]
+  humanActions: number
+}
+
 interface Score {
   status: 'learning' | 'ready'
   progress: number
@@ -38,7 +44,7 @@ function clock(): string {
  * Chaque appel à l'API est une transaction de contrôle ; le score du
  * détecteur décide seul de l'état « anomalie ».
  */
-export function createApiSource(apiUrl: string, detectorUrl?: string): DataSource {
+export function createApiSource(apiUrl: string, detectorUrl?: string, remediationUrl?: string): DataSource {
   return {
     subscribe(onSnapshot) {
       const startedAt = Date.now()
@@ -49,6 +55,11 @@ export function createApiSource(apiUrl: string, detectorUrl?: string): DataSourc
       let threshold = 0.55
       let detector: DetectorState = { status: 'absent', progress: 0 }
       let detectorOver = false
+      let remediating = false
+      let remediationUp = !remediationUrl
+      let humanActions = 0
+      // Les événements du moteur arrivent avec un identifiant : on ne les affiche qu'une fois.
+      const seen = new Set<string>()
       const canary: CanaryTick[] = []
       let events: TimelineEvent[] = []
       let stopped = false
@@ -92,8 +103,30 @@ export function createApiSource(apiUrl: string, detectorUrl?: string): DataSourc
         }
       }
 
+      const probeRemediation = async () => {
+        if (!remediationUrl) return
+        try {
+          const res = await fetch(`${remediationUrl}/state`, { signal: AbortSignal.timeout(900) })
+          if (!res.ok) throw new Error(String(res.status))
+          const body = (await res.json()) as RemediationState
+          remediationUp = true
+          remediating = body.status === 'remediating'
+          humanActions = body.humanActions
+          // Les plus anciens d'abord, pour que l'ordre d'arrivée reste chronologique.
+          for (const e of [...body.events].reverse()) {
+            if (seen.has(e.id)) continue
+            seen.add(e.id)
+            const incoming: TimelineEvent = { at: e.at, kind: e.kind, text: e.text, actor: 'plateforme' }
+            events = [incoming, ...events].slice(0, 12)
+          }
+        } catch {
+          remediationUp = false
+          remediating = false
+        }
+      }
+
       const tick = async () => {
-        const [probe] = await Promise.all([probeApi(), probeDetector()])
+        const [probe] = await Promise.all([probeApi(), probeDetector(), probeRemediation()])
         if (stopped) return
 
         const { apiUp, stripeUp, ms } = probe
@@ -121,7 +154,7 @@ export function createApiSource(apiUrl: string, detectorUrl?: string): DataSourc
         if (!prev.detector && detectorUp) push('restore', 'Détecteur ML de retour, réapprentissage en cours')
         prev = { api: apiUp, stripe: apiUp ? stripeUp : prev.stripe, over, detector: detectorUp }
 
-        const state: SystemState = !ok || over || !detectorUp ? 'degraded' : 'nominal'
+        const state: SystemState = remediating ? 'remediating' : !ok || over || !detectorUp ? 'degraded' : 'nominal'
         const reason = !apiUp
           ? 'payment-api ne répond pas'
           : !stripeUp
@@ -132,10 +165,11 @@ export function createApiSource(apiUrl: string, detectorUrl?: string): DataSourc
                 ? 'Détecteur ML injoignable : aucune détection possible'
                 : undefined
         const services: Service[] = [
-          { id: 'api', name: 'payment-api', status: apiUp ? 'up' : 'down' },
+          { id: 'api', name: 'payment-api', status: apiUp ? 'up' : remediating ? 'restarting' : 'down' },
           // Sans payment-api, personne ne sonde Stripe : on ne prétend pas savoir.
           { id: 'stripe', name: 'stripe (externe)', status: !apiUp ? 'unknown' : stripeUp ? 'up' : 'down' },
           { id: 'detector', name: 'detector (ML)', status: detector.status === 'absent' ? 'down' : 'up' },
+          ...(remediationUrl ? [{ id: 'remediation', name: 'remediation', status: remediationUp ? 'up' : 'down' } as Service] : []),
           { id: 'front', name: 'frontend', status: 'up' },
         ]
 
@@ -154,7 +188,7 @@ export function createApiSource(apiUrl: string, detectorUrl?: string): DataSourc
           services,
           events,
           metrics: apiUp ? metrics : { ...metrics, errRate: 1 },
-          humanActions: 0,
+          humanActions,
         })
       }
 
