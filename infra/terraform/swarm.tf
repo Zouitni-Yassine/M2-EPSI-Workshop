@@ -92,7 +92,8 @@ resource "proxmox_virtual_environment_vm" "swarm" {
 
   lifecycle {
     # Un rebuild du template ne doit pas recréer les VM existantes
-    ignore_changes = [clone]
+    # node_name : la HA Proxmox peut déplacer la VM (placement porté par ha.tf)
+    ignore_changes = [clone, node_name]
   }
 }
 

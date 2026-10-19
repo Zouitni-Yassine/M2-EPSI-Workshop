@@ -89,7 +89,8 @@ resource "proxmox_virtual_environment_container" "monitoring" {
 
   lifecycle {
     # Une mise à jour du template LXC ne doit pas recréer les conteneurs
-    ignore_changes = [operating_system[0].template_file_id]
+    # node_name : la HA Proxmox peut déplacer le conteneur (placement porté par ha.tf)
+    ignore_changes = [operating_system[0].template_file_id, node_name]
   }
 }
 
