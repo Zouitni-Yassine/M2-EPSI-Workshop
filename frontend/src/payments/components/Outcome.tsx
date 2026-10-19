@@ -1,4 +1,4 @@
-import { euros, localTime } from '../domain/money'
+import { euros } from '../domain/money'
 import type { PaymentIntent } from '../domain/types'
 import { BrandLogo } from './BrandLogo'
 
