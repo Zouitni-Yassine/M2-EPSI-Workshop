@@ -1,0 +1,16 @@
+# Cache et logs Packer
+packer_cache/
+crash.log
+packer-manifest.json
+
+# Variables locales (peuvent contenir des secrets)
+*.pkrvars.hcl
+*.auto.pkrvars.hcl
+!*.pkrvars.hcl.example
+
+# Secrets
+.env
+*.env
+*.pem
+*.key
+id_*
