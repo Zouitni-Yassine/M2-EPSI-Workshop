@@ -1,0 +1,44 @@
+# Stack de démonstration : cible des tests de la passerelle de remédiation, et exemple de
+# référence du contrat de déploiement (docs/contrat-deploiement.md).
+#   docker stack deploy -c demo-stack.yml demo      (sur un manager)
+services:
+  web:
+    image: nginxinc/nginx-unprivileged:1.27-alpine   # utilisateur non root, port 8080
+    read_only: true
+    volumes:
+      # Swarm ignore la clé "tmpfs:" de Compose : passer par un volume de type tmpfs
+      - { type: tmpfs, target: /tmp }
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - back
+    deploy:
+      replicas: 2
+      placement:
+        constraints: [node.role == worker]
+        preferences:
+          - spread: node.labels.pve_node      # réplicas sur des hyperviseurs différents
+        # Pas de max_replicas_per_node : avec order start-first, une mise à jour se bloque dès
+        # que réplicas = workers (aucun nœud libre pour démarrer la nouvelle tâche)
+      resources:
+        limits: { cpus: "0.25", memory: 64M }
+        reservations: { memory: 32M }
+      restart_policy: { condition: any, delay: 5s, window: 30s }
+      update_config:
+        parallelism: 1
+        delay: 5s
+        order: start-first
+        failure_action: rollback
+        monitor: 20s
+      rollback_config:
+        parallelism: 1
+        order: start-first
+
+networks:
+  back:
+    driver: overlay

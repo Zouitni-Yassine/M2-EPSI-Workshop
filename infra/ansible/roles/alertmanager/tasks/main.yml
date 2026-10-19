@@ -60,6 +60,7 @@
       # Géré par Ansible
       basic_auth_users:
         {{ monitoring_auth_user }}: {{ alertmanager_auth_password | password_hash('bcrypt', salt=((inventory_hostname ~ '-alertmanager') | hash('sha256'))[:21] ~ 'e', ident='2b') }}
+        remediation: {{ remediation_am_password | password_hash('bcrypt', salt=((inventory_hostname ~ '-alertmanager-remediation') | hash('sha256'))[:21] ~ 'e', ident='2b') }}
     owner: root
     group: prometheus
     mode: "0640"

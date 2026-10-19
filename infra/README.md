@@ -24,11 +24,15 @@ infra/
 │   ├── alertmanager/         alertmanager.yml.j2 (routage Discord / healthchecks.io)
 │   ├── loki/                 config.yml.j2, reverse proxy nginx
 │   ├── alloy/                Agent de logs (journald -> Loki)
-│   └── grafana/              Sources de données, dashboards JSON, scripts de génération
+│   ├── grafana/              Sources de données, dashboards JSON, scripts de génération
+│   └── swarm/                vmagent dans le Swarm : métriques des services applicatifs
+├── remediation/              Stack de démo (exemple de référence) et test de la passerelle
 └── docs/
     ├── architecture.md       Architecture, plan d'adressage, choix techniques et limites
     ├── deploiement.md        Déploiement pas à pas, opérations courantes, dépannage
-    └── supervision.md        Métriques, logs, alertes, dashboards, sécurité de la stack
+    ├── supervision.md        Métriques, logs, alertes, dashboards, sécurité de la stack
+    ├── contrat-deploiement.md  Règles de déploiement des applications (pour les développeurs)
+    └── remediation.md        Passerelle de remédiation : actions, garde-fous, tests
 ```
 
 ## Vue d'ensemble

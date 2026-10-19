@@ -1,0 +1,9 @@
+{{ {
+  "allowed_stacks": remediation_allowed_stacks,
+  "scale_min": remediation_scale_min,
+  "scale_max": remediation_scale_max,
+  "max_actions": remediation_max_actions,
+  "window_seconds": remediation_window_seconds,
+  "cooldown_seconds": remediation_cooldown_seconds,
+  "timeout_seconds": remediation_timeout_seconds
+} | to_nice_json }}

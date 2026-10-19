@@ -24,5 +24,6 @@ fichiers posés par Ansible sur les serveurs.
 | `grafana/datasources.yml.j2` | Sources VictoriaMetrics, Loki, Alertmanager | | monitoring01 |
 | `grafana/dashboards/<Dossier>/` | Dashboards JSON ; un dossier = un dossier Grafana | | monitoring01 |
 | `grafana/scripts/` | Génération (`gen-*.py`) et import figé (`fetch-dashboards.py`) des dashboards | | poste de contrôle |
+| `swarm/stack.yml.j2`, `swarm/scrape.yml.j2` | vmagent dans le Swarm : `/metrics` des services applicatifs (cibles : `swarm_scrape_targets`) | | stack Swarm `monitoring` |
 
 Documentation : [../docs/supervision.md](../docs/supervision.md).

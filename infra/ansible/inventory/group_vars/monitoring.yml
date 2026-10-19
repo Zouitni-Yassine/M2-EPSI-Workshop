@@ -1,11 +1,7 @@
 host_role: monitoring
 
-# VictoriaMetrics (binaires officiels GitHub, checksum vérifié)
-vm_version: v1.154.0
+# vm_version et scrape_interval : voir all.yml (partagés avec le vmagent du Swarm)
 vm_retention: 30d
-# Doit être égal à l'intervalle de scrape : les 2 vmagents envoient les mêmes séries,
-# VictoriaMetrics n'en garde qu'un échantillon par intervalle.
-scrape_interval: 30s
 
 # Buffer disque des vmagents si monitoring01 est injoignable
 vmagent_buffer_max: 8GB
@@ -21,8 +17,6 @@ healthchecks_ping_url: "{{ lookup('ansible.builtin.env', 'HEALTHCHECKS_PING_URL'
 discord_webhook_url: "{{ lookup('ansible.builtin.env', 'DISCORD_WEBHOOK_URL') }}"
 pve_monitor_token_id: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_ID') }}"
 pve_monitor_token_secret: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_SECRET') }}"
-# VictoriaMetrics, vmagent et vmalert partagent le même mot de passe
-vm_auth_password: "{{ lookup('ansible.builtin.env', 'VM_AUTH_PASSWORD') }}"
 alertmanager_auth_password: "{{ lookup('ansible.builtin.env', 'ALERTMANAGER_AUTH_PASSWORD') }}"
 
 # Réseaux autorisés sur les ports de supervision (firewall des LXC)

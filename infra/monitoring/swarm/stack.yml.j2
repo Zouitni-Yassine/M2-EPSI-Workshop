@@ -1,0 +1,53 @@
+# {{ ansible_managed }}
+# Stack "monitoring" du Swarm, déployée par le rôle swarm_monitoring.
+services:
+  vmagent:
+    image: victoriametrics/vmagent:{{ vm_version }}
+    command:
+      - -httpListenAddr=:8429
+      - -promscrape.config=/etc/vmagent/scrape.yml
+      - -remoteWrite.url=http://{{ monitoring_core_ip }}:8428/api/v1/write
+      - -remoteWrite.basicAuth.username={{ monitoring_auth_user }}
+      - -remoteWrite.basicAuth.passwordFile=/run/secrets/vm_auth_password
+      - -remoteWrite.tmpDataPath=/vmagent-data
+      - -remoteWrite.maxDiskUsagePerURL=1GB
+    configs:
+      - source: scrape
+        target: /etc/vmagent/scrape.yml
+    secrets:
+      - vm_auth_password
+    volumes:
+      - vmagent-data:/vmagent-data
+    networks:
+      - monitoring
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == worker]
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+      restart_policy: { condition: any, delay: 5s }
+      update_config: { order: start-first, failure_action: rollback }
+      labels:
+        com.epsi.role: monitoring-agent
+
+networks:
+  # Réseau des métriques : les services applicatifs qui exposent /metrics s'y attachent
+  monitoring:
+    name: monitoring
+    driver: overlay
+    attachable: true
+    driver_opts:
+      encrypted: "true"
+
+configs:
+  scrape:
+    name: vmagent_swarm_scrape_{{ swarm_scrape_config | hash('sha1') | truncate(12, true, '') }}
+    external: true
+
+secrets:
+  vm_auth_password:
+    external: true
+
+volumes:
+  vmagent-data:

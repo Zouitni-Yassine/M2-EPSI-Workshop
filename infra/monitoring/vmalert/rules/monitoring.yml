@@ -8,7 +8,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "{{ $labels.job }} injoignable sur {{ $labels.host }}"
+          summary: "{{ $labels.job }} injoignable sur {{ or $labels.host $labels.instance }}"
 
   - name: vmagent
     rules:

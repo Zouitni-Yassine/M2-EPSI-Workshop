@@ -15,3 +15,15 @@ monitoring_config_dir: "{{ playbook_dir | dirname }}/monitoring"
 # Celui de Loki sert aussi aux nœuds Swarm (Alloy) : source /root/.monitoring-env avant tout playbook.
 monitoring_auth_user: monitoring
 loki_auth_password: "{{ lookup('ansible.builtin.env', 'LOKI_AUTH_PASSWORD') }}"
+# VictoriaMetrics, vmagent et vmalert partagent le même mot de passe (aussi utilisé par le
+# vmagent qui collecte les métriques applicatives dans le Swarm)
+vm_auth_password: "{{ lookup('ansible.builtin.env', 'VM_AUTH_PASSWORD') }}"
+# Compte Alertmanager du moteur de remédiation (utilisateur "remediation") : il lit les
+# alertes par l'API au lieu d'exposer un port de webhook. Secret Swarm remediation_alertmanager_password.
+remediation_am_password: "{{ lookup('ansible.builtin.env', 'REMEDIATION_AM_PASSWORD') }}"
+
+# VictoriaMetrics (binaires officiels GitHub, checksum vérifié ; même version pour l'image Docker)
+vm_version: v1.154.0
+# Doit être égal à l'intervalle de scrape : les 2 vmagents envoient les mêmes séries,
+# VictoriaMetrics n'en garde qu'un échantillon par intervalle.
+scrape_interval: 30s

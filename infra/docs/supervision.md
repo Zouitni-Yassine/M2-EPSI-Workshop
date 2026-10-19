@@ -145,8 +145,19 @@ Configuration : `monitoring/vmagent/scrape.yml.j2`. Intervalle de scrape : 30 s.
 cAdvisor tourne hors Swarm, en réseau `host` : son port passe ainsi par le pare-feu de l'hôte, ce
 qui n'est pas le cas d'un port publié par Swarm.
 
-**À venir** : découverte automatique des services applicatifs Swarm (`dockerswarm_sd_configs`)
-pour scraper leurs `/metrics`, sur la base d'un label convenu avec les développeurs.
+**Services applicatifs** : un second vmagent tourne *dans* le Swarm (stack `monitoring`,
+`infra/monitoring/swarm/`). Les vmagents des LXC ne voient pas les réseaux overlay, et la
+découverte par l'API Docker obligerait à exposer celle-ci. Ce vmagent :
+
+- est attaché au réseau overlay chiffré `monitoring`, que les services exposant des métriques
+  rejoignent ;
+- trouve chaque réplica par DNS (`tasks.<service>`), sans accès à l'API Docker ;
+- envoie ses séries à VictoriaMetrics en remote write authentifié (secret Swarm
+  `vm_auth_password`), avec un tampon disque de 1 Go.
+
+Les cibles sont déclarées dans `swarm_scrape_targets` (`inventory/group_vars/swarm.yml`). Chaque
+service devient un `job`, avec les labels `service` et `stack`. Règles côté développeurs :
+[contrat-deploiement.md](contrat-deploiement.md#4-métriques).
 
 ## 6. Logs
 

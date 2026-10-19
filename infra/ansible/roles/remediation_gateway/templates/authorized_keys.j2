@@ -1,0 +1,3 @@
+# {{ ansible_managed }}
+# Clé du moteur de remédiation : uniquement la passerelle, uniquement depuis les workers
+restrict,command="/usr/local/bin/remediate-ssh",from="{{ groups['swarm_workers'] | map('extract', hostvars, 'ansible_host') | join(',') }}" {{ remediation_pubkey }}
