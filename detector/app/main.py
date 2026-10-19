@@ -13,6 +13,7 @@ remédiation s'en sert pour décider.
 from __future__ import annotations
 
 import collections
+import hmac
 import os
 import threading
 import time
@@ -20,7 +21,7 @@ from typing import Any
 
 import numpy as np
 import requests
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sklearn.ensemble import IsolationForest
 
@@ -32,6 +33,11 @@ THRESHOLD = float(os.getenv("THRESHOLD", "0.55"))
 PERSISTENCE = int(os.getenv("PERSISTENCE", "3"))
 WINDOW = 120
 
+# Qui a le droit de réinitialiser le modèle. Sans jeton, personne : effacer la
+# normale, c'est aveugler la détection — exactement ce qu'un attaquant voudrait.
+ADMIN_TOKEN = os.getenv("DETECTOR_ADMIN_TOKEN", "")
+ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:4173").split(",") if o.strip()]
+
 # Six variables, toutes réellement observées sur payment-api.
 FEATURES = ["rps", "errRate", "p95", "stripeLatency", "apiUp", "stripeUp"]
 
@@ -41,7 +47,7 @@ FEATURES = ["rps", "errRate", "p95", "stripeLatency", "apiUp", "stripeUp"]
 SCALE_FLOOR = np.array([1.0, 0.05, 100.0, 100.0, 0.5, 0.5])
 
 app = FastAPI(title="Resilience Pay — détecteur", version="0.1.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=["GET"], allow_headers=["*"])
 
 _lock = threading.Lock()
 _state: dict[str, Any] = {
@@ -160,8 +166,12 @@ def score() -> dict[str, Any]:
 
 
 @app.post("/reset")
-def reset() -> dict[str, Any]:
-    """Réapprend la normale à partir de maintenant. Utile après un changement de topologie."""
+def reset(x_admin_token: str = Header(default="")) -> dict[str, Any]:
+    """Réapprend la normale à partir de maintenant. Réservé à l'opérateur qui détient le jeton."""
+    if not ADMIN_TOKEN:
+        raise HTTPException(status_code=503, detail="DETECTOR_ADMIN_TOKEN non configuré : réinitialisation désactivée")
+    if not hmac.compare_digest(x_admin_token, ADMIN_TOKEN):
+        raise HTTPException(status_code=403, detail="Jeton d'administration invalide")
     with _lock:
         _state.update(status="learning", model=None, mu=None, sd=None, train=[], trained_at=None, ema=None, streak=0, over=False)
         _state["points"].clear()
