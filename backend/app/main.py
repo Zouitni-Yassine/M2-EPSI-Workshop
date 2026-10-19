@@ -22,6 +22,8 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from . import paypal
+
 load_dotenv()
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
@@ -230,7 +232,12 @@ def _stripe(call, *args, **kwargs):
 @api.get("/health")
 def health() -> dict[str, Any]:
     key = stripe.api_key
-    return {"ok": True, "stripe": bool(key), "mode": "test" if key.startswith("sk_test_") else "live" if key else "none"}
+    return {
+        "ok": True,
+        "stripe": bool(key),
+        "mode": "test" if key.startswith("sk_test_") else "live" if key else "none",
+        "paypal": paypal.configured(),
+    }
 
 
 @api.get("/status")
@@ -241,9 +248,11 @@ def status() -> dict[str, Any]:
     p95 = latencies[max(0, int(len(latencies) * 0.95) - 1)] if latencies else 0.0
     errors = sum(1 for _, _, code in window if code >= 500)
     probe = probe_stripe()
+    pp = paypal.probe()
     return {
         "api": "up",
         "stripe": {"up": probe["up"], "latencyMs": probe["ms"]},
+        "paypal": {"configured": paypal.configured(), "up": pp["up"], "latencyMs": pp["ms"]},
         "metrics": {
             "rps": round(len(window) / 10, 1),
             "errRate": errors / len(window) if window else 0.0,
@@ -298,4 +307,5 @@ def balance() -> dict[str, Any]:
     return {"available": eur(bal.available), "pending": eur(bal.pending), "nextPayoutAt": tomorrow.isoformat()}
 
 
+api.include_router(paypal.router)
 app.include_router(api)

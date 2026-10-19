@@ -51,11 +51,32 @@ la même sémantique (mêmes cartes, mêmes statuts, mêmes codes de refus) sans
 dit dans une bannière « Mode hors ligne ». Dans ce mode seulement, le 3-D Secure est simulé
 par notre propre fenêtre avec le code `1234`.
 
-## Un contrat, deux moteurs
+## Paiement : PayPal en sandbox
+
+Quand `VITE_PAYPAL_CLIENT_ID` est renseigné **et** que `GET /api/health` répond `"paypal": true`,
+un panneau **Payer avec PayPal** s'affiche au-dessus du formulaire carte. Il s'ajoute au moteur
+carte, qu'il s'agisse de Stripe ou de la simulation locale.
+
+1. Le bouton vient du SDK JS v6 de PayPal (`@paypal/react-paypal-js/sdk-v6`), chargé avec
+   `environment="sandbox"` en dur.
+2. Au clic, le front demande au backend de créer la commande (`POST /api/paypal/orders`).
+3. Le payeur se connecte dans la fenêtre PayPal avec un **compte acheteur sandbox**
+   (developer.paypal.com > Testing Tools > Sandbox Accounts, compte *Personal*).
+4. Après approbation, le backend capture (`POST /api/paypal/orders/:id/capture`). Le stepper
+   avance, le reçu et l'onglet Transactions affichent le paiement avec la marque PayPal.
+
+Sans Internet, le panneau indique que PayPal n'a pas pu être chargé : le paiement par carte
+reste disponible.
+
+> Le paiement PayPal exige un clic humain dans la fenêtre PayPal. Il ne peut donc pas servir
+> de transaction de contrôle automatique après la remédiation : le canary reste sur la carte.
+
+## Un contrat, deux moteurs (et PayPal à côté)
 
 | Contrat | Fichier | Implémentations |
 | --- | --- | --- |
 | `PaymentEngine` | `src/payments/domain/types.ts` | `engine/stripeEngine.ts` (backend + Stripe.js), `engine/localEngine.ts` (hors ligne) |
+| `PayPalCheckout` | `src/payments/engine/paypalCheckout.ts` | Commandes PayPal via le backend ; renvoie le même `PaymentIntent` avec `method: 'paypal'` |
 | `DataSource` (supervision) | `src/types.ts` | `data/liveSource.ts` (WebSocket), `data/mockSource.ts` (scénario) |
 
 Les composants ne savent pas quel moteur tourne. Le choix se fait une fois par session
@@ -65,6 +86,7 @@ dans `engine/index.ts`.
 # .env
 VITE_API_URL=http://localhost:8000/api
 VITE_STRIPE_PUBLISHABLE_KEY=pk_test_xxx
+VITE_PAYPAL_CLIENT_ID=...      # client ID de l'app PayPal sandbox (facultatif)
 VITE_DATA_SOURCE=mock          # ou live, avec VITE_WS_URL
 ```
 

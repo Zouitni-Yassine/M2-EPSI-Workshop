@@ -63,3 +63,15 @@ export function BrandLogo({ brand, className = '' }: Props) {
     </svg>
   )
 }
+
+/** Libellé du moyen de paiement PayPal, dans le même esprit que le VISA ci-dessus. */
+export function PayPalMark({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 64 16" className={className} role="img" aria-label="PayPal">
+      <text x="0" y="13" fontFamily="Inter, Arial, sans-serif" fontWeight="800" fontStyle="italic" fontSize="15" letterSpacing="-0.4">
+        <tspan fill="#003087">Pay</tspan>
+        <tspan fill="#0079c1">Pal</tspan>
+      </text>
+    </svg>
+  )
+}

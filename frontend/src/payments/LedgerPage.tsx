@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { euros, localTime } from './domain/money'
 import type { Balance, IntentStatus, PaymentIntent } from './domain/types'
 import { usePaymentEngine } from './engine'
-import { BrandLogo } from './components/BrandLogo'
+import { BrandLogo, PayPalMark } from './components/BrandLogo'
 
 const STATUS_LABEL: Record<IntentStatus, string> = {
   requires_confirmation: 'À confirmer',
@@ -28,7 +28,11 @@ export function LedgerPage({ version }: { version: number }) {
 
   useEffect(() => {
     if (!choice) return
-    void choice.engine.list().then(setRows)
+    // Les paiements PayPal s'ajoutent à ceux du moteur carte ; une panne PayPal ne vide pas le journal.
+    const paypal = choice.paypal?.list().catch(() => []) ?? Promise.resolve([])
+    void Promise.all([choice.engine.list(), paypal]).then(([cards, wallets]) =>
+      setRows([...cards, ...wallets].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))),
+    )
     void choice.engine.balance().then(setBalance)
   }, [choice, version])
 
@@ -70,7 +74,7 @@ export function LedgerPage({ version }: { version: number }) {
               <tr className="border-b border-edge bg-well/60 text-left text-xs font-medium text-text-2">
                 <th className="px-6 py-3">Montant</th>
                 <th className="px-6 py-3">État</th>
-                <th className="px-6 py-3">Carte</th>
+                <th className="px-6 py-3">Moyen</th>
                 <th className="px-6 py-3">Référence</th>
                 <th className="px-6 py-3 text-right">Date</th>
               </tr>
@@ -92,12 +96,21 @@ export function LedgerPage({ version }: { version: number }) {
                     {r.error ? <span className="ml-2 text-xs text-text-2">{r.error.code}</span> : null}
                   </td>
                   <td className="px-6 py-3.5">
-                    <span className="inline-flex items-center gap-2">
-                      <span className="h-4 w-7 text-[#1a1f71]">
-                        <BrandLogo brand={r.card.brand} className="h-full w-full" />
+                    {r.method === 'paypal' ? (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-4 w-14">
+                          <PayPalMark className="h-full w-full" />
+                        </span>
+                        <span className="text-text-2">{r.card.holder}</span>
                       </span>
-                      <span className="text-text-2">•••• {r.card.last4}</span>
-                    </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-4 w-7 text-[#1a1f71]">
+                          <BrandLogo brand={r.card.brand} className="h-full w-full" />
+                        </span>
+                        <span className="text-text-2">•••• {r.card.last4}</span>
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-3.5 text-text-2">{r.reference}</td>
                   <td className="px-6 py-3.5 text-right text-text-2">
@@ -156,8 +169,15 @@ function Drawer({ intent, onClose }: { intent: PaymentIntent; onClose: () => voi
 
         <dl className="divide-y divide-edge border-b border-edge text-sm">
           {[
-            ['Carte', `${intent.card.brand} •••• ${intent.card.last4}`],
-            ['Titulaire', intent.card.holder],
+            ...(intent.method === 'paypal'
+              ? [
+                  ['Moyen de paiement', 'PayPal (sandbox)'],
+                  ['Payeur', intent.card.holder],
+                ]
+              : [
+                  ['Carte', `${intent.card.brand} •••• ${intent.card.last4}`],
+                  ['Titulaire', intent.card.holder],
+                ]),
             ['Identifiant', intent.id],
             ['Clé d’idempotence', intent.idempotencyKey],
             ...(intent.error ? [['Motif du refus', intent.error.code]] : []),

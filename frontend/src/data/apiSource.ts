@@ -16,6 +16,8 @@ const TIMEOUT_MS = 3000
 interface Status {
   api: 'up'
   stripe: { up: boolean; latencyMs: number }
+  /** Absent sur un backend plus ancien ; `configured: false` tant que PayPal n'est pas branché. */
+  paypal?: { configured: boolean; up: boolean; latencyMs: number }
   metrics: Metrics
 }
 
@@ -55,7 +57,9 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
     subscribe(onSnapshot) {
       const startedAt = Date.now()
       let seq = 0
-      let prev = { api: true, stripe: true, over: false, detector: true }
+      let prev = { api: true, stripe: true, paypal: true, over: false, detector: true }
+      // La tuile PayPal n'apparaît qu'une fois que payment-api l'a annoncé comme configuré.
+      let paypalSeen = false
       let metrics: Metrics = { rps: 0, errRate: 0, p95: 0, wafBlocks: 0 }
       let anomaly: AnomalyPoint[] = []
       let threshold = 0.55
@@ -85,10 +89,11 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
           return {
             apiUp: true,
             stripeUp: body.stripe.up,
+            paypal: body.paypal,
             ms: Math.round(performance.now() - t0) + body.stripe.latencyMs,
           }
         } catch {
-          return { apiUp: false, stripeUp: false, ms: TIMEOUT_MS }
+          return { apiUp: false, stripeUp: false, paypal: undefined, ms: TIMEOUT_MS }
         }
       }
 
@@ -135,7 +140,7 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
         const [probe] = await Promise.all([probeApi(), probeDetector(), probeRemediation()])
         if (stopped) return
 
-        const { apiUp, stripeUp, ms } = probe
+        const { apiUp, stripeUp, paypal, ms } = probe
         const ok = apiUp && stripeUp
         canary.push({ seq: seq++, ok, ms })
         if (canary.length > RIBBON) canary.shift()
@@ -148,6 +153,11 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
         if (!prev.api && apiUp) push('restore', 'payment-api répond de nouveau')
         if (apiUp && prev.stripe && !stripeUp) push('detect', 'Stripe injoignable depuis payment-api')
         if (apiUp && !prev.stripe && stripeUp) push('restore', 'Stripe joignable de nouveau')
+        // PayPal est un moyen de paiement en plus : sa panne s'affiche, mais ne rougit pas le canary carte.
+        const paypalUp = paypal?.up ?? false
+        paypalSeen ||= Boolean(paypal?.configured)
+        if (apiUp && paypal?.configured && prev.paypal && !paypalUp) push('detect', 'PayPal sandbox injoignable depuis payment-api')
+        if (apiUp && paypal?.configured && !prev.paypal && paypalUp) push('restore', 'PayPal sandbox joignable de nouveau')
         if (!prev.over && over) {
           push('detect', `Score ML ${current.toFixed(2)} au-dessus du seuil ${threshold.toFixed(2)} — anomalie confirmée`)
         }
@@ -158,7 +168,13 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
         const detectorUp = !detectorUrl || detector.status !== 'absent'
         if (prev.detector && !detectorUp) push('detect', 'Détecteur ML injoignable — la plateforme ne surveille plus rien')
         if (!prev.detector && detectorUp) push('restore', 'Détecteur ML de retour, réapprentissage en cours')
-        prev = { api: apiUp, stripe: apiUp ? stripeUp : prev.stripe, over, detector: detectorUp }
+        prev = {
+          api: apiUp,
+          stripe: apiUp ? stripeUp : prev.stripe,
+          paypal: apiUp && paypal?.configured ? paypalUp : prev.paypal,
+          over,
+          detector: detectorUp,
+        }
 
         const state: SystemState = remediating ? 'remediating' : !ok || over || !detectorUp ? 'degraded' : 'nominal'
         const reason = !apiUp
@@ -174,6 +190,9 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
           { id: 'api', name: 'payment-api', status: apiUp ? 'up' : remediating ? 'restarting' : 'down' },
           // Sans payment-api, personne ne sonde Stripe : on ne prétend pas savoir.
           { id: 'stripe', name: 'stripe (externe)', status: !apiUp ? 'unknown' : stripeUp ? 'up' : 'down' },
+          ...(paypalSeen
+            ? [{ id: 'paypal', name: 'paypal (externe)', status: !apiUp ? 'unknown' : paypalUp ? 'up' : 'down' } as Service]
+            : []),
           { id: 'detector', name: 'detector (ML)', status: detector.status === 'absent' ? 'down' : 'up' },
           ...(remediationUrl ? [{ id: 'remediation', name: 'remediation', status: remediationUp ? 'up' : 'down' } as Service] : []),
           { id: 'front', name: 'frontend', status: 'up' },

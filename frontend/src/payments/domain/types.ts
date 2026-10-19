@@ -7,6 +7,9 @@ export type Brand = 'visa' | 'mastercard' | 'amex' | 'unknown'
 
 export type Provider = 'local' | 'stripe'
 
+/** Absent = carte. PayPal se branche à côté du moteur carte, quel qu'il soit. */
+export type PaymentMethod = 'card' | 'paypal'
+
 /**
  * Machine à états reprise de Stripe. Le moteur local et le backend
  * produisent exactement les mêmes transitions.
@@ -58,6 +61,8 @@ export interface PaymentIntent {
   amount: Cents
   currency: 'EUR'
   status: IntentStatus
+  method?: PaymentMethod
+  /** Pour PayPal : pas de carte, seul `holder` (le nom du payeur) est renseigné. */
   card: CardSummary
   createdAt: string
   reference: string
