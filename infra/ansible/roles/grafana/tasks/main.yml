@@ -34,7 +34,7 @@
       providers:
         - name: monitoring
           type: file
-          disableDeletion: true
+          disableDeletion: false # un fichier retiré du dépôt retire le dashboard
           allowUiUpdates: false
           updateIntervalSeconds: 60
           options:
@@ -53,6 +53,26 @@
     group: grafana
     mode: "0644"
     directory_mode: "0755"
+
+# copy n'efface rien : un dashboard retiré du dépôt doit aussi disparaître du serveur
+- name: Dashboards présents sur le serveur
+  ansible.builtin.find:
+    paths: /var/lib/grafana/dashboards
+    patterns: "*.json"
+    recurse: true
+  register: grafana_dashboards_found
+
+- name: Supprimer les dashboards retirés du dépôt
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ grafana_dashboards_found.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: >-
+    (item.path | relpath('/var/lib/grafana/dashboards')) not in
+    (query('community.general.filetree', role_path ~ '/files/dashboards')
+     | selectattr('state', 'eq', 'file') | map(attribute='path') | list)
 
 - name: Appliquer les changements
   ansible.builtin.meta: flush_handlers

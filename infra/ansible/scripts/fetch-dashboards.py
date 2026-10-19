@@ -25,10 +25,9 @@ DATASOURCE_UIDS = {"prometheus": "victoriametrics", "loki": "loki"}
 DS_VM = {"type": "prometheus", "uid": "victoriametrics"}
 
 # (id grafana.com, révision, dossier Grafana, uid stable)
+# Proxmox & Ceph : dashboard maison, voir gen-proxmox-dashboard.py
 DASHBOARDS = [
     (1860, 45, "Infrastructure", "node-exporter-full"),
-    (10347, 5, "Infrastructure", "proxmox"),
-    (2842, 18, "Infrastructure", "ceph-cluster"),
     (10229, 60, "Supervision", "victoriametrics"),
     (12683, 42, "Supervision", "vmagent"),
     (14950, 22, "Supervision", "vmalert"),
@@ -204,76 +203,6 @@ def patch_node_exporter_full(d):
     harmonize(d, "Nœuds - Node Exporter Full", ["infrastructure", "node-exporter"])
 
 
-def patch_proxmox(d):
-    # Une seule cible pve-exporter : la variable instance est masquée.
-    for v in d["templating"]["list"]:
-        if v["name"] == "instance":
-            v["hide"] = 2
-            v["refresh"] = 2
-    for p in all_panels(d):
-        for t in p.get("targets", []) or []:
-            if t.get("expr"):
-                # Filtre instance manquant sur la 2e moitié de la requête Disk IO
-                t["expr"] = t["expr"].replace("rate(pve_disk_read_bytes[5m])",
-                                              'rate(pve_disk_read_bytes{instance="$instance"}[5m])')
-                t["expr"] = t["expr"].replace("[5m]", "[$__rate_interval]")
-    harmonize(d, "Proxmox - cluster", ["infrastructure", "proxmox"])
-
-
-def patch_ceph_cluster(d):
-    # Révision sans __inputs : les panels pointent sur ${DS_PROMETHEUS}.
-    raw = json.dumps(d).replace('"${DS_PROMETHEUS}"', json.dumps(DS_VM))
-    raw = raw.replace('"$DS_PROMETHEUS"', json.dumps(DS_VM))
-    d.clear()
-    d.update(json.loads(raw))
-    d["templating"]["list"] = []  # DS_PROMETHEUS et $interval (5s par défaut : trop court)
-    for p in all_panels(d):
-        for obj in [p] + (p.get("targets") or []):
-            if obj.get("interval") == "$interval":
-                del obj["interval"]
-    sub_exprs(d, [("[$interval]", "[$__rate_interval]"), ("irate(", "rate("), ("[5m]", "[$__rate_interval]")])
-    # Ceph >= Reef/Squid : les compteurs de perf OSD (ceph_osd_op_*) ne sont plus
-    # exposés par le module prometheus du mgr (ils passent par ceph-exporter, non
-    # déployé). On utilise les compteurs par pool équivalents.
-    sub_exprs(d, [
-        ("ceph_osd_op_w_in_bytes", "ceph_pool_wr_bytes"),
-        ("ceph_osd_op_r_out_bytes", "ceph_pool_rd_bytes"),
-        ("ceph_osd_op_w{", "ceph_pool_wr{"),
-        ("ceph_osd_op_r{", "ceph_pool_rd{"),
-        ("ceph_pg_wait_backfill{", "ceph_pg_backfill_wait{"),
-        ("ceph_pg_backfill{", "ceph_pg_backfilling{"),
-        ("sum(ceph_unclean_pgs{})", "sum(ceph_pg_total{}) - sum(ceph_pg_clean{})"),
-    ])
-    for pid, t in [(4, "Débit écriture (pools)"), (5, "Débit lecture (pools)"),
-                   (9, "Octets écrits (cumul pools)"), (10, "Octets lus (cumul pools)"),
-                   (12, "IOPS écriture (pools)"), (13, "IOPS lecture (pools)"),
-                   (30, "IOPS (pools)"), (31, "Débit cluster (pools)"), (49, "Objets (total)")]:
-        set_title(d, pid, t)
-    set_targets(d, 23, [("sum(ceph_pg_total{})", "")], title="PGs (total)")
-    set_targets(d, 37, [("count by (objectstore) (ceph_osd_metadata{})", "{{objectstore}}")],
-                title="OSD par type de stockage")
-    set_targets(d, 52, [("sum(ceph_pool_recovering_objects_per_sec{})", "objets/s")],
-                title="Récupération (objets/s)")
-    # Débits : unité par seconde
-    for pid in (31,):
-        for p in all_panels(d):
-            if p["id"] == pid:
-                p["fieldConfig"]["defaults"]["unit"] = "Bps"
-    # Panneaux node_exporter : limités aux hyperviseurs Ceph, légende par host.
-    set_targets(d, 43, [('node_memory_MemTotal_bytes{role="pve"} - node_memory_MemAvailable_bytes{role="pve"}', "{{host}}")],
-                title="Mémoire utilisée des nœuds Ceph")
-    set_targets(d, 44, [('100 * (1 - avg by (host) (rate(node_cpu_seconds_total{role="pve", mode="idle"}[$__rate_interval])))', "{{host}}")],
-                title="CPU des nœuds Ceph")
-    set_targets(d, 45, [('sum by (host) (rate(node_disk_read_bytes_total{role="pve"}[$__rate_interval]))', "{{host}}")],
-                title="Lecture disque des nœuds Ceph", unit="Bps")
-    set_targets(d, 46, [('sum by (host) (rate(node_disk_written_bytes_total{role="pve"}[$__rate_interval]))', "{{host}}")],
-                title="Écriture disque des nœuds Ceph", unit="Bps")
-    set_targets(d, 47, [('100 * node_filesystem_avail_bytes{role="pve", mountpoint="/"} / node_filesystem_size_bytes{role="pve", mountpoint="/"}', "{{host}}")],
-                title="Espace libre / des nœuds Ceph")
-    set_title(d, 42, "Nœuds Ceph (node_exporter)")
-    # Métriques non disponibles : sessions mon, latences par op OSD, MDS/RGW absents.
-    remove_panels(d, [16, 26, 27, 56, 57, 58, 63, 64])
-    harmonize(d, "Ceph - cluster", ["infrastructure", "ceph"])
 
 
 def patch_victoriametrics(d):
@@ -296,8 +225,6 @@ def patch_vmalert(d):
 
 PATCHES = {
     "node-exporter-full": patch_node_exporter_full,
-    "proxmox": patch_proxmox,
-    "ceph-cluster": patch_ceph_cluster,
     "victoriametrics": patch_victoriametrics,
     "vmagent": patch_vmagent,
     "vmalert": patch_vmalert,

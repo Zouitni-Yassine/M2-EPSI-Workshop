@@ -30,7 +30,7 @@
   "version": 1,
   "links": [
     {
-      "title": "Proxmox",
+      "title": "Proxmox & Ceph",
       "type": "link",
       "url": "/d/proxmox",
       "icon": "dashboard",
@@ -39,19 +39,7 @@
       "targetBlank": false,
       "asDropdown": false,
       "tags": [],
-      "tooltip": "Dashboard détaillé Proxmox"
-    },
-    {
-      "title": "Ceph",
-      "type": "link",
-      "url": "/d/ceph-cluster",
-      "icon": "dashboard",
-      "keepTime": true,
-      "includeVars": false,
-      "targetBlank": false,
-      "asDropdown": false,
-      "tags": [],
-      "tooltip": "Dashboard détaillé Ceph"
+      "tooltip": "Dashboard détaillé Proxmox & Ceph"
     },
     {
       "title": "Swarm",
@@ -508,7 +496,7 @@
       "links": [
         {
           "title": "Ceph",
-          "url": "/d/ceph-cluster?${__url_time_range}",
+          "url": "/d/proxmox?${__url_time_range}",
           "targetBlank": false
         }
       ]
@@ -602,7 +590,7 @@
       "links": [
         {
           "title": "Ceph",
-          "url": "/d/ceph-cluster?${__url_time_range}",
+          "url": "/d/proxmox?${__url_time_range}",
           "targetBlank": false
         }
       ]
@@ -683,7 +671,7 @@
       "links": [
         {
           "title": "Ceph",
-          "url": "/d/ceph-cluster?${__url_time_range}",
+          "url": "/d/proxmox?${__url_time_range}",
           "targetBlank": false
         }
       ]
@@ -765,7 +753,7 @@
       "links": [
         {
           "title": "Ceph",
-          "url": "/d/ceph-cluster?${__url_time_range}",
+          "url": "/d/proxmox?${__url_time_range}",
           "targetBlank": false
         }
       ]
@@ -2422,7 +2410,7 @@
       "links": [
         {
           "title": "Ceph",
-          "url": "/d/ceph-cluster?${__url_time_range}",
+          "url": "/d/proxmox?${__url_time_range}",
           "targetBlank": false
         }
       ]
@@ -2510,7 +2498,7 @@
       "links": [
         {
           "title": "Ceph",
-          "url": "/d/ceph-cluster?${__url_time_range}",
+          "url": "/d/proxmox?${__url_time_range}",
           "targetBlank": false
         }
       ]
@@ -2599,7 +2587,7 @@
       "links": [
         {
           "title": "Ceph",
-          "url": "/d/ceph-cluster?${__url_time_range}",
+          "url": "/d/proxmox?${__url_time_range}",
           "targetBlank": false
         }
       ]
@@ -2694,7 +2682,7 @@
       "links": [
         {
           "title": "Ceph",
-          "url": "/d/ceph-cluster?${__url_time_range}",
+          "url": "/d/proxmox?${__url_time_range}",
           "targetBlank": false
         }
       ]
@@ -2789,7 +2777,7 @@
       "links": [
         {
           "title": "Ceph",
-          "url": "/d/ceph-cluster?${__url_time_range}",
+          "url": "/d/proxmox?${__url_time_range}",
           "targetBlank": false
         }
       ]
@@ -2892,7 +2880,7 @@
       "links": [
         {
           "title": "Ceph",
-          "url": "/d/ceph-cluster?${__url_time_range}",
+          "url": "/d/proxmox?${__url_time_range}",
           "targetBlank": false
         }
       ]
