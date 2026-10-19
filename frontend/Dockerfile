@@ -7,6 +7,7 @@ ARG VITE_API_URL=http://localhost:8000/api
 ARG VITE_DETECTOR_URL=http://localhost:8100
 ARG VITE_REMEDIATION_URL=http://localhost:8200
 ARG VITE_STRIPE_PUBLISHABLE_KEY
+ARG VITE_CARD_ENTRY=own
 ARG VITE_DATA_SOURCE=api
 
 COPY package.json package-lock.json ./

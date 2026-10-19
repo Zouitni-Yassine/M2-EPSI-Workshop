@@ -51,6 +51,7 @@ export function PayPage({ onPaid }: { onPaid: () => void }) {
 
 function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void }) {
   const { engine, provider } = choice
+  const elements = engine.entry === 'elements'
 
   const [card, setCard] = useState<CardInput>(EMPTY_CARD)
   const [stripeBrand, setStripeBrand] = useState<Brand>('unknown')
@@ -64,7 +65,7 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
   const [authError, setAuthError] = useState<string | undefined>()
   const [failure, setFailure] = useState<string | undefined>()
 
-  const brand = provider === 'stripe' ? stripeBrand : brandOf(card.number)
+  const brand = elements ? stripeBrand : brandOf(card.number)
   const rail = intent?.rail ?? IDLE_RAIL
   const settled = intent?.status === 'succeeded' || intent?.status === 'canceled'
   const challenging = provider === 'local' && intent?.status === 'requires_action'
@@ -72,13 +73,12 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
   const onHolderChange = useCallback((holder: string) => setCard((c) => ({ ...c, holder })), [])
 
   async function pay() {
-    const ready = provider === 'stripe' ? stripeComplete : cardComplete(card)
+    const ready = elements ? stripeComplete : cardComplete(card)
     if (!ready) {
       setShowErrors(true)
       return
     }
-    const source: CardSource | null =
-      provider === 'stripe' ? sourceRef.current() : { kind: 'raw', card }
+    const source: CardSource | null = elements ? sourceRef.current() : { kind: 'raw', card }
     if (!source) {
       setFailure('Le formulaire Stripe n’est pas encore prêt. Réessayez dans un instant.')
       return
@@ -90,7 +90,7 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
     try {
       const created = await engine.createIntent(TOTAL, {
         brand,
-        last4: provider === 'stripe' ? '' : last4(card.number),
+        last4: elements ? '' : last4(card.number),
         holder: card.holder.trim(),
       })
       setIntent(created)
@@ -142,10 +142,10 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
       <div className="grid gap-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-14">
         <section className="flex flex-col gap-8">
           <CardPreview
-            number={provider === 'local' ? card.number : ''}
+            number={elements ? '' : card.number}
             holder={card.holder}
-            expiry={provider === 'local' ? card.expiry : ''}
-            cvc={provider === 'local' ? card.cvc : ''}
+            expiry={elements ? '' : card.expiry}
+            cvc={elements ? '' : card.cvc}
             brand={brand}
             flipped={focused === 'cvc'}
           />
@@ -153,9 +153,9 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
             <p className="-mt-4 flex items-start gap-2 text-xs leading-relaxed text-text-2">
               <Shield />
               <span>
-                Le numéro et la date sont saisis dans un cadre sécurisé Stripe : ils n’apparaissent
-                jamais ici ni dans notre code. Seuls le réseau et les quatre derniers chiffres nous
-                sont transmis, après le paiement.
+                {elements
+                  ? 'Le numéro et la date sont saisis dans un cadre sécurisé Stripe : ils n’apparaissent jamais ici ni dans notre code.'
+                  : 'Cartes de test uniquement : le serveur remplace le numéro par le jeton de test Stripe correspondant. Aucun numéro n’est transmis à Stripe.'}
               </span>
             </p>
           ) : null}
@@ -193,7 +193,7 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
               </div>
 
               <div className="px-6 py-6">
-                {provider === 'stripe' ? (
+                {elements ? (
                   <StripeCardForm
                     holder={card.holder}
                     onHolderChange={onHolderChange}

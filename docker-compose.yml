@@ -67,6 +67,7 @@ services:
         VITE_DETECTOR_URL: http://localhost:8100
         VITE_REMEDIATION_URL: http://localhost:8200
         VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
+        VITE_CARD_ENTRY: ${VITE_CARD_ENTRY:-own}
         VITE_DATA_SOURCE: api
     container_name: frontend
     ports:

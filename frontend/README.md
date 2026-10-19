@@ -23,9 +23,17 @@ Le backend doit tourner à côté (voir `backend/README.md`), sinon le tunnel ba
 ## Paiement : Stripe en mode test
 
 Au démarrage, le front appelle `GET /api/health`. Si le backend répond avec une clé Stripe,
-le tunnel passe par **Stripe Elements** : les trois champs carte sont des iframes Stripe,
-le numéro ne transite jamais par notre code, et c'est Stripe qui ouvre sa propre fenêtre
-3-D Secure quand l'émetteur l'exige.
+le tunnel passe par Stripe, selon `VITE_CARD_ENTRY` :
+
+| Mode | Champs carte | Comment le numéro arrive à Stripe | Usage |
+| --- | --- | --- | --- |
+| `own` (défaut) | les nôtres — la carte à l'écran se remplit au fil de la saisie | il n'y arrive **jamais** : le backend le remplace par le jeton de test Stripe correspondant (`pm_card_visa`, …) | démonstration, cartes de test uniquement |
+| `elements` | iframes Stripe Elements | directement, depuis l'iframe, sans passer par notre code | voie de production |
+
+Dans les deux modes, c'est Stripe qui ouvre sa propre fenêtre 3-D Secure quand l'émetteur
+l'exige (`handleNextAction` en mode `own`). Le mode `own` ne peut fonctionner qu'avec des
+cartes de test, par construction : un numéro inconnu de la table des jetons est refusé avant
+tout appel à Stripe.
 
 Cartes de test Stripe, date future, cryptogramme à 3 chiffres (4 pour Amex) :
 
