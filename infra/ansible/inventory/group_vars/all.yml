@@ -6,6 +6,12 @@ fw_ssh_allowed:
 fw_monitoring_allowed:
   - 10.0.1.0/24
 
+# Segments RESILIENCE-ALPHA (infra/unifi/ra-network.yml) : les flux autorisés vers les LXC
+# (fw_segment_rules de chaque groupe) reprennent exactement les règles de la passerelle UniFi
+ra_app_cidr: 10.30.1.0/24 # Swarm
+ra_dmz_cidr: 10.30.2.0/24 # exposé (NetBird, WAF)
+ra_vpn_cidr: 10.30.3.0/24 # passerelle VPN
+
 # VPN d'administration : uniquement les interfaces web (fw_admin_ports de chaque groupe).
 # SSH et ports internes restent limités au LAN (rebond par le poste de contrôle).
 fw_admin_web_allowed:
@@ -26,7 +32,7 @@ monitoring_scrapers: "{{ groups['vmagents'] | map('extract', hostvars, 'ansible_
 monitoring_config_dir: "{{ playbook_dir | dirname }}/monitoring"
 
 # Authentification Basic de la stack d'observabilité : un utilisateur, un mot de passe par service.
-# Celui de Loki sert aussi aux nœuds Swarm (Alloy) : source /root/.monitoring-env avant tout playbook.
+# Celui de Loki sert aussi aux nœuds Swarm (Alloy). Valeurs lues dans Vault par vault-env.
 monitoring_auth_user: monitoring
 loki_auth_password: "{{ lookup('ansible.builtin.env', 'LOKI_AUTH_PASSWORD') }}"
 # VictoriaMetrics, vmagent et vmalert partagent le même mot de passe (aussi utilisé par le

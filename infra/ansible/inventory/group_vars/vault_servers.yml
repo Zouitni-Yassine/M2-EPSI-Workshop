@@ -10,3 +10,7 @@ fw_admin_ports:
 # seulement, utilisables depuis son adresse seulement
 vault_approle_file: /root/.vault/approle-ansible.json
 vault_ansible_cidr: 10.0.1.110/32
+
+# Flux depuis les segments RA (règle UniFi ra-app-to-vault)
+fw_segment_rules:
+  - { source: "{{ ra_app_cidr }}", ports: [8200], comment: "RA-APP : secrets" }

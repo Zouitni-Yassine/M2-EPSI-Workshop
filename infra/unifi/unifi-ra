@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+"""Applique ra-network.yml sur la passerelle UniFi (réseaux, zones, politiques RA).
+
+    vault-env infra/unifi/unifi-ra            # plan : affiche les changements, ne modifie rien
+    vault-env infra/unifi/unifi-ra --apply    # sauvegarde la console, puis applique
+
+Identifiants : UNIFI_URL, UNIFI_USERNAME, UNIFI_PASSWORD (Vault, secret/infra/unifi). Ne gère que
+les objets RA-* / ra-* : tout autre réseau, zone ou politique est ignoré.
+"""
+import datetime
+import http.cookiejar
+import json
+import os
+import ssl
+import sys
+import urllib.request
+
+import yaml
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+U = os.environ["UNIFI_URL"]
+SITE = "/proxy/network/api/s/default"
+V2 = "/proxy/network/v2/api/site/default"
+BACKUP_DIR = "/root/.unifi-backups"
+# Certificat auto-signé de la console (pas de CA interne sur la passerelle)
+CTX = ssl.create_default_context()
+CTX.check_hostname = False
+CTX.verify_mode = ssl.CERT_NONE
+OPENER = urllib.request.build_opener(urllib.request.HTTPSHandler(context=CTX),
+                                     urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+HDR = {"Content-Type": "application/json"}
+
+
+def call(method, path, data=None, raw=False):
+    req = urllib.request.Request(U + path, method=method, headers=HDR,
+                                 data=json.dumps(data).encode() if data is not None else None)
+    try:
+        with OPENER.open(req, timeout=30) as r:
+            body = r.read()
+            if "X-Csrf-Token" in r.headers:
+                HDR["X-CSRF-Token"] = r.headers["X-Csrf-Token"]
+            if raw:
+                return body
+            return json.loads(body) if body else {}
+    except urllib.error.HTTPError as e:
+        sys.exit(f"unifi-ra : {method} {path} : HTTP {e.code} {e.read()[:300].decode(errors='replace')}")
+
+
+def data(resp):
+    return resp["data"] if isinstance(resp, dict) and "data" in resp else resp
+
+
+def network_body(n):
+    return {
+        "name": n["name"], "purpose": "corporate", "networkgroup": "LAN", "enabled": True,
+        "vlan_enabled": True, "vlan": n["vlan"], "ip_subnet": n["gateway"],
+        "dhcpd_enabled": False, "dhcp_relay_enabled": False, "is_nat": True,
+        "internet_access_enabled": True, "network_isolation_enabled": False,
+        "mdns_enabled": False, "igmp_snooping": False, "upnp_lan_enabled": False,
+        "ipv6_interface_type": "none", "setting_preference": "manual", "gateway_type": "default",
+    }
+
+
+def endpoint(spec, zones, mgmt_net, internal_zone):
+    """Côté source ou destination d'une politique."""
+    if spec == "management":
+        return {"zone_id": internal_zone, "matching_target": "NETWORK", "network_ids": [mgmt_net],
+                "match_opposite_networks": False, "match_mac": False}
+    if spec.startswith("ip:"):
+        return {"zone_id": internal_zone, "matching_target": "IP", "matching_target_type": "SPECIFIC",
+                "ips": [spec[3:]], "match_opposite_ips": False}
+    return {"zone_id": zones[spec]["_id"], "matching_target": "ANY"}
+
+
+def policy_body(p, zones, mgmt_net, internal_zone):
+    src = endpoint(p["from"], zones, mgmt_net, internal_zone)
+    dst = endpoint(p["to"], zones, mgmt_net, internal_zone)
+    src.update(port_matching_type="ANY", match_opposite_ports=False)
+    dst.pop("match_mac", None)  # la console ne garde ce champ que côté source
+    dst["match_opposite_ports"] = False
+    if p.get("ports"):
+        dst.update(port_matching_type="SPECIFIC", port=",".join(str(x) for x in p["ports"]))
+    else:
+        dst["port_matching_type"] = "ANY"
+    return {
+        "name": p["name"], "description": f"RA: {p['desc']}", "enabled": True, "action": "ALLOW",
+        "protocol": p.get("protocol", "all"), "ip_version": "IPV4",
+        "connection_state_type": "ALL", "connection_states": [], "create_allow_respond": True,
+        "logging": False, "match_ip_sec": False, "match_opposite_protocol": False,
+        "icmp_typename": "ANY", "icmp_v6_typename": "ANY",
+        "schedule": {"mode": "ALWAYS", "time_all_day": False},
+        "source": src, "destination": dst,
+    }
+
+
+def differs(want, have):
+    """Vrai si un champ voulu diffère de l'existant (récursif sur les dictionnaires)."""
+    for k, v in want.items():
+        if isinstance(v, dict):
+            if differs(v, have.get(k) or {}):
+                return True
+        elif have.get(k) != v:
+            return True
+    return False
+
+
+def backup():
+    """Sauvegarde complète de la console (.unf, contient des secrets : 0600, hors dépôt)."""
+    os.makedirs(BACKUP_DIR, mode=0o700, exist_ok=True)
+    resp = data(call("POST", f"{SITE}/cmd/backup", {"cmd": "backup", "days": 0}))
+    url = resp[0]["url"] if isinstance(resp, list) else resp["url"]
+    path = os.path.join(BACKUP_DIR, datetime.datetime.now().strftime("unifi-%Y%m%d-%H%M%S.unf"))
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(call("GET", "/proxy/network" + url, raw=True))
+    print(f"sauvegarde de la console : {path} ({os.path.getsize(path)} octets)")
+
+
+def main():
+    apply = "--apply" in sys.argv
+    with open(os.path.join(HERE, "ra-network.yml"), encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    call("POST", "/api/auth/login", {"username": os.environ["UNIFI_USERNAME"],
+                                     "password": os.environ["UNIFI_PASSWORD"]})
+    changes = 0
+    try:
+        if apply:
+            backup()
+        nets = {n["name"]: n for n in data(call("GET", f"{SITE}/rest/networkconf"))}
+        zones = {z["name"]: z for z in call("GET", f"{V2}/firewall/zone")}
+        mgmt_net = nets[cfg["management_network"]]["_id"]
+        internal_zone = zones[cfg["internal_zone"]]["_id"]
+
+        # 1. Réseaux (créés dans la zone Internal par défaut, déplacés à l'étape 2)
+        for n in cfg["networks"]:
+            have = nets.get(n["name"])
+            want = network_body(n)
+            if have is None:
+                changes += 1
+                print(f"+ réseau {n['name']} (VLAN {n['vlan']}, {n['gateway']})")
+                if apply:
+                    nets[n["name"]] = data(call("POST", f"{SITE}/rest/networkconf", want))[0]
+            elif differs({k: want[k] for k in ("vlan", "ip_subnet", "dhcpd_enabled", "enabled")}, have):
+                changes += 1
+                print(f"~ réseau {n['name']}")
+                if apply:
+                    call("PUT", f"{SITE}/rest/networkconf/{have['_id']}", dict(have, **want))
+
+        # 2. Zones : une par réseau RA, qui contient ce seul réseau
+        for n in cfg["networks"]:
+            have = zones.get(n["name"])
+            net_id = nets.get(n["name"], {}).get("_id")
+            if have is None:
+                changes += 1
+                print(f"+ zone {n['name']} = [{n['name']}]")
+                if apply:
+                    zones[n["name"]] = call("POST", f"{V2}/firewall/zone", {"name": n["name"], "network_ids": [net_id]})
+            elif have.get("network_ids") != [net_id]:
+                changes += 1
+                print(f"~ zone {n['name']} = [{n['name']}]")
+                if apply:
+                    zones[n["name"]] = call("PUT", f"{V2}/firewall/zone/{have['_id']}", dict(have, network_ids=[net_id]))
+
+        # 3. Politiques ra-* (créées, mises à jour, ou supprimées si retirées du fichier)
+        pols = {p["name"]: p for p in call("GET", f"{V2}/firewall-policies")
+                if p["name"].startswith("ra-") and not p.get("predefined")}
+        wanted = set()
+        for p in cfg["policies"]:
+            wanted.add(p["name"])
+            label = f"{p['name']} : {p['from']} -> {p['to']} {p.get('protocol', 'all')} {p.get('ports', 'tous')}"
+            missing_zone = any(s.startswith("RA-") and s not in zones for s in (p["from"], p["to"]))
+            if missing_zone:  # zone pas encore créée (plan seul)
+                changes += 1
+                print(f"+ politique {label}")
+                continue
+            want = policy_body(p, zones, mgmt_net, internal_zone)
+            have = pols.get(p["name"])
+            if have is None:
+                changes += 1
+                print(f"+ politique {label}")
+                if apply:
+                    call("POST", f"{V2}/firewall-policies", want)
+            elif differs(want, have):
+                changes += 1
+                print(f"~ politique {label}")
+                if apply:
+                    call("PUT", f"{V2}/firewall-policies/{have['_id']}", dict(have, **want))
+        for name in sorted(set(pols) - wanted):
+            changes += 1
+            print(f"- politique {name} (retirée du fichier)")
+            if apply:
+                call("DELETE", f"{V2}/firewall-policies/{pols[name]['_id']}")
+    finally:
+        call("POST", "/api/auth/logout", {})
+    if changes:
+        print(f"{changes} changement(s) {'appliqué(s)' if apply else 'prévu(s)'}")
+    else:
+        print("aucun changement")
+
+
+if __name__ == "__main__":
+    main()

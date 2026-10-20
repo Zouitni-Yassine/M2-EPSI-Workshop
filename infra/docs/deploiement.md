@@ -82,7 +82,7 @@ Organisation :
 enregistrer sa clé d'hôte :
 
 ```sh
-ssh-keygen -R 10.0.1.221 && ssh-keyscan -t ed25519 10.0.1.221 >> /root/.ssh/known_hosts
+ssh-keygen -R 10.30.1.221 && ssh-keyscan -t ed25519 10.30.1.221 >> /root/.ssh/known_hosts
 ```
 
 ### Proxmox : utilisateurs, rôles, tokens
@@ -97,7 +97,8 @@ Le nom porte la date de création : une rotation crée un nouveau token à côt�
 (bleu/vert, [comptes-et-rotation.md](comptes-et-rotation.md#26-tokens-proxmox--bleuvert)).
 Les identifiants sont dans Vault (`secret/infra/terraform`, `secret/infra/monitoring`).
 
-`TerraformRole` regroupe les privilèges `Datastore.*`, `Pool.*`, `SDN.Use`, `Sys.Audit`,
+`TerraformRole` regroupe les privilèges `Datastore.*`, `Pool.*`, `SDN.Use`, `SDN.Allocate`, `SDN.Audit`
+(vnets des VLAN, [reseau.md](reseau.md)), `Sys.Audit`,
 `Sys.Console`, `Sys.Modify` et `VM.*` (allocation, clone, config, migrate, power, snapshot...).
 
 Trois pièges :
@@ -316,7 +317,7 @@ K=/root/.ssh/id_ed25519_infra
 **Swarm** : 6 nœuds `Ready`, les 3 managers `Drain`, un `Leader` :
 
 ```sh
-ssh -i $K debian@10.0.1.211 sudo docker node ls
+ssh -i $K debian@10.30.1.211 sudo docker node ls
 ```
 
 **Authentification.** Sans identifiants, chaque URL doit répondre `401` :
@@ -421,7 +422,7 @@ tourner.
 3. **Swarm** : 6 nœuds `Ready`, managers `Drain` :
 
    ```sh
-   ssh -i /root/.ssh/id_ed25519_infra debian@10.0.1.211 sudo docker node ls
+   ssh -i /root/.ssh/id_ed25519_infra debian@10.30.1.211 sudo docker node ls
    ```
 
 4. **Supervision**, dans un shell ouvert par `vault-env bash` (variables jusqu'à `exit`, le

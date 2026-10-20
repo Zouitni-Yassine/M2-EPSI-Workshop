@@ -4,7 +4,7 @@
 # À lancer sur le poste de contrôle. Déploie la stack "demo" si elle est absente.
 #   sh infra/remediation/test-passerelle.sh [ip-manager]
 set -eu
-MGR=${1:-10.0.1.211}
+MGR=${1:-10.30.1.211}
 KEY=/root/.ssh/id_ed25519_infra
 DIR=$(dirname "$0")
 on_mgr() { ssh -n -i $KEY debian@$MGR "$@"; }

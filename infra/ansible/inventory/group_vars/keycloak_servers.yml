@@ -48,3 +48,8 @@ keycloak_oidc_clients:
 # Logs hors journald envoyés à Loki (rôle alloy) : PostgreSQL (connexions, erreurs de la base)
 alloy_log_files:
   - { path: /var/log/postgresql/postgresql-*-main.log, job: postgresql }
+
+# Flux depuis les segments RA (règles UniFi ra-app-to-keycloak, ra-dmz-to-keycloak)
+fw_segment_rules:
+  - { source: "{{ ra_app_cidr }}", ports: [443], comment: "RA-APP : SSO" }
+  - { source: "{{ ra_dmz_cidr }}", ports: [443], comment: "RA-DMZ : SSO" }

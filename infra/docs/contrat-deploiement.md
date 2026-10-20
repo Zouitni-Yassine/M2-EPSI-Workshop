@@ -157,7 +157,7 @@ services:
       - source: remediation_known_hosts        # créé par l'infra : empreintes des managers
         target: /etc/ssh/ssh_known_hosts
     environment:
-      REMEDIATION_GATEWAYS: "10.0.1.211,10.0.1.212,10.0.1.213"  # essayer le suivant si l'un ne répond pas
+      REMEDIATION_GATEWAYS: "10.30.1.211,10.30.1.212,10.30.1.213"  # essayer le suivant si l'un ne répond pas
       ALERTMANAGER_URL: "http://10.0.1.233:9093"
       ALERTMANAGER_USER: "remediation"
     networks: [back]
@@ -180,7 +180,7 @@ Appel depuis le moteur (sortie JSON sur stdout, code retour significatif) :
 
 ```sh
 ssh -T -i /run/secrets/id_ed25519 -o BatchMode=yes -o ConnectTimeout=5 \
-    remediation@10.0.1.211 "restart paiement_api"
+    remediation@10.30.1.211 "restart paiement_api"
 ```
 
 **Réception des alertes : le moteur interroge Alertmanager** (toutes les 5 s), il ne reçoit

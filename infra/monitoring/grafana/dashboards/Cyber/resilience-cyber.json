@@ -8,7 +8,7 @@
         "type": "loki",
         "uid": "loki"
       },
-      "description": "Absence de données ≠ absence de trafic hostile. Vérifier la collecte.",
+      "description": "Total sur la période choisie en haut à droite. Sans données ne prouve pas que la collecte fonctionne.",
       "fieldConfig": {
         "defaults": {
           "noValue": "Sans données"
@@ -38,13 +38,14 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum(count_over_time({host=\"waf01\",container=\"resilience-waf\"} | json | __error__=\"\" | event_type=\"http_access\" [5m]))",
+          "expr": "sum(count_over_time({host=\"waf01\",container=\"resilience-waf\"} | json | __error__=\"\" | event_type=\"http_access\" [$__range]))",
           "instant": true,
           "legendFormat": "",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "instant"
         }
       ],
-      "title": "Requêtes au WAF — 5 min",
+      "title": "Requêtes au WAF — période sélectionnée",
       "type": "stat"
     },
     {
@@ -52,7 +53,7 @@
         "type": "loki",
         "uid": "loki"
       },
-      "description": "Un 403 peut venir du WAF ou de l’application ; corréler avec les messages CRS.",
+      "description": "Total sur la période choisie en haut à droite. Sans données ne prouve pas que la collecte fonctionne.",
       "fieldConfig": {
         "defaults": {
           "noValue": "Sans données"
@@ -82,13 +83,14 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum(count_over_time({host=\"waf01\",container=\"resilience-waf\"} | json | __error__=\"\" | event_type=\"http_access\" | status=\"403\" [5m]))",
+          "expr": "sum(count_over_time({host=\"waf01\",container=\"resilience-waf\"} | json | __error__=\"\" | event_type=\"http_access\" | status=\"403\" [$__range]))",
           "instant": true,
           "legendFormat": "",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "instant"
         }
       ],
-      "title": "Réponses HTTP 403 — 5 min",
+      "title": "Réponses HTTP 403 — période sélectionnée",
       "type": "stat"
     },
     {

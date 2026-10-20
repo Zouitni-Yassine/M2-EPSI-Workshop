@@ -1,7 +1,7 @@
 # Cluster Docker Swarm : 3 managers (DOCKERMGR) + 3 workers (DOCKERWRK),
 # clonés depuis le template Packer debian13-docker (9100).
 # Un manager et un worker par nœud Proxmox : la perte d'un hôte ne coûte qu'un de chaque.
-# VMID = dernier octet de l'IP.
+# VMID = dernier octet de l'IP. Réseau : VLAN 301 RA-APP (10.30.1.0/24, network.tf).
 
 locals {
   swarm_template_id   = 9100
@@ -13,17 +13,19 @@ locals {
   }
 
   swarm_nodes = {
-    dockermgr01 = { role = "manager", vm_id = 211, ip = "10.0.1.211", node = "ceph01" }
-    dockermgr02 = { role = "manager", vm_id = 212, ip = "10.0.1.212", node = "ceph02" }
-    dockermgr03 = { role = "manager", vm_id = 213, ip = "10.0.1.213", node = "ceph03" }
-    dockerwrk01 = { role = "worker", vm_id = 221, ip = "10.0.1.221", node = "ceph01" }
-    dockerwrk02 = { role = "worker", vm_id = 222, ip = "10.0.1.222", node = "ceph02" }
-    dockerwrk03 = { role = "worker", vm_id = 223, ip = "10.0.1.223", node = "ceph03" }
+    dockermgr01 = { role = "manager", vm_id = 211, ip = "10.30.1.211", node = "ceph01" }
+    dockermgr02 = { role = "manager", vm_id = 212, ip = "10.30.1.212", node = "ceph02" }
+    dockermgr03 = { role = "manager", vm_id = 213, ip = "10.30.1.213", node = "ceph03" }
+    dockerwrk01 = { role = "worker", vm_id = 221, ip = "10.30.1.221", node = "ceph01" }
+    dockerwrk02 = { role = "worker", vm_id = 222, ip = "10.30.1.222", node = "ceph02" }
+    dockerwrk03 = { role = "worker", vm_id = 223, ip = "10.30.1.223", node = "ceph03" }
   }
 }
 
 resource "proxmox_virtual_environment_vm" "swarm" {
   for_each = local.swarm_nodes
+
+  depends_on = [proxmox_sdn_applier.ra] # vnet appliqué sur les nœuds
 
   name        = each.key
   description = "Docker Swarm ${each.value.role} - géré par Terraform"
@@ -64,7 +66,7 @@ resource "proxmox_virtual_environment_vm" "swarm" {
   }
 
   network_device {
-    bridge = "vmbr0"
+    bridge = proxmox_sdn_vnet.ra["raapp"].id
     model  = "virtio"
   }
 
@@ -74,13 +76,13 @@ resource "proxmox_virtual_environment_vm" "swarm" {
 
     dns {
       domain  = "epsi.lsn"
-      servers = ["10.0.1.254"]
+      servers = ["10.30.1.254"]
     }
 
     ip_config {
       ipv4 {
         address = "${each.value.ip}/24"
-        gateway = "10.0.1.254"
+        gateway = "10.30.1.254"
       }
     }
 

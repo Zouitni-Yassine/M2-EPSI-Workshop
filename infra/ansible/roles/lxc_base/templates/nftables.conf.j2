@@ -39,6 +39,10 @@ table inet host_fw {
         ip saddr @admin_web_nets tcp dport { {{ fw_admin_ports | join(', ') }} } accept comment "Interfaces web (VPN admin)"
 {% endif %}
 
+{% for rule in fw_segment_rules | default([]) %}
+        ip saddr {{ rule.source }} tcp dport { {{ rule.ports | join(', ') }} } accept comment "{{ rule.comment }}"
+{% endfor %}
+
 {% for source in fw_grafana_allowed | default([]) %}
         ip saddr {{ source }} tcp dport 3000 accept comment "Grafana Remi VPN"
 {% endfor %}

@@ -35,6 +35,8 @@ table inet host_fw {
 
         ip saddr @admin_nets tcp dport 22 accept comment "SSH admin"
 {% if inventory_hostname in groups['swarm_managers'] %}
+        # Moteur de remédiation (conteneur sur un worker) vers la passerelle SSH à actions fermées
+        ip saddr { {{ groups['swarm_workers'] | map('extract', hostvars, 'ansible_host') | join(', ') }} } tcp dport 22 accept comment "Passerelle de remediation"
         ip saddr @swarm_nodes tcp dport 2377 accept comment "Swarm : API de gestion du cluster"
 {% endif %}
         ip saddr @swarm_nodes tcp dport 7946 accept comment "Swarm : découverte des noeuds"

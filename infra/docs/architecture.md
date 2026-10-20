@@ -266,7 +266,7 @@ Détails dans [supervision.md](supervision.md).
 
 | Limite actuelle | Risque | En production |
 |---|---|---|
-| Réseau plat 10.0.1.0/24 (admin, Ceph, applications, supervision) | Un composant compromis voit tout le LAN | VLAN séparés : admin, stockage, applicatif, supervision ; Ceph sur un réseau dédié |
+| Application isolée en VLAN (`RA-APP`), mais supervision et identité partagent `MANAGEMENT` avec les hyperviseurs ([reseau.md](reseau.md)) | Une compromission de la supervision ou de l'identité donne accès au réseau d'administration | VLAN dédiés pour la supervision, l'identité et le stockage |
 | Un seul lien corosync | Une coupure de ce lien peut déclencher un fencing | Deux liens corosync sur des réseaux distincts |
 | VictoriaMetrics single-node, Loki monolithique | Point unique, atténué par la HA Proxmox et le tampon vmagent | Cluster VictoriaMetrics et Loki en mode distribué avec stockage objet |
 | HTTP sans TLS dans la supervision (les services d'identité sont en HTTPS) | Identifiants Basic lisibles sur le LAN | TLS partout avec la CA interne, SSO / OIDC pour Grafana |
