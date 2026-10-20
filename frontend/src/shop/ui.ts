@@ -1,11 +1,11 @@
 import { useSyncExternalStore } from 'react'
-import type { Category } from './catalog'
+import type { SectionId } from './catalog'
 
 /** État d'interface partagé entre le header et la boutique : panier ouvert, recherche, catégorie. */
 interface ShopUI {
   cartOpen: boolean
   query: string
-  category: Category | 'tout'
+  category: SectionId
 }
 
 let state: ShopUI = { cartOpen: false, query: '', category: 'tout' }

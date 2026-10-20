@@ -8,8 +8,28 @@ export const CATEGORIES: { id: Category; label: string; image: string }[] = [
   { id: 'luminaires', label: 'Luminaires', image: '/img/dept-luminaires.jpg' },
 ]
 
+export type Kind = 'canape' | 'assise' | 'table' | 'chambre' | 'lampe'
+
+/** Les entrées de la barre de navigation : chacune filtre réellement le catalogue. */
+export type SectionId = 'tout' | 'canapes' | 'chaises' | 'tables' | 'chambre' | 'luminaires' | 'promos'
+
+export const SECTIONS: { id: SectionId; label: string; accent?: boolean; match: (p: Product) => boolean }[] = [
+  { id: 'tout', label: 'Tout', match: () => true },
+  { id: 'canapes', label: 'Canapés', match: (p) => p.kind === 'canape' },
+  { id: 'chaises', label: 'Chaises & fauteuils', match: (p) => p.kind === 'assise' },
+  { id: 'tables', label: 'Tables', match: (p) => p.kind === 'table' },
+  { id: 'chambre', label: 'Chambre', match: (p) => p.kind === 'chambre' },
+  { id: 'luminaires', label: 'Luminaires', match: (p) => p.kind === 'lampe' },
+  { id: 'promos', label: 'Promos', accent: true, match: (p) => p.badge === 'Promo' },
+]
+
+export function sectionById(id: SectionId) {
+  return SECTIONS.find((s) => s.id === id) ?? SECTIONS[0]
+}
+
 export interface Product {
   id: string
+  kind: Kind
   name: string
   /** Éditeur fictif, affiché au-dessus du nom comme chez les revendeurs. */
   maker: string
@@ -30,6 +50,7 @@ export interface Product {
 export const PRODUCTS: Product[] = [
   {
     id: 'canape-aalto',
+    kind: 'canape',
     name: 'Canapé Aalto',
     maker: 'Atelier Nord',
     category: 'salon',
@@ -41,6 +62,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'canape-monceau',
+    kind: 'canape',
     name: 'Canapé Monceau',
     maker: 'Maison Loir',
     category: 'salon',
@@ -51,6 +73,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'fauteuil-soleil',
+    kind: 'assise',
     name: 'Fauteuil Soleil',
     maker: 'Maison Loir',
     category: 'salon',
@@ -63,6 +86,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'chaise-brume',
+    kind: 'assise',
     name: 'Chaise Brume',
     maker: 'Atelier Nord',
     category: 'salon',
@@ -73,6 +97,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'chaise-ore',
+    kind: 'assise',
     pos: 'center 72%',
     name: 'Chaise Öre',
     maker: 'Studio Öre',
@@ -85,6 +110,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'table-carbone',
+    kind: 'table',
     pos: 'center 62%',
     name: 'Table Carbone',
     maker: 'Studio Öre',
@@ -96,6 +122,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'lit-velours',
+    kind: 'chambre',
     pos: 'center 28%',
     name: 'Lit Velours',
     maker: 'Maison Loir',
@@ -108,6 +135,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'parure-brume',
+    kind: 'chambre',
     name: 'Parure Brume',
     maker: 'Atelier Nord',
     category: 'chambre',
@@ -118,6 +146,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'lampadaire-orne',
+    kind: 'lampe',
     pos: '32% 45%',
     name: 'Lampadaire Orne',
     maker: 'Studio Öre',
@@ -129,6 +158,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'suspension-laiton',
+    kind: 'lampe',
     name: 'Suspension Laiton',
     maker: 'Maison Loir',
     category: 'luminaires',
@@ -141,6 +171,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'lampe-arche',
+    kind: 'lampe',
     name: 'Lampe Arche',
     maker: 'Atelier Nord',
     category: 'luminaires',
@@ -148,6 +179,29 @@ export const PRODUCTS: Product[] = [
     price: 19_900,
     image: '/img/p-arche.jpg',
     story: 'L’arc classique en blanc cassé : elle enjambe le canapé et éclaire sans encombrer.',
+  },
+  {
+    id: 'table-pave',
+    kind: 'table',
+    name: 'Table Pavé',
+    maker: 'Studio Öre',
+    category: 'salon',
+    detail: 'Plateau laqué blanc · Ø 110 cm',
+    price: 34_900,
+    badge: 'Nouveau',
+    image: '/img/dept-tables.jpg',
+    story: 'Une table ronde qui réunit quatre couverts sans jamais encombrer la pièce.',
+  },
+  {
+    id: 'tabouret-bo',
+    kind: 'assise',
+    name: 'Tabouret Bo',
+    maker: 'Atelier Nord',
+    category: 'salon',
+    detail: 'Frêne blanchi · H 65 cm',
+    price: 7_900,
+    image: '/img/p-bo.jpg',
+    story: 'Le complément discret du plan de travail : léger, stable, facile à vivre.',
   },
 ]
 

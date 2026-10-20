@@ -4,7 +4,7 @@ import { euros } from '../payments/domain/money'
 import type { SummaryLine } from '../payments/components/OrderSummary'
 import { PayPage } from '../payments/PayPage'
 import { addToCart, clearCart, useCart } from './cart'
-import { CATEGORIES, PRODUCTS, type Product } from './catalog'
+import { PRODUCTS, sectionById, type Product } from './catalog'
 import { CartDrawer } from './CartDrawer'
 import { ProductSheet } from './ProductSheet'
 import { closeCart, setCategory, useShopUI } from './ui'
@@ -20,11 +20,11 @@ const SLIDES = [
   },
   {
     image: '/img/hero-2.jpg',
-    eyebrow: 'Couleur assumée',
+    eyebrow: 'Caractère',
     title: 'Osez la pièce forte',
-    text: 'Un canapé qui porte la pièce entière, et tout le reste qui s’accorde.',
-    cta: 'Voir le salon',
-    category: 'salon' as const,
+    text: 'Un cuir patiné, un mur sombre, un miroir juste : l’entrée donne le ton.',
+    cta: 'Voir les canapés',
+    category: 'canapes' as const,
   },
   {
     image: '/img/hero-3.jpg',
@@ -92,9 +92,10 @@ export function ShopPage({ user, onPaid, onRequireLogin }: Props) {
   }
 
   const q = query.trim().toLowerCase()
+  const section = sectionById(category)
   const visible = PRODUCTS.filter(
     (p) =>
-      (category === 'tout' || p.category === category) &&
+      section.match(p) &&
       (q === '' || `${p.name} ${p.maker} ${p.detail} ${p.category}`.toLowerCase().includes(q)),
   )
   const searching = q !== ''
@@ -113,7 +114,7 @@ export function ShopPage({ user, onPaid, onRequireLogin }: Props) {
               ? `Résultats pour « ${query.trim()} »`
               : category === 'tout'
                 ? 'Nouveautés'
-                : CATEGORIES.find((c) => c.id === category)?.label}
+                : section.label}
           </h2>
           <p className="text-sm text-text-2">{visible.length} article{visible.length > 1 ? 's' : ''}</p>
         </div>
@@ -146,13 +147,16 @@ export function ShopPage({ user, onPaid, onRequireLogin }: Props) {
           <div>
             <p className="text-sm font-semibold">Boutique</p>
             <ul className="mt-3 space-y-2 text-sm text-text-2">
-              {CATEGORIES.map((c) => (
-                <li key={c.id}>
-                  <button type="button" onClick={() => setCategory(c.id)} className="transition-colors hover:text-text">
-                    {c.label}
-                  </button>
-                </li>
-              ))}
+              {['canapes', 'chaises', 'tables', 'chambre', 'luminaires'].map((id) => {
+                const sec = sectionById(id as Parameters<typeof setCategory>[0])
+                return (
+                  <li key={sec.id}>
+                    <button type="button" onClick={() => setCategory(sec.id)} className="transition-colors hover:text-text">
+                      {sec.label}
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           </div>
           <div>
@@ -199,7 +203,7 @@ function Hero() {
         style={{ transform: `translateX(-${index * 100}%)` }}
       >
         {SLIDES.map((s) => (
-          <div key={s.image} className="relative aspect-[21/10] min-h-[380px] w-full shrink-0 max-h-[560px]">
+          <div key={s.image} className="relative h-[76vh] max-h-[840px] min-h-[460px] w-full shrink-0">
             <img src={s.image} alt="" className="absolute inset-0 size-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
             <div className="absolute inset-x-0 bottom-0 mx-auto max-w-[1360px] px-[72px] pb-10 sm:pb-14">
@@ -256,9 +260,9 @@ function Hero() {
 /* ---- Départements : produits sur fond neutre, libellé dessous, comme un grand magasin ---- */
 
 const DEPTS: { label: string; image: string; category: Parameters<typeof setCategory>[0]; pos?: string }[] = [
-  { label: 'Canapés', image: '/img/p-monceau.jpg', category: 'salon', pos: 'center 55%' },
-  { label: 'Chaises', image: '/img/dept-chaises.jpg', category: 'salon' },
-  { label: 'Tables', image: '/img/dept-tables.jpg', category: 'salon' },
+  { label: 'Canapés', image: '/img/p-monceau.jpg', category: 'canapes', pos: 'center 55%' },
+  { label: 'Chaises', image: '/img/dept-chaises.jpg', category: 'chaises' },
+  { label: 'Tables', image: '/img/dept-tables.jpg', category: 'tables' },
   { label: 'Chambre', image: '/img/dept-chambre.jpg', category: 'chambre', pos: 'center 40%' },
   { label: 'Luminaires', image: '/img/dept-luminaires.jpg', category: 'luminaires' },
 ]
@@ -356,9 +360,9 @@ function ProductCard({ product: p, onOpen }: { product: Product; onOpen: () => v
 /* ---- Tuiles éditoriales ---- */
 
 const TILES = [
-  { image: '/img/ed-1.jpg', title: 'Un salon pensé pour durer', cta: 'Explorer le salon', category: 'salon' as const, big: true },
+  { image: '/img/ed-1.jpg', title: 'Un salon pensé pour durer', cta: 'Explorer le salon', category: 'canapes' as const, big: true },
   { image: '/img/ed-2.jpg', title: 'Lignes épurées', cta: 'Voir la sélection', category: 'tout' as const, big: false },
-  { image: '/img/ed-3.jpg', title: 'Pièces de caractère', cta: 'Voir le salon', category: 'salon' as const, big: false },
+  { image: '/img/ed-3.jpg', title: 'Pièces de caractère', cta: 'Voir le salon', category: 'canapes' as const, big: false },
 ]
 
 function Editorial() {

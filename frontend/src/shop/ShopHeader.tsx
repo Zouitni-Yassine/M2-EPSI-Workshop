@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { logout, type SessionUser } from '../auth/session'
 import { useCart } from './cart'
-import { CATEGORIES } from './catalog'
+import { SECTIONS } from './catalog'
 import { openCart, setCategory, setQuery, useShopUI } from './ui'
 
 export type AdminView = 'pay' | 'ledger' | 'ops'
@@ -61,7 +61,7 @@ export function ShopHeader({ user, adminView, onShop, onAdmin, onLogin }: Props)
       </div>
 
       {/* Logo · recherche · compte · panier */}
-      <div className="mx-auto flex max-w-[1360px] items-center gap-4 px-6 py-3.5 sm:gap-6">
+      <div className="flex items-center gap-4 px-6 py-3.5 sm:gap-6 lg:px-9">
         <button
           type="button"
           onClick={() => setMenuOpen((o) => !o)}
@@ -175,40 +175,41 @@ export function ShopHeader({ user, adminView, onShop, onAdmin, onLogin }: Props)
           condensed && !menuOpen ? 'max-h-0 border-transparent' : 'max-h-14'
         }`}
       >
-        <div className="mx-auto flex max-w-[1360px] items-center justify-between gap-4 overflow-x-auto px-6">
-          <div className="flex items-center gap-1">
-            {[{ id: 'tout' as const, label: 'Tout' }, ...CATEGORIES.map(({ id, label }) => ({ id, label }))].map((c) => (
+        <div className="flex items-center justify-center gap-1 overflow-x-auto px-6">
+          {SECTIONS.map((c) => {
+            const current = adminView === null && category === c.id
+            let tone = 'border-transparent text-text-2 hover:text-text'
+            if (current) tone = 'border-inkwarm text-text'
+            if (c.accent) tone = current ? 'border-bad text-bad' : 'border-transparent text-bad hover:opacity-75'
+            return (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => goCategory(c.id)}
-                aria-current={adminView === null && category === c.id ? 'page' : undefined}
-                className={`whitespace-nowrap border-b-2 px-3.5 py-3 text-sm font-medium transition-colors ${
-                  adminView === null && category === c.id
-                    ? 'border-inkwarm text-text'
-                    : 'border-transparent text-text-2 hover:text-text'
-                }`}
+                aria-current={current ? 'page' : undefined}
+                className={`whitespace-nowrap border-b-2 px-3.5 py-3 text-[15px] font-medium transition-colors ${tone}`}
               >
                 {c.label}
               </button>
-            ))}
-          </div>
+            )
+          })}
           {operator ? (
-            <div className="flex items-center gap-1">
+            <>
+              <span aria-hidden="true" className="mx-2 h-5 w-px shrink-0 bg-edge" />
               {ADMIN_TABS.map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => onAdmin(t.id)}
                   aria-current={adminView === t.id ? 'page' : undefined}
-                  className={`whitespace-nowrap border-b-2 px-3.5 py-3 text-sm font-medium transition-colors ${
+                  className={`whitespace-nowrap border-b-2 px-3.5 py-3 text-[15px] font-medium transition-colors ${
                     adminView === t.id ? 'border-accent text-accent' : 'border-transparent text-text-2 hover:text-text'
                   }`}
                 >
                   {t.label}
                 </button>
               ))}
-            </div>
+            </>
           ) : null}
         </div>
       </nav>
