@@ -142,3 +142,50 @@
 
   roles:
     - app_stack
+
+# Images téléchargées d'avance sur chaque worker : si un nœud tombe (y compris celui du
+# registre), Swarm replace ses tâches ailleurs sans dépendre du registre (constat du 20/10 :
+# tâche rejetée, "connection refused" sur le registre pendant le gel de dockerwrk01).
+# Identifiants du registre utilisés le temps du téléchargement seulement.
+- name: Images présentes sur tous les workers
+  hosts: swarm_workers
+  vars_files:
+    - roles/app_registry/defaults/main.yml
+  vars:
+    app_pull_images: >-
+      {{ (hostvars[groups['swarm_managers'][0]].app_image_tags | dict2items
+          | map(attribute='key') | zip(hostvars[groups['swarm_managers'][0]].app_image_tags | dict2items
+          | map(attribute='value')) | map('join', ':') | map('regex_replace', '^', app_registry ~ '/') | list)
+         + app_public_images }}
+    app_public_images: [postgres:16-alpine, axllent/mailpit:v1.20]
+  tasks:
+    - name: Images déjà présentes
+      community.docker.docker_image_info:
+        name: "{{ app_pull_images }}"
+      register: app_present_images
+
+    - name: Images manquantes
+      ansible.builtin.set_fact:
+        app_missing_images: >-
+          {{ app_pull_images | reject('in', app_present_images.images | map(attribute='RepoTags') | flatten) | list }}
+
+    - name: Téléchargement des images manquantes
+      when: app_missing_images | length > 0
+      block:
+        - name: Connexion au registre
+          community.docker.docker_login:
+            registry_url: "{{ app_registry }}"
+            username: "{{ lookup('ansible.builtin.env', 'REGISTRY_USERNAME') }}"
+            password: "{{ lookup('ansible.builtin.env', 'REGISTRY_PASSWORD') }}"
+          no_log: true
+
+        - name: Télécharger
+          community.docker.docker_image:
+            name: "{{ item }}"
+            source: pull
+          loop: "{{ app_missing_images }}"
+      always:
+        - name: Déconnexion du registre (aucun identifiant laissé sur le worker)
+          community.docker.docker_login:
+            registry_url: "{{ app_registry }}"
+            state: absent

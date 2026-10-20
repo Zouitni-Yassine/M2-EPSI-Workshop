@@ -165,7 +165,9 @@ services:
         condition: on-failure
         delay: 5s
         window: 30s
-      update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s }
+      # monitor court : la passerelle attend la fin de la mise à jour, et le healthcheck (5 s)
+      # valide déjà la nouvelle tâche ; 30 s ajoutaient autant au temps de reprise (test du 20/10)
+      update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 5s }
       rollback_config: { parallelism: 1, order: start-first }
 
   detector:

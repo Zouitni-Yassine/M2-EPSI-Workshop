@@ -541,3 +541,24 @@ pour les blocages, `{stack="paiement", service="paiement_frontend"}` pour le rel
 `/` et `/api/health` répondent 200 sur 10.30.1.221, .222, .223 (et sur le manager .211 : maillage
 ingress). Le WAF est toujours en MANAGEMENT et le proxy host NPM n'est pas créé : le chemin
 public reste à tester de bout en bout.
+
+## Test de reprise de bout en bout (20/10/2026)
+
+Scénario : paiement de référence, puis arrêt du conteneur `payment-api` (`docker stop`, code 0 :
+Swarm ne le relance pas, `restart_policy: on-failure`), puis aucune action humaine.
+
+| Étape | 1er essai | Après corrections |
+|---|---|---|
+| Anomalie confirmée par le détecteur | +2 s | +2 s |
+| Redémarrage par la passerelle | 40,9 s (deux fois) | 13,2 s |
+| Reprise constatée (API 200, transaction de contrôle) | 125 s | **16 s** |
+| Paiement après reprise | `succeeded` | `succeeded` |
+
+Constats et corrections :
+
+| Constat | Cause | Correction |
+|---|---|---|
+| Redémarrage lent (40 s et plus) | `update_config.monitor: 30s` de `payment-api` : la passerelle attend la fin de la mise à jour | `monitor: 5s` (le healthcheck à 5 s valide déjà la nouvelle tâche) |
+| Double décision, supervision injoignable une minute | Gel d'environ 45 s des deux VM de ceph01 (sauvegarde planifiée sur l'hyperviseur parent) : Swarm a déplacé le moteur en pleine action | Hors application ; à éviter pendant la démo (pas de sauvegarde planifiée à ce moment-là) |
+| Tâches replacées refusées (« connection refused » sur le registre) | Le registre est sur dockerwrk01, gelé lui aussi | Images téléchargées d'avance sur chaque worker par `app-deploy.yml` (identifiants du registre retirés aussitôt) |
+
