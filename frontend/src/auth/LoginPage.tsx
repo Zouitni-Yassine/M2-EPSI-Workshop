@@ -3,7 +3,7 @@ import { Wordmark } from '../components/Wordmark'
 import { Field } from '../payments/components/Field'
 import { login } from './session'
 
-export function LoginPage({ notice }: { notice?: string }) {
+export function LoginPage({ notice, onBack }: { notice?: string; onBack?: () => void }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -28,6 +28,15 @@ export function LoginPage({ notice }: { notice?: string }) {
         <div className="mb-6 flex justify-center">
           <Wordmark />
         </div>
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-4 text-sm font-medium text-text-2 transition-colors hover:text-text"
+          >
+            ← Revenir à la boutique
+          </button>
+        ) : null}
 
         <form onSubmit={submit} className="rounded-panel border border-edge bg-card px-6 py-7 shadow-panel sm:px-8">
           <h1 className="text-xl font-semibold tracking-tight">Connexion</h1>

@@ -15,6 +15,7 @@
 
   --font-ui: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Fraunces", Georgia, serif;
+  --font-head: "Archivo", "Inter", ui-sans-serif, system-ui, sans-serif;
 
   /* Boutique YAZNOW : univers chaud, distinct des panneaux froids de la supervision. */
   --color-paper: #f3eee4;
