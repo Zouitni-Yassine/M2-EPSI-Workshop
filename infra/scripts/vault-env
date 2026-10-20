@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""Lance une commande avec les secrets d'infra de Vault dans son environnement.
+
+    vault-env ansible-playbook site.yml
+    vault-env tf plan                    (le wrapper tf passe déjà par vault-env)
+
+Connexion par l'AppRole "ansible" (identifiants : /root/.vault/approle-ansible.json, 0600,
+utilisables depuis le poste de contrôle seulement), lecture de tous les secrets sous
+secret/infra/*, puis exec de la commande. Chaque clé d'un secret devient une variable
+d'environnement du même nom. Rien n'est écrit sur disque ni affiché.
+Installation : install -m 0755 infra/scripts/vault-env /usr/local/bin/vault-env
+"""
+import json
+import os
+import re
+import ssl
+import sys
+import urllib.request
+
+VAULT_ADDR = os.environ.get("VAULT_ADDR", "https://10.0.1.242:8200")
+APPROLE_FILE = os.environ.get("VAULT_APPROLE_FILE", "/root/.vault/approle-ansible.json")
+PREFIX = "infra"
+# CA interne dans le magasin système (rôle internal_ca)
+CTX = ssl.create_default_context(cafile="/etc/ssl/certs/ca-certificates.crt")
+
+
+def die(msg):
+    print(f"vault-env : {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def api(method, path, token=None, data=None):
+    req = urllib.request.Request(
+        f"{VAULT_ADDR}/v1/{path}", method=method,
+        headers={"X-Vault-Token": token} if token else {},
+        data=json.dumps(data).encode() if data is not None else None)
+    try:
+        with urllib.request.urlopen(req, context=CTX, timeout=10) as r:
+            body = r.read()
+            return json.loads(body) if body else {}
+    except urllib.error.HTTPError as e:
+        if e.code == 503:
+            die("Vault est scellé : lancer vault-unseal (docs/identites.md, Descellement)")
+        die(f"{method} {path} : HTTP {e.code}")
+    except OSError as e:
+        die(f"Vault injoignable ({VAULT_ADDR}) : {e}")
+
+
+def main():
+    if len(sys.argv) < 2:
+        die("usage : vault-env <commande> [arguments...]")
+    try:
+        with open(APPROLE_FILE) as f:
+            creds = json.load(f)
+    except OSError as e:
+        die(f"identifiants AppRole illisibles ({APPROLE_FILE}) : {e}")
+    token = api("POST", "auth/approle/login", data=creds)["auth"]["client_token"]
+    env = dict(os.environ)
+    try:
+        for name in api("LIST", f"secret/metadata/{PREFIX}", token)["data"]["keys"]:
+            if name.endswith("/"):
+                continue
+            secret = api("GET", f"secret/data/{PREFIX}/{name}", token)["data"]["data"]
+            for key, value in secret.items():
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                    die(f"clé invalide dans secret/{PREFIX}/{name} : {key}")
+                env[key] = str(value)
+    finally:
+        # Le token ne sert qu'au chargement : révoqué avant de lancer la commande
+        api("POST", "auth/token/revoke-self", token, data={})
+    env["VAULT_ENV_LOADED"] = "1"
+    try:
+        os.execvpe(sys.argv[1], sys.argv[1:], env)
+    except OSError as e:
+        die(f"{sys.argv[1]} : {e}")
+
+
+if __name__ == "__main__":
+    main()

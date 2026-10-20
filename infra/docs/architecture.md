@@ -53,6 +53,12 @@ flowchart TB
 | .211-.213 | Managers Swarm | VMID = dernier octet |
 | .221-.223 | Workers Swarm | VMID = dernier octet |
 | .231-.233 | LXC de supervision | VMID = dernier octet |
+| .241-.243 | LXC d'identité : Keycloak, Vault, Vaultwarden | VMID = dernier octet |
+| .251 | WAF de l'équipe cyber (waf01, hors Terraform) | VMID = dernier octet |
+
+Groupes Ansible hors du socle : `pve` (hyperviseurs : CA interne, SSO, logs), `control` (.110,
+connexion locale : logs) et `waf` (waf01 : **logs seulement**, son firewall appartient à l'équipe
+cyber). Détail : [deploiement.md](deploiement.md).
 | 172.17.0.0/16 | Bridges Docker locaux (/24 chacun) | hors 10.0.0.0/8 |
 | 172.20.0.0/16 | Réseaux overlay Swarm (/24 chacun) | hors 10.0.0.0/8 |
 
@@ -182,6 +188,9 @@ Détails dans [supervision.md](supervision.md).
   - SSH limité au réseau d'administration ;
   - ports Swarm limités aux nœuds Swarm ;
   - ports d'exporters limités aux deux collecteurs ;
+  - depuis le VPN d'administration (`fw_admin_web_allowed` : 10.10.0.0/24),
+    **uniquement les interfaces web** (`fw_admin_ports` : Grafana, vmui, vmalert, Alertmanager,
+    Keycloak, Vault, Vaultwarden). Le SSH passe par le poste de contrôle ;
   - la table est gérée de façon isolée (`inet host_fw`) sans vider le ruleset, pour ne pas casser
     les règles de Docker.
 - **Authentification** sur toutes les API de supervision :
@@ -189,8 +198,8 @@ Détails dans [supervision.md](supervision.md).
   - Loki derrière nginx ;
   - chaque client s'authentifie, y compris Grafana en local.
 - **Secrets** :
-  - Jamais dans le dépôt : ils sont lus depuis des fichiers d'environnement réservés à root sur
-    le poste de contrôle.
+  - Jamais dans le dépôt : ils sont dans HashiCorp Vault, lus à chaque exécution par
+    `vault-env` (AppRole `ansible`, utilisable depuis le poste de contrôle seulement).
   - Sur les serveurs, ils sont écrits dans des fichiers en `0640` lisibles par le seul service
     concerné, avec `no_log` côté Ansible.
   - Le diff sortant est scanné avant chaque push.
@@ -212,6 +221,32 @@ Détails dans [supervision.md](supervision.md).
 - **Choix de l'alerting** : celui de Grafana a été écarté pour ne pas faire de Grafana un point
   de panne de la chaîne d'alerte.
 
+### D10 : identités et secrets séparés en trois services, hors du Swarm
+
+- **Contexte** : les secrets de l'infra vivaient dans des fichiers d'environnement réservés à root
+  sur le poste de contrôle, et chaque outil avait son propre compte admin local. Le sujet impose
+  HashiCorp Vault ou SOPS pour les secrets (§3.4).
+- **Décision** : trois outils, chacun pour un besoin, dans trois LXC dédiés (un par hyperviseur) :
+  - **Keycloak** pour l'authentification unique des administrateurs, avec double authentification
+    et droits par groupe ;
+  - **Vault** pour les secrets des machines, avec audit de chaque lecture ;
+  - **Vaultwarden** pour les mots de passe que le SSO ne couvre pas : comptes de secours, comptes
+    externes, clés de descellement de Vault.
+- **Hors du Swarm** : la plateforme attaquée ne partage ni noyau ni réseau overlay avec eux.
+- **Installation native** : Vaultwarden n'existe qu'en image Docker, et Docker en LXC non
+  privilégié exige l'option `keyctl`, réservée à `root@pam`. Le binaire statique est extrait de
+  l'image officielle épinglée par empreinte.
+- **CA interne** : HTTPS est obligatoire (Vaultwarden, OIDC, Vault). La clé de la CA reste sur le
+  poste de contrôle ; son certificat est dans le magasin de confiance de toutes les machines.
+- **Alternatives écartées** : SOPS seul (pas d'audit des lectures, pas de SSO) ; Authentik
+  (plus simple, mais Keycloak est le standard du secteur bancaire, plus facile à défendre).
+- **Mise en œuvre (20/10/2026)** : tous les secrets d'infra sont migrés dans Vault et les
+  fichiers `.env` détruits ; Ansible et Terraform les lisent par l'AppRole `ansible` ; tous les
+  secrets renouvelables ont été changés ([comptes-et-rotation.md](comptes-et-rotation.md)).
+- **Conséquences** : Vault doit être descellé après chaque redémarrage (`vault-unseal`, alerte
+  `VaultSealed`), sans impact sur l'application déjà déployée ; tant qu'il est scellé, Ansible et
+  Terraform ne peuvent pas tourner. Détails : [identites.md](identites.md).
+
 ## 4. Correspondance avec le sujet (§3.2 Infrastructure)
 
 | Exigence | Réponse |
@@ -221,10 +256,11 @@ Détails dans [supervision.md](supervision.md).
 | Playbooks Ansible pour les opérations | `swarm.yml`, `monitoring.yml`, `site.yml` ; playbooks de remédiation à brancher sur Alertmanager |
 | Prometheus pour les métriques | Stack compatible Prometheus (VictoriaMetrics, choix validé) |
 | Grafana | Grafana 13, dashboards provisionnés depuis le dépôt |
-| Loki pour les journaux | Loki 3.7, tous les hôtes et conteneurs via journald et Alloy |
+| Loki pour les journaux | Loki 3.7, les 17 machines (dont hyperviseurs et WAF) et les conteneurs via journald et Alloy |
 | Pas d'Elastic Stack | Aucun composant Elastic |
 | Interfaces internes non exposées (§4) | DB, secrets et interfaces de gestion filtrés par firewall et authentifiés |
 | Aucun secret en clair dans l'archive (§7.4) | Secrets hors dépôt, scan avant chaque push |
+| Gestion des secrets avec Vault ou SOPS (§3.4) | HashiCorp Vault (audit, KV v2) : tous les secrets infra y sont, lus par AppRole ; rotation documentée ([comptes-et-rotation.md](comptes-et-rotation.md)) |
 
 ## 5. Limites connues et ce qu'on ferait en contexte industriel
 
@@ -233,9 +269,11 @@ Détails dans [supervision.md](supervision.md).
 | Réseau plat 10.0.1.0/24 (admin, Ceph, applications, supervision) | Un composant compromis voit tout le LAN | VLAN séparés : admin, stockage, applicatif, supervision ; Ceph sur un réseau dédié |
 | Un seul lien corosync | Une coupure de ce lien peut déclencher un fencing | Deux liens corosync sur des réseaux distincts |
 | VictoriaMetrics single-node, Loki monolithique | Point unique, atténué par la HA Proxmox et le tampon vmagent | Cluster VictoriaMetrics et Loki en mode distribué avec stockage objet |
-| HTTP sans TLS entre composants | Identifiants Basic lisibles sur le LAN | TLS partout (PKI interne), SSO / OIDC pour Grafana |
+| HTTP sans TLS dans la supervision (les services d'identité sont en HTTPS) | Identifiants Basic lisibles sur le LAN | TLS partout avec la CA interne, SSO / OIDC pour Grafana |
 | Un compte par service, avec tous les droits | Le ML aurait aussi le droit d'écrire et de supprimer | vmauth avec des comptes en lecture seule, séparation lecture / écriture |
-| Secrets infra dans des fichiers d'environnement sur le poste de contrôle | Le poste de contrôle est un point sensible | Vault ou SOPS pour l'infra aussi, rotation automatique |
+| Identifiants de l'AppRole et (jusqu'après la démo) clés de descellement sur le poste de contrôle | Le poste de contrôle reste un point sensible | `secret_id` à durée courte, token root révoqué, rotation automatique (secrets dynamiques) |
+| Vault et Keycloak à nœud unique, sans descellement automatique | Intervention humaine après un redémarrage de Vault | Vault Raft à 3 nœuds avec auto-unseal (KMS/HSM), Keycloak en cluster |
+| Clé de la CA interne sur le poste de contrôle | Compromission de .110 = émission de certificats valides | CA racine hors ligne, CA intermédiaire dans Vault |
 | Verrou Terraform local | Pas d'accès concurrent possible | Backend avec verrouillage partagé, exécution en CI |
 | 3 nœuds sur un seul site | Aucune tolérance à un sinistre de site | Second site ou sauvegardes externalisées (PBS distant), PRA testé |
 | Sauvegardes : PBS en cours de mise en place | Pas de restauration testée à ce jour | Sauvegardes planifiées, tests de restauration réguliers et mesurés (RTO / RPO) |

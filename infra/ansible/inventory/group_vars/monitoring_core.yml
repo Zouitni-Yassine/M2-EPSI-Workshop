@@ -5,3 +5,14 @@ fw_open_ports:
   - 8880 # vmalert
   - 9093 # Alertmanager
   - 9100 # node_exporter
+
+# Accessibles aussi depuis le VPN d'administration (fw_admin_web_allowed)
+fw_admin_ports:
+  - 3000 # Grafana
+  - 8428 # vmui
+  - 8880 # vmalert
+  - 9093 # Alertmanager
+
+# Accès Grafana de Rémi via son profil WireGuard personnel
+fw_grafana_allowed:
+  - "10.250.90.9/32"

@@ -1,3 +1,4 @@
+import { checkSession } from '../../auth/session'
 import type { Cents, PaymentIntent } from '../domain/types'
 
 /**
@@ -19,6 +20,7 @@ export function createPayPalCheckout(baseUrl: string, clientId: string): PayPalC
       headers: { 'Content-Type': 'application/json', ...init?.headers },
     })
     if (!res.ok) {
+      checkSession(res)
       const body = (await res.json().catch(() => ({}))) as { detail?: string }
       throw new Error(body.detail ?? `${res.status} sur /paypal${path}`)
     }

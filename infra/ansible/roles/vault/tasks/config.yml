@@ -1,0 +1,114 @@
+# Politiques, AppRole d'Ansible et compte de secours. Token utilisé : le token root tant
+# qu'il existe (init.json), ensuite celui d'un administrateur (VAULT_TOKEN, obtenu par
+# "vault login -method=userpass username=breakglass" ou par OIDC).
+- name: Token d'administration
+  ansible.builtin.set_fact:
+    vault_admin_token: "{{ vault_init.root_token if vault_init is defined else lookup('ansible.builtin.env', 'VAULT_TOKEN') }}"
+  no_log: true
+
+- name: Configuration de Vault
+  when: vault_admin_token | length > 0
+  environment:
+    VAULT_ADDR: "https://127.0.0.1:8200"
+    VAULT_TOKEN: "{{ vault_admin_token }}"
+  block:
+    - name: Fichiers de politiques
+      ansible.builtin.copy:
+        src: policies/
+        dest: /etc/vault.d/policies/
+        owner: root
+        group: root
+        mode: "0644"
+        directory_mode: "0755"
+
+    - name: Politiques
+      ansible.builtin.shell: |
+        set -o pipefail
+        changed=0
+        for f in /etc/vault.d/policies/*.hcl; do
+          name=$(basename "$f" .hcl)
+          current=$(vault policy read "$name" 2>/dev/null || true)
+          if [ "$current" != "$(cat "$f")" ]; then vault policy write "$name" "$f" >/dev/null; changed=1; fi
+        done
+        echo "changed=$changed"
+      args:
+        executable: /bin/bash
+      register: vault_policies
+      changed_when: "'changed=1' in vault_policies.stdout"
+      no_log: true
+
+    - name: Méthodes d'authentification (approle, userpass)
+      ansible.builtin.shell: |
+        set -o pipefail
+        changed=0
+        for m in approle userpass; do
+          vault auth list -format=json | jq -e --arg m "$m/" '.[$m]' >/dev/null || { vault auth enable "$m" >/dev/null; changed=1; }
+        done
+        echo "changed=$changed"
+      args:
+        executable: /bin/bash
+      register: vault_auth
+      changed_when: "'changed=1' in vault_auth.stdout"
+      no_log: true
+
+    # Jetons courts, utilisables seulement depuis le poste de contrôle
+    - name: AppRole ansible
+      ansible.builtin.shell: |
+        set -o pipefail
+        read_role() { vault read -format=json auth/approle/role/ansible 2>/dev/null | jq -S .data || true; }
+        before=$(read_role)
+        vault write auth/approle/role/ansible \
+          token_policies=ansible-read token_ttl=30m token_max_ttl=2h \
+          secret_id_ttl=0 secret_id_num_uses=0 \
+          secret_id_bound_cidrs={{ vault_ansible_cidr }} token_bound_cidrs={{ vault_ansible_cidr }} >/dev/null
+        [ "$before" = "$(read_role)" ] && echo "changed=0" || echo "changed=1"
+      args:
+        executable: /bin/bash
+      register: vault_approle
+      changed_when: "'changed=1' in vault_approle.stdout"
+      no_log: true
+
+    - name: Identifiants de l'AppRole sur le poste de contrôle
+      ansible.builtin.stat:
+        path: "{{ vault_approle_file }}"
+      delegate_to: localhost
+      become: false
+      register: vault_approle_stat
+
+    - name: Émettre un secret_id pour Ansible
+      ansible.builtin.shell: |
+        set -o pipefail
+        jq -n --arg r "$(vault read -field=role_id auth/approle/role/ansible/role-id)" \
+              --arg s "$(vault write -f -field=secret_id auth/approle/role/ansible/secret-id)" \
+              '{role_id: $r, secret_id: $s}'
+      args:
+        executable: /bin/bash
+      register: vault_approle_creds
+      when: not vault_approle_stat.stat.exists
+      no_log: true
+
+    - name: Enregistrer les identifiants de l'AppRole (0600)
+      ansible.builtin.copy:
+        content: "{{ vault_approle_creds.stdout }}\n"
+        dest: "{{ vault_approle_file }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      when: not vault_approle_stat.stat.exists
+      no_log: true
+
+    # Compte de secours des administrateurs : ne dépend pas de Keycloak. Mot de passe généré
+    # ici, rangé dans secret/breakglass/ (illisible par Ansible) puis recopié dans Vaultwarden
+    - name: Compte de secours breakglass
+      ansible.builtin.shell: |
+        set -o pipefail
+        if vault read auth/userpass/users/breakglass >/dev/null 2>&1; then echo "changed=0"; exit 0; fi
+        pw=$(openssl rand -base64 48 | tr -d '/+=\n' | cut -c1-32)
+        printf '%s' "$pw" | vault write auth/userpass/users/breakglass password=- token_policies=admin token_ttl=1h token_max_ttl=8h >/dev/null
+        printf '%s' "$pw" | vault kv put secret/breakglass/vault-admin username=breakglass password=- >/dev/null
+        echo "changed=1"
+      args:
+        executable: /bin/bash
+      register: vault_breakglass
+      changed_when: "'changed=1' in vault_breakglass.stdout"
+      no_log: true

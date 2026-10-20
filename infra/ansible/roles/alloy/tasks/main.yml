@@ -12,6 +12,41 @@
     append: true
   notify: Redémarrer Alloy
 
+# Fichiers de logs hors journald : lecture par ACL sur leur répertoire (fichiers existants,
+# et ACL par défaut pour ceux que logrotate recrée), sans ajouter alloy à un groupe plus large
+# (ex. www-data peut lire /etc/pve sur un hyperviseur)
+- name: Paquet acl
+  ansible.builtin.apt:
+    name: acl
+    state: present
+  when: alloy_log_files | default([]) | length > 0
+
+- name: ACL des répertoires de logs suivis
+  ansible.posix.acl:
+    path: "{{ item.0 }}"
+    entity: alloy
+    etype: user
+    permissions: "{{ 'rx' if item.1 == 'access' else 'r' }}"
+    default: "{{ item.1 == 'default' }}"
+    state: present
+  loop: "{{ alloy_log_files | default([]) | map(attribute='path') | map('dirname') | unique | product(['access', 'default']) | list }}"
+
+- name: Fichiers de logs suivis déjà présents
+  ansible.builtin.find:
+    paths: "{{ item.path | dirname }}"
+    patterns: "{{ item.path | basename }}"
+  loop: "{{ alloy_log_files | default([]) }}"
+  register: alloy_existing_logs
+
+- name: ACL des fichiers de logs suivis
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: alloy
+    etype: user
+    permissions: r
+    state: present
+  loop: "{{ alloy_existing_logs.results | map(attribute='files') | flatten | map(attribute='path') | list }}"
+
 - name: Mot de passe de Loki
   ansible.builtin.copy:
     dest: /etc/alloy/loki_password

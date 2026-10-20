@@ -1,7 +1,8 @@
 #!/bin/sh
 # Terraform sur /terraform avec verrou local : le backend S3 ne gère pas le verrouillage.
 # Usage : tf plan | tf apply | tf state list ...
-. /root/.proxmox-env
+# Secrets (token Proxmox, clés S3) : lus dans Vault (secret/infra/terraform) par vault-env
+[ -n "$VAULT_ENV_LOADED" ] || exec vault-env "$0" "$@"
 cd /terraform || exit 1
 flock -n -E 75 /run/lock/terraform.lock terraform "$@"
 rc=$?

@@ -1,11 +1,13 @@
-# Étape 1 : construire l'application. Les URL sont figées au build, parce que
-# c'est le navigateur du visiteur qui les appelle, pas le conteneur.
+# Étape 1 : construire l'application. Les URL sont relatives : le navigateur appelle la même
+# origine que la page, et ce conteneur (nginx) relaie vers les services. L'application marche
+# donc depuis n'importe quelle machine du réseau, pas seulement depuis l'hôte.
 FROM node:22-alpine AS build
 WORKDIR /app
 
-ARG VITE_API_URL=http://localhost:8000/api
-ARG VITE_DETECTOR_URL=http://localhost:8100
-ARG VITE_REMEDIATION_URL=http://localhost:8200
+ARG VITE_API_URL=/api
+ARG VITE_AUTH_URL=
+ARG VITE_DETECTOR_URL=/detector
+ARG VITE_REMEDIATION_URL=/remediation
 ARG VITE_STRIPE_PUBLISHABLE_KEY
 ARG VITE_CARD_ENTRY=own
 ARG VITE_PAYPAL_CLIENT_ID

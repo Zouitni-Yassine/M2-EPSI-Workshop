@@ -8,7 +8,7 @@ import type { Brand, CardInput, CardSource, PaymentIntent, Rail } from './domain
 import { usePaymentEngine, type EngineChoice } from './engine'
 import { CardForm, cardComplete, type CardField } from './components/CardForm'
 import { CardPreview } from './components/CardPreview'
-import { OrderSummary, TOTAL } from './components/OrderSummary'
+import { OrderSummary, summarize, TOTAL, type SummaryLine } from './components/OrderSummary'
 import { Outcome } from './components/Outcome'
 import { PayPalPanel } from './components/PayPalPanel'
 import { Stepper } from './components/Stepper'
@@ -29,7 +29,13 @@ const stripePromise = PK ? loadStripe(PK) : null
 
 const INTER_CSS = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'
 
-export function PayPage({ onPaid }: { onPaid: () => void }) {
+export interface PayPageProps {
+  onPaid: () => void
+  /** Lignes de commande à encaisser ; sans elles, la commande de démonstration. */
+  order?: SummaryLine[]
+}
+
+export function PayPage({ onPaid, order }: PayPageProps) {
   const choice = usePaymentEngine()
 
   if (!choice) {
@@ -40,7 +46,7 @@ export function PayPage({ onPaid }: { onPaid: () => void }) {
     )
   }
 
-  let checkout = <Checkout choice={choice} onPaid={onPaid} />
+  let checkout = <Checkout choice={choice} onPaid={onPaid} order={order} />
 
   if (choice.provider === 'stripe' && stripePromise) {
     checkout = (
@@ -67,9 +73,10 @@ export function PayPage({ onPaid }: { onPaid: () => void }) {
   return checkout
 }
 
-function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void }) {
+function Checkout({ choice, onPaid, order }: { choice: EngineChoice; onPaid: () => void; order?: SummaryLine[] }) {
   const { engine, provider, paypal } = choice
   const elements = engine.entry === 'elements'
+  const amount = order ? summarize(order).total : TOTAL
 
   const [card, setCard] = useState<CardInput>(EMPTY_CARD)
   const [stripeBrand, setStripeBrand] = useState<Brand>('unknown')
@@ -108,7 +115,7 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
     setFailure(undefined)
     setAuthError(undefined)
     try {
-      const created = await engine.createIntent(TOTAL, {
+      const created = await engine.createIntent(amount, {
         brand,
         last4: elements ? '' : last4(card.number),
         holder: card.holder.trim(),
@@ -145,7 +152,7 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
     setFailure(undefined)
     setPayPalFailure(undefined)
     try {
-      const created = await paypal.createOrder(TOTAL)
+      const created = await paypal.createOrder(amount)
       paypalIntent.current = created
       setIntent(created)
       return { orderId: created.id }
@@ -228,7 +235,7 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
               </span>
             </p>
           ) : null}
-          <OrderSummary />
+          <OrderSummary lines={order} />
         </section>
 
         <section className="flex flex-col gap-6">
@@ -323,7 +330,7 @@ function Checkout({ choice, onPaid }: { choice: EngineChoice; onPaid: () => void
                         </span>
                       </>
                     ) : (
-                      `Payer ${euros(TOTAL)}`
+                      `Payer ${euros(amount)}`
                     )}
                   </button>
                   <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-text-2">

@@ -1,6 +1,7 @@
 # Déploiement du cluster Docker Swarm
 #   cd /srv/M2-EPSI-Workshop/infra/ansible
-#   source /root/.monitoring-env && ansible-playbook swarm.yml
+#   vault-env ansible-playbook swarm.yml
+# Secrets lus dans Vault (secret/infra/*) par vault-env : voir docs/identites.md
 #
 # Idempotent : peut être relancé à tout moment, y compris après l'ajout d'un nœud.
 
@@ -14,7 +15,7 @@
           - loki_auth_password | length >= 16
           - vm_auth_password | length >= 16
           - remediation_am_password | length >= 16
-        fail_msg: "Secrets absents : lancer 'source /root/.monitoring-env' avant le playbook"
+        fail_msg: "Secrets absents : lancer le playbook par vault-env (vault-env ansible-playbook ...)"
         quiet: true
       run_once: true
       delegate_to: localhost

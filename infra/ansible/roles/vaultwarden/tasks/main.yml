@@ -1,0 +1,107 @@
+- name: Paquets (copie d'image OCI, hachage du token admin)
+  ansible.builtin.apt:
+    name: [skopeo, argon2]
+    state: present
+
+- name: Utilisateur système vaultwarden
+  ansible.builtin.user:
+    name: vaultwarden
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/vaultwarden
+    create_home: false
+
+- name: Répertoires
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop:
+    - { path: /opt/vaultwarden }
+    - { path: /etc/vaultwarden, group: vaultwarden, mode: "0750" }
+    - { path: /var/lib/vaultwarden, owner: vaultwarden, group: vaultwarden, mode: "0700" }
+
+- name: Script d'extraction
+  ansible.builtin.copy:
+    src: extract-image.py
+    dest: /usr/local/sbin/vaultwarden-extract-image
+    mode: "0755"
+
+# Binaire statique et interface web extraits de l'image officielle (épinglée par empreinte)
+- name: Installer Vaultwarden {{ vaultwarden_version }}
+  ansible.builtin.shell: |
+    set -euo pipefail
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    skopeo copy -q "docker://{{ vaultwarden_image }}" "oci:$tmp/oci:img"
+    /usr/local/sbin/vaultwarden-extract-image "$tmp/oci" "$tmp/root"
+    "$tmp/root/vaultwarden" --version | grep -qx "Vaultwarden {{ vaultwarden_version }}"
+    mv "$tmp/root" /opt/vaultwarden/{{ vaultwarden_version }}
+  args:
+    executable: /bin/bash
+    creates: "/opt/vaultwarden/{{ vaultwarden_version }}/vaultwarden"
+  notify: Redémarrer Vaultwarden
+
+- name: Version active
+  ansible.builtin.file:
+    src: "/opt/vaultwarden/{{ vaultwarden_version }}"
+    dest: /opt/vaultwarden/current
+    state: link
+  notify: Redémarrer Vaultwarden
+
+- name: Certificat TLS
+  ansible.builtin.include_role:
+    name: internal_ca
+    tasks_from: issue
+  vars:
+    cert_dest_dir: /etc/vaultwarden
+    cert_group: vaultwarden
+    cert_notify: Redémarrer Vaultwarden
+
+# Token de la page /admin stocké haché (Argon2id). Sel déterministe : la tâche reste idempotente.
+- name: Hacher le token admin
+  ansible.builtin.command:
+    cmd: argon2 {{ (inventory_hostname ~ '-vaultwarden-admin') | hash('sha256') | truncate(16, true, '') }} -e -id -k 65540 -t 3 -p 4
+    stdin: "{{ vaultwarden_admin_token }}"
+    stdin_add_newline: false
+  register: vaultwarden_admin_hash
+  changed_when: false
+  no_log: true
+
+- name: Configuration
+  ansible.builtin.template:
+    src: vaultwarden.env.j2
+    dest: /etc/vaultwarden/vaultwarden.env
+    owner: root
+    group: vaultwarden
+    mode: "0640"
+  no_log: true
+  notify: Redémarrer Vaultwarden
+
+- name: Service systemd
+  ansible.builtin.template:
+    src: vaultwarden.service.j2
+    dest: /etc/systemd/system/vaultwarden.service
+    mode: "0644"
+  notify: Redémarrer Vaultwarden
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: Vaultwarden actif
+  ansible.builtin.systemd_service:
+    name: vaultwarden
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Vaultwarden répond
+  ansible.builtin.uri:
+    url: https://127.0.0.1/alive
+  register: vaultwarden_alive
+  until: vaultwarden_alive.status == 200
+  retries: 20
+  delay: 3
+  changed_when: false

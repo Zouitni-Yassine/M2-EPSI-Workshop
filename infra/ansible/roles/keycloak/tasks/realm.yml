@@ -1,0 +1,134 @@
+# Configuration du realm par l'API d'administration, depuis le poste de contrôle (qui
+# reconnaît la CA interne). Compte utilisé : "admin" du realm master (compte de secours).
+# Aucun mot de passe d'utilisateur ici : un compte est créé sans mot de passe, l'administrateur
+# lui fixe un mot de passe temporaire dans la console, et la personne le change à la première
+# connexion puis enrôle son TOTP (action imposée à tout nouveau compte).
+- name: Configuration du realm {{ keycloak_realm }}
+  delegate_to: localhost
+  become: false
+  run_once: true
+  module_defaults:
+    group/community.general.keycloak:
+      auth_keycloak_url: "https://{{ ansible_host }}"
+      auth_realm: master
+      auth_username: admin
+      auth_password: "{{ keycloak_admin_password }}"
+  block:
+    # Le realm master ne sert qu'au compte de secours : on le protège aussi contre la force brute
+    - name: Realm master durci
+      community.general.keycloak_realm:
+        realm: master
+        id: master
+        brute_force_protected: true
+        failure_factor: 5
+        wait_increment_seconds: 60
+        max_failure_wait_seconds: 900
+        admin_events_enabled: true
+        events_enabled: true
+        events_listeners: [jboss-logging]
+
+    - name: Realm {{ keycloak_realm }}
+      community.general.keycloak_realm:
+        realm: "{{ keycloak_realm }}"
+        id: "{{ keycloak_realm }}"
+        enabled: true
+        display_name: "{{ keycloak_realm_display_name }}"
+        ssl_required: all
+        # Pas d'inscription libre ni de mot de passe oublié (pas de serveur mail) :
+        # les comptes sont créés et réinitialisés par un administrateur
+        registration_allowed: false
+        reset_password_allowed: false
+        remember_me: false
+        login_with_email_allowed: true
+        duplicate_emails_allowed: false
+        password_policy: "{{ keycloak_password_policy }}"
+        # Verrouillage progressif après 5 échecs, jusqu'à 15 min
+        brute_force_protected: true
+        failure_factor: 5
+        wait_increment_seconds: 60
+        max_failure_wait_seconds: 900
+        permanent_lockout: false
+        # TOTP compatible avec les applications courantes (Bitwarden, Aegis, Google Authenticator)
+        otp_policy_type: totp
+        otp_policy_algorithm: HmacSHA1
+        otp_policy_digits: 6
+        otp_policy_period: 30
+        sso_session_idle_timeout: 1800
+        sso_session_max_lifespan: 36000
+        # Connexions, échecs et actions d'administration : journal du service, donc Loki
+        events_enabled: true
+        events_listeners: [jboss-logging]
+        events_expiration: 604800
+        admin_events_enabled: true
+        admin_events_details_enabled: true
+
+    # Double authentification obligatoire : tout nouveau compte doit enrôler un TOTP à sa
+    # première connexion ; ensuite le flux "browser" exige le code à chaque connexion
+    - name: TOTP imposé aux nouveaux comptes
+      community.general.keycloak_authentication_required_actions:
+        realm: "{{ keycloak_realm }}"
+        state: present
+        required_actions:
+          - alias: CONFIGURE_TOTP
+            name: Configure OTP
+            providerId: CONFIGURE_TOTP
+            enabled: true
+            defaultAction: true
+
+    - name: Groupes
+      community.general.keycloak_group:
+        realm: "{{ keycloak_realm }}"
+        name: "{{ item }}"
+      loop: "{{ keycloak_groups }}"
+
+    - name: Comptes (sans mot de passe)
+      community.general.keycloak_user:
+        realm: "{{ keycloak_realm }}"
+        username: "{{ item.username }}"
+        email: "{{ item.email | default(omit) }}"
+        first_name: "{{ item.first_name | default(omit) }}"
+        last_name: "{{ item.last_name | default(omit) }}"
+        enabled: "{{ item.enabled | default(true) }}"
+        groups: "{{ item.groups | map('community.general.dict_kv', 'name') | list }}"
+      loop: "{{ keycloak_users }}"
+      loop_control:
+        label: "{{ item.username }}"
+
+    # Clients confidentiels : flux "authorization code" seul (pas de mot de passe envoyé par
+    # l'application, pas de flux implicite), redirections exactes. Le secret est généré par
+    # Keycloak à la création ; le module ne le régénère pas ensuite.
+    # Le claim "groups" (noms courts) porte l'appartenance à infra-admins / viewers : chaque
+    # outil en déduit le rôle (Grafana : role_attribute_path ; Proxmox : groupes <nom>-keycloak).
+    - name: Clients OIDC
+      community.general.keycloak_client:
+        realm: "{{ keycloak_realm }}"
+        client_id: "{{ item.client_id }}"
+        name: "{{ item.name }}"
+        enabled: true
+        protocol: openid-connect
+        public_client: false
+        client_authenticator_type: client-secret
+        standard_flow_enabled: true
+        implicit_flow_enabled: false
+        direct_access_grants_enabled: false
+        service_accounts_enabled: false
+        root_url: "{{ item.root_url }}"
+        redirect_uris: "{{ item.redirect_uris }}"
+        web_origins: ["+"]
+        attributes:
+          post.logout.redirect.uris: "{{ item.post_logout_redirect_uris | join('##') }}"
+          pkce.code.challenge.method: "{{ 'S256' if item.pkce | default(false) else '' }}"
+        protocol_mappers:
+          - name: groups
+            protocol: openid-connect
+            protocolMapper: oidc-group-membership-mapper
+            config:
+              claim.name: groups
+              full.path: "false"
+              id.token.claim: "true"
+              access.token.claim: "true"
+              userinfo.token.claim: "true"
+              introspection.token.claim: "true"
+      loop: "{{ keycloak_oidc_clients }}"
+      loop_control:
+        label: "{{ item.client_id }}"

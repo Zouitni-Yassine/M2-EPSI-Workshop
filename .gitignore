@@ -7,3 +7,6 @@ dist/
 *.tsbuildinfo
 __pycache__/
 .venv/
+auth/data/
+secrets/
+backend/data/

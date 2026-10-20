@@ -1,0 +1,171 @@
+- name: Paquets (Java 21, PostgreSQL)
+  ansible.builtin.apt:
+    name: [openjdk-21-jre-headless, postgresql, python3-psycopg2]
+    state: present
+
+- name: PostgreSQL actif
+  ansible.builtin.systemd_service:
+    name: postgresql
+    enabled: true
+    state: started
+
+- name: Utilisateur de base de données
+  community.postgresql.postgresql_user:
+    name: keycloak
+    password: "{{ keycloak_db_password }}"
+  become: true
+  become_user: postgres
+  become_method: ansible.builtin.su
+  no_log: true
+
+# UTF-8 explicite : la locale du LXC est C, une base créée sans ces options serait en SQL_ASCII
+- name: Base de données
+  community.postgresql.postgresql_db:
+    name: keycloak
+    owner: keycloak
+    encoding: UTF-8
+    lc_collate: C.UTF-8
+    lc_ctype: C.UTF-8
+    template: template0
+  become: true
+  become_user: postgres
+  become_method: ansible.builtin.su
+
+- name: Utilisateur système keycloak
+  ansible.builtin.user:
+    name: keycloak
+    system: true
+    shell: /usr/sbin/nologin
+    home: /opt/keycloak
+    create_home: false
+
+- name: Répertoires
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop:
+    - { path: /opt/keycloak }
+    - { path: "/opt/keycloak/{{ keycloak_version }}" }
+    - { path: /etc/keycloak, group: keycloak, mode: "0750" }
+
+- name: Télécharger Keycloak {{ keycloak_version }}
+  ansible.builtin.get_url:
+    url: "https://github.com/keycloak/keycloak/releases/download/{{ keycloak_version }}/keycloak-{{ keycloak_version }}.tar.gz"
+    checksum: "sha1:https://github.com/keycloak/keycloak/releases/download/{{ keycloak_version }}/keycloak-{{ keycloak_version }}.tar.gz.sha1"
+    dest: "/opt/keycloak/keycloak-{{ keycloak_version }}.tar.gz"
+    mode: "0644"
+
+# Binaires à root : le service ne peut pas modifier son propre code
+- name: Extraire Keycloak
+  ansible.builtin.unarchive:
+    src: "/opt/keycloak/keycloak-{{ keycloak_version }}.tar.gz"
+    dest: "/opt/keycloak/{{ keycloak_version }}"
+    remote_src: true
+    extra_opts: [--strip-components=1]
+    creates: "/opt/keycloak/{{ keycloak_version }}/bin/kc.sh"
+
+- name: Répertoire de données inscriptible par le service
+  ansible.builtin.file:
+    path: "/opt/keycloak/{{ keycloak_version }}/data"
+    state: directory
+    owner: keycloak
+    group: keycloak
+    mode: "0750"
+
+- name: Version active
+  ansible.builtin.file:
+    src: "/opt/keycloak/{{ keycloak_version }}"
+    dest: /opt/keycloak/current
+    state: link
+  notify: Redémarrer Keycloak
+
+- name: Certificat TLS
+  ansible.builtin.include_role:
+    name: internal_ca
+    tasks_from: issue
+  vars:
+    cert_dest_dir: /etc/keycloak
+    cert_group: keycloak
+    cert_notify: Redémarrer Keycloak
+
+# Mot de passe de la base hors de keycloak.conf : variable lue par systemd (root) au démarrage
+- name: Mot de passe de la base (environnement)
+  ansible.builtin.copy:
+    dest: /etc/keycloak/db.env
+    content: "KC_DB_PASSWORD={{ keycloak_db_password }}
+"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Redémarrer Keycloak
+
+- name: Configuration
+  ansible.builtin.template:
+    src: keycloak.conf.j2
+    dest: /etc/keycloak/keycloak.conf
+    owner: root
+    group: keycloak
+    mode: "0640"
+  notify: Redémarrer Keycloak
+
+# Compte admin temporaire, créé au premier démarrage seulement (base vide)
+- name: Compte d'amorçage
+  ansible.builtin.copy:
+    dest: /etc/keycloak/bootstrap.env
+    content: |
+      KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD={{ keycloak_admin_password }}
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+# Options de build (base, santé, métriques) : nouvelle compilation si elles ou la version changent
+- name: Compiler la configuration Keycloak
+  ansible.builtin.command:
+    cmd: >-
+      /opt/keycloak/{{ keycloak_version }}/bin/kc.sh build
+      --db=postgres --health-enabled=true --metrics-enabled=true
+    creates: "/opt/keycloak/{{ keycloak_version }}/data/.built-postgres-health-metrics"
+  notify: Redémarrer Keycloak
+  register: keycloak_build
+
+- name: Marqueur de compilation
+  ansible.builtin.file:
+    path: "/opt/keycloak/{{ keycloak_version }}/data/.built-postgres-health-metrics"
+    state: touch
+    mode: "0644"
+  when: keycloak_build is changed
+
+- name: Service systemd
+  ansible.builtin.template:
+    src: keycloak.service.j2
+    dest: /etc/systemd/system/keycloak.service
+    mode: "0644"
+  notify: Redémarrer Keycloak
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: Keycloak actif
+  ansible.builtin.systemd_service:
+    name: keycloak
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Keycloak prêt
+  ansible.builtin.uri:
+    url: https://127.0.0.1:9000/health/ready
+  register: keycloak_ready
+  until: keycloak_ready.status == 200
+  retries: 30
+  delay: 5
+  changed_when: false
+
+- name: Realm, groupes et comptes
+  ansible.builtin.import_tasks: realm.yml

@@ -3,7 +3,38 @@
     name: grafana
     state: present
 
-# admin_password n'est pris en compte qu'à la création de la base (premier démarrage)
+# Secrets lus par Grafana dans son environnement (fichier lisible par root et grafana seuls) :
+# grafana.ini et les sources de données n'en contiennent aucun. Le mot de passe admin n'est pris
+# en compte qu'à la création de la base : voir la tâche « Mot de passe du compte admin local ».
+- name: Secrets de Grafana
+  ansible.builtin.copy:
+    dest: /etc/grafana/secrets.env
+    content: |
+      GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}
+      VM_AUTH_PASSWORD={{ vm_auth_password }}
+      LOKI_AUTH_PASSWORD={{ loki_auth_password }}
+      ALERTMANAGER_AUTH_PASSWORD={{ alertmanager_auth_password }}
+    owner: root
+    group: grafana
+    mode: "0640"
+  no_log: true
+  notify: Redémarrer Grafana
+
+- name: Répertoire des surcharges systemd
+  ansible.builtin.file:
+    path: /etc/systemd/system/grafana-server.service.d
+    state: directory
+    mode: "0755"
+
+- name: Grafana charge ses secrets
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/grafana-server.service.d/secrets.conf
+    content: |
+      [Service]
+      EnvironmentFile=/etc/grafana/secrets.env
+    mode: "0644"
+  notify: Redémarrer Grafana
+
 - name: Configuration
   ansible.builtin.template:
     src: grafana.ini.j2
@@ -21,7 +52,6 @@
     owner: root
     group: grafana
     mode: "0640"
-  no_log: true # mots de passe des sources
   notify: Redémarrer Grafana
 
 # Dashboards versionnés dans infra/monitoring/grafana/dashboards (générés par les scripts voisins).
@@ -83,3 +113,34 @@
     name: grafana-server
     enabled: true
     state: started
+
+- name: Grafana prêt
+  ansible.builtin.uri:
+    url: http://127.0.0.1:3000/api/health
+  register: grafana_health
+  until: grafana_health.status == 200
+  retries: 30
+  delay: 2
+  changed_when: false
+
+# admin_password de grafana.ini ne sert qu'au premier démarrage : après une rotation (nouvelle
+# valeur dans Vault), le mot de passe du compte admin local est réinitialisé par le CLI
+- name: Mot de passe du compte admin local
+  ansible.builtin.uri:
+    url: http://127.0.0.1:3000/api/user
+    url_username: admin
+    url_password: "{{ grafana_admin_password }}"
+    force_basic_auth: true
+    status_code: [200, 401]
+  register: grafana_admin_check
+  no_log: true
+
+- name: Réinitialiser le mot de passe admin
+  ansible.builtin.command:
+    cmd: >-
+      runuser -u grafana -- grafana cli --homepath /usr/share/grafana --config /etc/grafana/grafana.ini
+      admin reset-admin-password --password-from-stdin
+    chdir: /usr/share/grafana # le CLI lit son répertoire courant, illisible pour grafana s'il s'agit de /root
+    stdin: "{{ grafana_admin_password }}"
+  when: grafana_admin_check.status == 401
+  no_log: true

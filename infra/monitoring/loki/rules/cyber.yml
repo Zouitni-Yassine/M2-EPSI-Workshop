@@ -1,0 +1,23 @@
+# Règles d'alerte Loki sur les logs (SIEM), écrites par l'équipe cyber.
+# Déployées telles quelles (copie, pas de template : les {{ $labels }} sont pour Loki) par le
+# rôle loki dans /etc/loki/rules/fake/ ; alertes envoyées à Alertmanager, donc à Discord.
+#   vault-env ansible-playbook monitoring.yml --limit monitoring_core
+groups:
+  - name: resilience-cyber
+    interval: 15s
+    limit: 100
+    rules:
+      - alert: WAFRepeatedBlocks
+        expr: |
+          sum by (source_ip) (
+            count_over_time({host="waf01",container="resilience-waf"}
+              | json | __error__="" | event_type="http_access" | status="403" [1m])
+          ) >= 10
+        for: 15s
+        labels:
+          severity: warning
+          domain: cyber
+          remediation: manual
+        annotations:
+          summary: "Blocages WAF répétés depuis {{ $labels.source_ip }}"
+          description: "Au moins 10 réponses 403 en une minute. Examiner les règles CRS avant toute action. Un refus applicatif peut également produire un 403."

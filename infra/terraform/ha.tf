@@ -18,6 +18,7 @@ locals {
   ha_guests = merge(
     { for name, n in local.swarm_nodes : name => { sid = "vm:${n.vm_id}", node = n.node } },
     { for name, n in local.monitoring_nodes : name => { sid = "ct:${n.vm_id}", node = n.node } },
+    { for name, n in local.identity_nodes : name => { sid = "ct:${n.vm_id}", node = n.node } },
   )
 
   vmagent_sids = [for name, n in local.monitoring_nodes : local.ha_guests[name].sid if n.role == "vmagent"]
@@ -36,6 +37,7 @@ resource "proxmox_haresource" "guests" {
   depends_on = [
     proxmox_virtual_environment_vm.swarm,
     proxmox_virtual_environment_container.monitoring,
+    proxmox_virtual_environment_container.identity,
   ]
 }
 

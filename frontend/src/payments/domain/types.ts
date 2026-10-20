@@ -69,6 +69,8 @@ export interface PaymentIntent {
   card: CardSummary
   createdAt: string
   reference: string
+  /** Identifiant du client qui a initié le paiement, posé par l'API depuis son jeton. */
+  owner?: string
   error?: PaymentError
   rail: Rail
   history: IntentEvent[]

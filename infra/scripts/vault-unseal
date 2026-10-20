@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Descelle Vault après un redémarrage (Vault démarre toujours scellé).
+
+    vault-unseal
+
+Ne dépend ni d'Ansible ni de vault-env (qui ont besoin d'un Vault descellé). Tant que
+/root/.vault/init.json existe, les clés y sont lues ; sinon, chaque détenteur saisit sa clé
+(conservée dans Vaultwarden), sans écho. N'affiche aucune clé.
+Installation : install -m 0755 infra/scripts/vault-unseal /usr/local/bin/vault-unseal
+"""
+import getpass
+import json
+import os
+import ssl
+import sys
+import urllib.request
+
+VAULT_ADDR = os.environ.get("VAULT_ADDR", "https://10.0.1.242:8200")
+INIT_FILE = "/root/.vault/init.json"
+CTX = ssl.create_default_context(cafile="/etc/ssl/certs/ca-certificates.crt")
+
+
+def api(method, path, data=None):
+    req = urllib.request.Request(f"{VAULT_ADDR}/v1/{path}", method=method,
+                                 data=json.dumps(data).encode() if data is not None else None)
+    with urllib.request.urlopen(req, context=CTX, timeout=10) as r:
+        return json.load(r)
+
+
+def main():
+    try:
+        status = api("GET", "sys/seal-status")
+    except OSError as e:
+        sys.exit(f"vault-unseal : Vault injoignable ({VAULT_ADDR}) : {e}")
+    if not status["sealed"]:
+        print("Vault est déjà descellé.")
+        return
+    if os.path.exists(INIT_FILE):
+        with open(INIT_FILE) as f:
+            keys = json.load(f)["unseal_keys_b64"]
+        print(f"Clés lues dans {INIT_FILE}.")
+    else:
+        keys = None
+    i = 0
+    while status["sealed"]:
+        if keys is not None:
+            if i >= len(keys):
+                sys.exit("vault-unseal : clés épuisées, Vault toujours scellé")
+            key = keys[i]
+        else:
+            key = getpass.getpass(f"Clé de descellement ({status['progress']}/{status['t']}) : ")
+        status = api("POST", "sys/unseal", {"key": key})
+        i += 1
+        print(f"  progression : {status['progress']}/{status['t']}" if status["sealed"] else "  Vault descellé.")
+
+
+if __name__ == "__main__":
+    main()

@@ -47,6 +47,7 @@ configs:
 
 secrets:
   vm_auth_password:
+    name: {{ swarm_vm_secret_name }}
     external: true
 
 volumes:

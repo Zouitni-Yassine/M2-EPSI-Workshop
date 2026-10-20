@@ -1,0 +1,5 @@
+host_role: waf
+
+# VM gérée par l'équipe cyber (ModSecurity + CRS, firewall nftables propre) : seul le rôle
+# alloy y est appliqué, pour que l'envoi des logs suive les rotations du mot de passe Loki.
+# Les logs du WAF passent par journald (driver Docker journald, label container).

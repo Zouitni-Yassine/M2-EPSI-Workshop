@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+ui            = true
+api_addr      = "https://{{ ansible_host }}:8200"
+cluster_addr  = "https://{{ ansible_host }}:8201"
+# mlock impossible en LXC non privilégié ; recommandé désactivé avec le stockage Raft
+disable_mlock = true
+
+# Stockage Raft intégré (nœud unique, extensible à 3 nœuds)
+storage "raft" {
+  path    = "/var/lib/vault/data"
+  node_id = "{{ inventory_hostname }}"
+}
+
+listener "tcp" {
+  address       = "0.0.0.0:8200"
+  tls_cert_file = "/etc/vault.d/tls.crt"
+  tls_key_file  = "/etc/vault.d/tls.key"
+
+  # /v1/sys/metrics lisible sans token par les collecteurs (filtrés par le firewall)
+  telemetry {
+    unauthenticated_metrics_access = true
+  }
+}
+
+telemetry {
+  prometheus_retention_time = "60s"
+  disable_hostname          = true
+}

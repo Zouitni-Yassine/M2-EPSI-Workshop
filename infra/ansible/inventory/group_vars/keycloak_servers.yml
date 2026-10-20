@@ -1,0 +1,50 @@
+fw_open_ports:
+  - 443  # Keycloak (HTTPS)
+  - 9000 # Keycloak : santé et métriques (interface de gestion)
+  - 9100 # node_exporter
+
+# Accessibles aussi depuis le VPN d'administration (fw_admin_web_allowed)
+fw_admin_ports:
+  - 443  # Keycloak
+
+# Realm des administrateurs (roles/keycloak/tasks/realm.yml)
+keycloak_realm: epsi
+keycloak_realm_display_name: RESILIENCE-ALPHA
+# 12 caractères minimum, différent de l'identifiant, pas de réutilisation des 3 derniers
+keycloak_password_policy: "length(12) and notUsername(undefined) and passwordHistory(3)"
+
+# Droits accordés aux groupes dans chaque outil : voir docs/identites.md
+keycloak_groups:
+  - infra-admins # administration : Grafana Admin, Proxmox Administrator, Vault admin
+  - viewers      # lecture seule : Grafana Viewer, Proxmox PVEAuditor, pas d'accès à Vault
+
+# Comptes nominatifs, sans mot de passe (fixé par un administrateur, temporaire)
+keycloak_users:
+  - username: samuel
+    groups: [infra-admins]
+
+# Clients OIDC (confidentiels, flux "authorization code" uniquement, redirections exactes).
+# Les secrets sont générés par Keycloak, relus à l'exécution et poussés directement vers
+# l'outil (rôles grafana_oidc et pve_oidc) : ils ne sont écrits ni dans le dépôt ni sur .110.
+keycloak_oidc_clients:
+  - client_id: grafana
+    name: Grafana
+    pkce: true # Grafana sait envoyer un code_challenge (use_pkce)
+    root_url: "http://{{ hostvars['monitoring01'].ansible_host }}:3000"
+    redirect_uris:
+      - "http://{{ hostvars['monitoring01'].ansible_host }}:3000/login/generic_oauth"
+    post_logout_redirect_uris:
+      - "http://{{ hostvars['monitoring01'].ansible_host }}:3000/login"
+  # Proxmox renvoie vers l'origine de la page (https://<nœud>:8006), quel que soit le nœud utilisé
+  - client_id: proxmox
+    name: Proxmox VE
+    pkce: true # Proxmox envoie aussi un code_challenge S256
+    root_url: "https://{{ hostvars['ceph01'].ansible_host }}:8006"
+    redirect_uris: >-
+      {{ groups['pve'] | map('extract', hostvars, 'ansible_host')
+         | map('regex_replace', '^', 'https://') | map('regex_replace', '$', ':8006') | list }}
+    post_logout_redirect_uris: []
+
+# Logs hors journald envoyés à Loki (rôle alloy) : PostgreSQL (connexions, erreurs de la base)
+alloy_log_files:
+  - { path: /var/log/postgresql/postgresql-*-main.log, job: postgresql }

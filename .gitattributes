@@ -1,0 +1,2 @@
+# Scripts exécutés dans des conteneurs Linux : jamais de CRLF, même cloné sous Windows.
+*.sh text eol=lf

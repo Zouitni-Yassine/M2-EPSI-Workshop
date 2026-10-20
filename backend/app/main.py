@@ -10,27 +10,68 @@ teste et que l'attaque vise.
 from __future__ import annotations
 
 import collections
+import json
+import logging
 import os
 import re
 import secrets
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import stripe
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from . import paypal
+from . import metrics, paypal, store
+from .security import User, current_user, require_operator
 
 load_dotenv()
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 
-app = FastAPI(title="Resilience Pay API", version="0.1.0")
+
+class _Json(logging.Formatter):
+    """Une ligne JSON par événement, lue par Loki et le SIEM. Jamais de secret ni de numéro de carte."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        line = {
+            "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname.lower(),
+            "service": "payment-api",
+            "msg": record.getMessage(),
+            **getattr(record, "fields", {}),
+        }
+        return json.dumps(line, ensure_ascii=False)
+
+
+log = logging.getLogger("payment-api")
+_handler = logging.StreamHandler()
+_handler.setFormatter(_Json())
+log.addHandler(_handler)
+log.setLevel(logging.INFO)
+log.propagate = False
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # La sonde de la base tourne en fond ; chaque retour de la base (démarrage compris) relance la réconciliation.
+    store.watch(on_recover=reconcile_stripe)
+    yield
+
+
+# Documentation sous /api : c'est le seul préfixe que le relais nginx transmet à ce service.
+app = FastAPI(
+    title="Resilience Pay API",
+    version="0.4.0",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+)
 app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=["*"], allow_headers=["*"])
 api = APIRouter(prefix="/api")
 
@@ -54,8 +95,10 @@ async def observe(request: Request, call_next):
         status = response.status_code
         return response
     finally:
+        elapsed = time.perf_counter() - started
+        metrics.observe_http(request, status, elapsed)
         if request.url.path not in _PROBE_PATHS:
-            _requests.append((time.time(), (time.perf_counter() - started) * 1000, status))
+            _requests.append((time.time(), elapsed * 1000, status))
 
 
 def probe_stripe() -> dict[str, Any]:
@@ -246,6 +289,7 @@ def to_intent(pi: Any) -> dict[str, Any]:
         "card": _card(pi, charge),
         "createdAt": _iso(pi.created),
         "reference": _meta(pi, "reference"),
+        "owner": _meta(pi, "owner"),
         "rail": _rail(status, three_ds, error),
         "history": _history(pi, charge, status, three_ds, error),
     }
@@ -258,10 +302,43 @@ def _stripe(call, *args, **kwargs):
     try:
         return call(*args, **kwargs)
     except stripe.StripeError as exc:  # pragma: no cover - dépend du réseau
+        metrics.provider_error("stripe", str(exc))
         raise HTTPException(status_code=502, detail=f"Stripe : {exc.user_message or exc}") from exc
 
 
+def reconcile_stripe() -> None:
+    """
+    Rejoue les 100 derniers paiements Stripe dans la base. Lancé au démarrage et à chaque
+    retour de la base : ce qui a été payé pendant une panne réapparaît dans le journal.
+    """
+    if not stripe.api_key:
+        return
+    try:
+        page = stripe.PaymentIntent.list(limit=100, expand=["data.latest_charge"])
+    except stripe.StripeError as exc:
+        log.warning("réconciliation impossible", extra={"fields": {"event": "reconcile", "error": str(exc)}})
+        return
+    for done, pi in enumerate(page.data):
+        try:
+            store.save(to_intent(pi), "stripe")
+        except store.StoreError as exc:
+            log.warning("réconciliation interrompue", extra={"fields": {"event": "reconcile", "saved": done, "error": str(exc)}})
+            return
+    log.info("journal réconcilié avec Stripe", extra={"fields": {"event": "reconcile", "saved": len(page.data)}})
+
+
+def _owned(intent_id: str, user: User) -> Any:
+    """Relit l'intention et vérifie qu'elle appartient au client. Sinon 404 : on ne confirme même pas qu'elle existe."""
+    pi = _stripe(stripe.PaymentIntent.retrieve, intent_id, expand=["latest_charge"])
+    if not user.is_operator and _meta(pi, "owner") != user.username:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+    return pi
+
+
 # ---------------------------------------------------------------- routes
+#
+# /health et /status restent ouverts : le détecteur, le moteur de remédiation et
+# le canary les sondent chaque seconde. Tout le reste exige un jeton.
 
 
 @api.get("/health")
@@ -272,6 +349,8 @@ def health() -> dict[str, Any]:
         "stripe": bool(key),
         "mode": "test" if key.startswith("sk_test_") else "live" if key else "none",
         "paypal": paypal.configured(),
+        # Informatif : redémarrer l'API ne répare pas une base en panne, /health reste donc à 200.
+        "db": bool(store.up()),
     }
 
 
@@ -288,6 +367,7 @@ def status() -> dict[str, Any]:
         "api": "up",
         "stripe": {"up": probe["up"], "latencyMs": probe["ms"]},
         "paypal": {"configured": paypal.configured(), "up": pp["up"], "latencyMs": pp["ms"]},
+        "db": {"up": bool(store.up())},
         "metrics": {
             "rps": round(len(window) / 10, 1),
             "errRate": errors / len(window) if window else 0.0,
@@ -299,7 +379,7 @@ def status() -> dict[str, Any]:
 
 
 @api.post("/payment_intents", status_code=201)
-def create_intent(body: CreateIntent) -> dict[str, Any]:
+def create_intent(body: CreateIntent, user: User = Depends(current_user)) -> dict[str, Any]:
     if not stripe.api_key:
         raise HTTPException(status_code=503, detail="STRIPE_SECRET_KEY absente côté serveur")
     key = f"idem_{secrets.token_hex(6)}"
@@ -310,15 +390,18 @@ def create_intent(body: CreateIntent) -> dict[str, Any]:
         # Carte uniquement, sans redirection : confirmCardPayment reste dans la page.
         automatic_payment_methods={"enabled": True, "allow_redirects": "never"},
         description="Resilience Pay — commande",
-        metadata={"reference": _reference(), "holder": body.holder, "idempotency_key": key},
+        metadata={"reference": _reference(), "holder": body.holder, "idempotency_key": key, "owner": user.username},
         idempotency_key=key,
     )
-    return {**to_intent(pi), "clientSecret": pi.client_secret}
+    intent = metrics.created(to_intent(pi), "stripe")
+    return {**store.record(intent, "stripe"), "clientSecret": pi.client_secret}
 
 
 @api.post("/payment_intents/{intent_id}/confirm")
-def confirm_intent(intent_id: str, body: ConfirmIntent) -> dict[str, Any]:
+def confirm_intent(intent_id: str, body: ConfirmIntent, user: User = Depends(current_user)) -> dict[str, Any]:
     """Confirme avec le jeton de test correspondant au numéro saisi. Le numéro ne quitte pas ce serveur."""
+    if not user.is_operator:
+        _owned(intent_id, user)
     token = TEST_TOKENS.get(re.sub(r"\D", "", body.number))
     if not token:
         raise HTTPException(
@@ -331,23 +414,31 @@ def confirm_intent(intent_id: str, body: ConfirmIntent) -> dict[str, Any]:
         # Refus émetteur : l'intention porte le motif, on la relit telle quelle.
         pi = _stripe(stripe.PaymentIntent.retrieve, intent_id, expand=["latest_charge"])
     except stripe.StripeError as exc:
+        metrics.provider_error("stripe", str(exc))
         raise HTTPException(status_code=502, detail=f"Stripe : {exc.user_message or exc}") from exc
-    return {**to_intent(pi), "clientSecret": pi.client_secret}
+    intent = metrics.payment(to_intent(pi), "stripe")
+    return {**store.record(intent, "stripe"), "clientSecret": pi.client_secret}
 
 
 @api.get("/payment_intents")
-def list_intents() -> list[dict[str, Any]]:
-    page = _stripe(stripe.PaymentIntent.list, limit=25, expand=["data.latest_charge"])
-    return [to_intent(pi) for pi in page.data]
+def list_intents(user: User = Depends(current_user)) -> list[dict[str, Any]]:
+    try:
+        return store.recent("stripe", None if user.is_operator else user.username)
+    except store.StoreError:
+        pass  # Base injoignable : on relit Stripe, plus lent mais complet.
+    # Un client ne voit que ses paiements : on lit plus large pour en garder 25 après filtrage.
+    page = _stripe(stripe.PaymentIntent.list, limit=25 if user.is_operator else 100, expand=["data.latest_charge"])
+    mine = [pi for pi in page.data if user.is_operator or _meta(pi, "owner") == user.username]
+    return [to_intent(pi) for pi in mine[:25]]
 
 
 @api.get("/payment_intents/{intent_id}")
-def get_intent(intent_id: str) -> dict[str, Any]:
-    pi = _stripe(stripe.PaymentIntent.retrieve, intent_id, expand=["latest_charge"])
-    return to_intent(pi)
+def get_intent(intent_id: str, user: User = Depends(current_user)) -> dict[str, Any]:
+    # Relu chez Stripe (après 3-D Secure, l'état a changé hors de nos routes) puis mis à jour en base.
+    return store.record(metrics.payment(to_intent(_owned(intent_id, user)), "stripe"), "stripe")
 
 
-@api.get("/balance")
+@api.get("/balance", dependencies=[Depends(require_operator)])
 def balance() -> dict[str, Any]:
     bal = _stripe(stripe.Balance.retrieve)
 
@@ -359,6 +450,16 @@ def balance() -> dict[str, Any]:
 
     tomorrow = (datetime.now() + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
     return {"available": eur(bal.available), "pending": eur(bal.pending), "nextPayoutAt": tomorrow.isoformat()}
+
+
+@app.get("/metrics", include_in_schema=False)
+def prometheus() -> Response:
+    """Format Prometheus, à la racine comme le veut le contrat de déploiement. Ne déclenche aucune sonde."""
+    deps = {"stripe": bool(_stripe_probe["up"]), "db": bool(store.up())}
+    if paypal.configured():
+        deps["paypal"] = bool(paypal._probe["up"])
+    body, content_type = metrics.render(deps)
+    return Response(body, media_type=content_type)
 
 
 api.include_router(paypal.router)

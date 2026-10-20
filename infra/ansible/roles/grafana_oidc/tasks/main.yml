@@ -1,0 +1,56 @@
+# Connexion à Grafana par Keycloak. Le formulaire local reste actif : le compte admin local
+# est le compte de secours quand le SSO est indisponible.
+# Les réglages passent par des variables d'environnement (prioritaires sur grafana.ini) : le
+# rôle grafana, lancé par monitoring.yml avant que Keycloak existe, n'en dépend pas.
+
+- name: Secret du client OIDC Grafana (lu dans Keycloak)
+  community.general.keycloak_clientsecret_info:
+    auth_keycloak_url: "{{ oidc_keycloak_url }}"
+    auth_realm: master
+    auth_username: admin
+    auth_password: "{{ hostvars[oidc_keycloak_host].keycloak_admin_password }}"
+    realm: "{{ hostvars[oidc_keycloak_host].keycloak_realm }}"
+    client_id: "{{ grafana_oidc_client_id }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: grafana_oidc_secret
+  no_log: true
+
+- name: Réglages OIDC de Grafana
+  ansible.builtin.template:
+    src: oidc.env.j2
+    dest: /etc/grafana/oidc.env
+    owner: root
+    group: grafana
+    mode: "0640"
+  no_log: true
+  notify: Redémarrer Grafana (OIDC)
+
+- name: Répertoire des surcharges systemd de Grafana
+  ansible.builtin.file:
+    path: /etc/systemd/system/grafana-server.service.d
+    state: directory
+    mode: "0755"
+
+- name: Grafana charge les réglages OIDC
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/grafana-server.service.d/oidc.conf
+    content: |
+      # Géré par Ansible (rôle grafana_oidc)
+      [Service]
+      EnvironmentFile=/etc/grafana/oidc.env
+    mode: "0644"
+  notify: Redémarrer Grafana (OIDC)
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: Grafana prêt
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:3000/api/health"
+  register: grafana_health
+  until: grafana_health.status == 200
+  retries: 30
+  delay: 2
+  changed_when: false

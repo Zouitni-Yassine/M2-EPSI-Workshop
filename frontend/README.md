@@ -1,12 +1,23 @@
 # Resilience Pay — frontend
 
-Trois vues dans une seule application React + Tailwind :
+Trois vues dans une seule application React + Tailwind, derrière une page de connexion :
 
-| Vue | Rôle |
-| --- | --- |
-| **Paiement** | Le tunnel de paiement par carte, branché sur Stripe en mode test |
-| **Transactions** | Le journal du compte marchand : solde, paiements, détail de chaque machine à états |
-| **Supervision** | Le dashboard que le jury regarde pendant l'attaque et la reprise |
+| Vue | Rôle | Accès |
+| --- | --- | --- |
+| **Paiement** | Le tunnel de paiement par carte, branché sur Stripe en mode test | client, opérateur |
+| **Transactions** | Le journal : ses propres paiements pour un client ; tout le compte marchand, solde et client de chaque paiement pour un opérateur | client, opérateur |
+| **Supervision** | Le dashboard que le jury regarde pendant l'attaque et la reprise | opérateur |
+
+La connexion passe par le service `auth/`. Le jeton vit dans un cookie `httpOnly` que le
+JavaScript ne voit jamais : le navigateur le joint seul à chaque appel, parce que tout est sur la
+même origine (`src/auth/session.ts`). Au chargement, `/auth/me` dit si le cookie ouvre encore
+une session ; un `401` ou l'expiration ramène à la page de connexion avec le motif.
+
+**Un seul port.** Sous Docker, le nginx de ce conteneur est le relais de toute la plateforme
+(`nginx.conf`) : `/auth/`, `/api/`, et la supervision réservée aux opérateurs. Les URL de
+l'application sont relatives, elle fonctionne donc depuis n'importe quelle machine du réseau.
+En `npm run dev`, Vite joue le même rôle (`vite.config.ts`). Masquer un onglet ne protège
+rien : c'est l'API qui refuse.
 
 ## Démarrer
 
@@ -17,6 +28,7 @@ cp .env.example .env        # renseigner VITE_STRIPE_PUBLISHABLE_KEY
 npm run dev                 # http://localhost:5173
 ```
 
+Le service d'authentification doit tourner pour se connecter (voir `auth/README.md`).
 Le backend doit tourner à côté (voir `backend/README.md`), sinon le tunnel bascule en
 **simulation locale** et l'affiche clairement dans une bannière.
 
@@ -91,8 +103,8 @@ Les composants ne savent pas quel moteur tourne. Le choix se fait une fois par s
 dans `engine/index.ts`.
 
 ```bash
-# .env
-VITE_API_URL=http://localhost:8000/api
+# .env — URL relatives : le relais (nginx sous Docker, Vite en dev) fait le reste
+VITE_API_URL=/api
 VITE_STRIPE_PUBLISHABLE_KEY=pk_test_xxx
 VITE_PAYPAL_CLIENT_ID=...      # client ID de l'app PayPal sandbox (facultatif)
 VITE_DATA_SOURCE=mock          # ou live, avec VITE_WS_URL

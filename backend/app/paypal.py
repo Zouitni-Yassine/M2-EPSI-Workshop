@@ -9,7 +9,6 @@ journal fonctionnent sans savoir d'où vient le paiement.
 
 from __future__ import annotations
 
-import collections
 import os
 import re
 import secrets
@@ -20,8 +19,11 @@ from decimal import Decimal
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from . import metrics, store
+from .security import User, current_user
 
 # Figée : même avec des identifiants live collés par erreur, aucun argent réel ne bouge.
 SANDBOX_API = "https://api-m.sandbox.paypal.com"
@@ -180,6 +182,7 @@ def _http_error(exc: PayPalError) -> HTTPException:
     if exc.issue == "ORDER_NOT_APPROVED":
         return HTTPException(status_code=409, detail="Le payeur n’a pas encore approuvé la commande PayPal")
     suffix = f" (debug_id {exc.debug_id})" if exc.debug_id else ""
+    metrics.provider_error("paypal", f"{exc.issue} {exc.debug_id}".strip())
     return HTTPException(status_code=502, detail=f"PayPal : {exc}{suffix}")
 
 
@@ -285,9 +288,12 @@ def to_intent(order: dict[str, Any], error: dict[str, str] | None = None) -> dic
         history.append({"at": _clock(later), "status": "canceled", "note": f"Refus PayPal — {error['code']}" if error else "Commande annulée ou expirée"})
 
     name = (order.get("payer") or {}).get("name") or {}
+    # custom_id = « clé d'idempotence:propriétaire », gardé par PayPal : il survit à un redémarrage de l'API.
+    key, _, owner = unit.get("custom_id", "").partition(":")
     out: dict[str, Any] = {
         "id": order["id"],
-        "idempotencyKey": unit.get("custom_id", ""),
+        "idempotencyKey": key,
+        "owner": owner,
         "amount": _cents((unit.get("amount") or {}).get("value")),
         "currency": "EUR",
         "status": status,
@@ -303,19 +309,10 @@ def to_intent(order: dict[str, Any], error: dict[str, str] | None = None) -> dic
     return out
 
 
-# Pas d'API « lister les commandes » chez PayPal : on garde les 25 dernières en mémoire.
-# Elles disparaissent si le conteneur redémarre — à brancher sur la base du SI.
-_ledger: collections.OrderedDict[str, dict[str, Any]] = collections.OrderedDict()
-_ledger_lock = threading.Lock()
-
-
+# Pas d'API « lister les commandes » chez PayPal : le journal est notre base, et lui seul.
+# Contrairement à Stripe, une commande manquée pendant une panne de la base ne se rattrape pas.
 def _remember(intent: dict[str, Any]) -> dict[str, Any]:
-    with _ledger_lock:
-        _ledger[intent["id"]] = intent
-        _ledger.move_to_end(intent["id"])
-        while len(_ledger) > 25:
-            _ledger.popitem(last=False)
-    return intent
+    return store.record(metrics.payment(intent, "paypal"), "paypal")
 
 
 def _order_id(order_id: str) -> str:
@@ -329,11 +326,28 @@ def _require_configured() -> None:
         raise HTTPException(status_code=503, detail="PAYPAL_CLIENT_ID ou PAYPAL_CLIENT_SECRET absent côté serveur")
 
 
+def _check_owner(owner: str, user: User) -> None:
+    # 404 plutôt que 403 : un client ne doit pas pouvoir sonder les commandes des autres.
+    if not user.is_operator and owner != user.username:
+        raise HTTPException(status_code=404, detail="Commande introuvable")
+
+
+def _owner_of(order_id: str, path: str) -> str:
+    try:
+        known = store.owner_of(order_id)
+    except store.StoreError:
+        known = None
+    if known is not None:
+        return known
+    # Inconnue de la base (ou base en panne) : PayPal garde le propriétaire dans custom_id.
+    return to_intent(_paypal("GET", path))["owner"]
+
+
 # ---------------------------------------------------------------- routes
 
 
 @router.post("/orders", status_code=201)
-def create_order(body: CreateOrder) -> dict[str, Any]:
+def create_order(body: CreateOrder, user: User = Depends(current_user)) -> dict[str, Any]:
     _require_configured()
     key = f"idem_{secrets.token_hex(6)}"
     order = _paypal(
@@ -344,7 +358,7 @@ def create_order(body: CreateOrder) -> dict[str, Any]:
             "purchase_units": [
                 {
                     "reference_id": _reference(),
-                    "custom_id": key,
+                    "custom_id": f"{key}:{user.username}",
                     "description": "Resilience Pay — commande",
                     "amount": {"currency_code": "EUR", "value": _euros(body.amount)},
                 }
@@ -353,13 +367,15 @@ def create_order(body: CreateOrder) -> dict[str, Any]:
         # Rejouer la même requête (timeout, double clic) ne crée pas de seconde commande.
         request_id=key,
     )
-    return _remember(to_intent(order))
+    return _remember(metrics.created(to_intent(order), "paypal"))
 
 
 @router.post("/orders/{order_id}/capture")
-def capture_order(order_id: str) -> dict[str, Any]:
+def capture_order(order_id: str, user: User = Depends(current_user)) -> dict[str, Any]:
     _require_configured()
     path = f"/v2/checkout/orders/{_order_id(order_id)}"
+    if not user.is_operator:
+        _check_owner(_owner_of(order_id, path), user)
     try:
         order = _call("POST", f"{path}/capture")
     except PayPalError as exc:
@@ -377,12 +393,16 @@ def capture_order(order_id: str) -> dict[str, Any]:
 
 
 @router.get("/orders/{order_id}")
-def get_order(order_id: str) -> dict[str, Any]:
+def get_order(order_id: str, user: User = Depends(current_user)) -> dict[str, Any]:
     _require_configured()
-    return _remember(to_intent(_paypal("GET", f"/v2/checkout/orders/{_order_id(order_id)}")))
+    intent = to_intent(_paypal("GET", f"/v2/checkout/orders/{_order_id(order_id)}"))
+    _check_owner(intent["owner"], user)
+    return _remember(intent)
 
 
 @router.get("/orders")
-def list_orders() -> list[dict[str, Any]]:
-    with _ledger_lock:
-        return list(reversed(_ledger.values()))
+def list_orders(user: User = Depends(current_user)) -> list[dict[str, Any]]:
+    try:
+        return store.recent("paypal", None if user.is_operator else user.username)
+    except store.StoreError as exc:
+        raise HTTPException(status_code=503, detail="Journal PayPal indisponible : base injoignable") from exc

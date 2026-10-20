@@ -1,0 +1,76 @@
+# Autorité de certification interne. La clé de la CA ne quitte jamais le poste de contrôle ;
+# seul son certificat est distribué et ajouté au magasin de confiance des hôtes.
+
+- name: Répertoire de la PKI
+  ansible.builtin.file:
+    path: "{{ pki_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Clé de la CA
+  community.crypto.openssl_privatekey:
+    path: "{{ pki_dir }}/ca.key"
+    type: ECC
+    curve: secp384r1
+    mode: "0600"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Demande de certificat de la CA
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: "{{ pki_dir }}/ca.key"
+    common_name: "{{ pki_ca_name }}"
+    organization_name: EPSI Workshop 2026
+    basic_constraints: ["CA:TRUE", "pathlen:0"]
+    basic_constraints_critical: true
+    key_usage: [keyCertSign, cRLSign]
+    key_usage_critical: true
+  delegate_to: localhost
+  run_once: true
+  become: false
+  changed_when: false
+  register: internal_ca_csr
+
+- name: Certificat de la CA (10 ans)
+  community.crypto.x509_certificate:
+    path: "{{ pki_dir }}/ca.crt"
+    csr_content: "{{ internal_ca_csr.csr }}"
+    privatekey_path: "{{ pki_dir }}/ca.key"
+    provider: selfsigned
+    selfsigned_not_after: +3650d
+    mode: "0644"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: CA dans le magasin de confiance du poste de contrôle
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/ca.crt"
+    dest: /usr/local/share/ca-certificates/epsi-internal-ca.crt
+    mode: "0644"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  register: internal_ca_local
+
+- name: Mettre à jour le magasin du poste de contrôle
+  ansible.builtin.command: update-ca-certificates
+  delegate_to: localhost
+  run_once: true
+  become: false
+  when: internal_ca_local is changed
+
+- name: CA dans le magasin de confiance de l'hôte
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/ca.crt"
+    dest: /usr/local/share/ca-certificates/epsi-internal-ca.crt
+    mode: "0644"
+  register: internal_ca_host
+
+- name: Mettre à jour le magasin de l'hôte
+  ansible.builtin.command: update-ca-certificates
+  when: internal_ca_host is changed

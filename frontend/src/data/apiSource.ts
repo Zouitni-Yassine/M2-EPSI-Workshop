@@ -18,6 +18,8 @@ interface Status {
   stripe: { up: boolean; latencyMs: number }
   /** Absent sur un backend plus ancien ; `configured: false` tant que PayPal n'est pas branché. */
   paypal?: { configured: boolean; up: boolean; latencyMs: number }
+  /** La base du journal, sondée par payment-api. Absent sur un backend plus ancien. */
+  db?: { up: boolean }
   metrics: Metrics
 }
 
@@ -57,9 +59,10 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
     subscribe(onSnapshot) {
       const startedAt = Date.now()
       let seq = 0
-      let prev = { api: true, stripe: true, paypal: true, over: false, detector: true }
+      let prev = { api: true, stripe: true, paypal: true, db: true, over: false, detector: true }
       // La tuile PayPal n'apparaît qu'une fois que payment-api l'a annoncé comme configuré.
       let paypalSeen = false
+      let dbSeen = false
       let metrics: Metrics = { rps: 0, errRate: 0, p95: 0, wafBlocks: 0 }
       let anomaly: AnomalyPoint[] = []
       let threshold = 0.55
@@ -90,10 +93,11 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
             apiUp: true,
             stripeUp: body.stripe.up,
             paypal: body.paypal,
+            db: body.db,
             ms: Math.round(performance.now() - t0) + body.stripe.latencyMs,
           }
         } catch {
-          return { apiUp: false, stripeUp: false, paypal: undefined, ms: TIMEOUT_MS }
+          return { apiUp: false, stripeUp: false, paypal: undefined, db: undefined, ms: TIMEOUT_MS }
         }
       }
 
@@ -140,7 +144,7 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
         const [probe] = await Promise.all([probeApi(), probeDetector(), probeRemediation()])
         if (stopped) return
 
-        const { apiUp, stripeUp, paypal, ms } = probe
+        const { apiUp, stripeUp, paypal, db, ms } = probe
         const ok = apiUp && stripeUp
         canary.push({ seq: seq++, ok, ms })
         if (canary.length > RIBBON) canary.shift()
@@ -158,6 +162,11 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
         paypalSeen ||= Boolean(paypal?.configured)
         if (apiUp && paypal?.configured && prev.paypal && !paypalUp) push('detect', 'PayPal sandbox injoignable depuis payment-api')
         if (apiUp && paypal?.configured && !prev.paypal && paypalUp) push('restore', 'PayPal sandbox joignable de nouveau')
+        // Base en panne : les paiements passent encore, mais ne sont plus journalisés.
+        const dbUp = db?.up ?? false
+        dbSeen ||= db !== undefined
+        if (apiUp && db && prev.db && !dbUp) push('detect', 'PostgreSQL injoignable — paiements acceptés mais non journalisés')
+        if (apiUp && db && !prev.db && dbUp) push('restore', 'PostgreSQL de retour — journal réconcilié avec Stripe')
         if (!prev.over && over) {
           push('detect', `Score ML ${current.toFixed(2)} au-dessus du seuil ${threshold.toFixed(2)} — anomalie confirmée`)
         }
@@ -172,6 +181,7 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
           api: apiUp,
           stripe: apiUp ? stripeUp : prev.stripe,
           paypal: apiUp && paypal?.configured ? paypalUp : prev.paypal,
+          db: apiUp && db ? dbUp : prev.db,
           over,
           detector: detectorUp,
         }
@@ -190,6 +200,8 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
           { id: 'api', name: 'payment-api', status: apiUp ? 'up' : remediating ? 'restarting' : 'down' },
           // Sans payment-api, personne ne sonde Stripe : on ne prétend pas savoir.
           { id: 'stripe', name: 'stripe (externe)', status: !apiUp ? 'unknown' : stripeUp ? 'up' : 'down' },
+          // Sans payment-api, personne ne sonde la base : on ne prétend pas savoir.
+          ...(dbSeen ? [{ id: 'db', name: 'postgres', status: !apiUp ? 'unknown' : dbUp ? 'up' : 'down' } as Service] : []),
           ...(paypalSeen
             ? [{ id: 'paypal', name: 'paypal (externe)', status: !apiUp ? 'unknown' : paypalUp ? 'up' : 'down' } as Service]
             : []),

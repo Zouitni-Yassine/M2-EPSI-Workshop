@@ -1,6 +1,7 @@
 # Stack d'observabilité (LXC créés par infra/terraform/monitoring.tf)
 #   cd /srv/M2-EPSI-Workshop/infra/ansible
-#   source /root/.monitoring-env && ansible-playbook monitoring.yml
+#   vault-env ansible-playbook monitoring.yml
+# Secrets lus dans Vault (secret/infra/*) par vault-env : voir docs/identites.md
 
 - name: Socle commun des LXC de supervision
   hosts: monitoring
@@ -15,13 +16,20 @@
           - alertmanager_auth_password | length >= 16
           - remediation_am_password | length >= 16
           - loki_auth_password | length >= 16
-        fail_msg: "Secrets absents : lancer 'source /root/.monitoring-env' avant le playbook"
+        fail_msg: "Secrets absents : lancer le playbook par vault-env (vault-env ansible-playbook ...)"
         quiet: true
       run_once: true
       delegate_to: localhost
       become: false
   roles:
     - lxc_base
+    - alloy
+
+# Machines hors du socle LXC/VM : seul l'envoi du journal (et des fichiers alloy_log_files)
+# vers Loki y est géré. Le WAF a son propre firewall, les hyperviseurs leur propre configuration.
+- name: Envoi des logs (hyperviseurs, poste de contrôle, WAF)
+  hosts: pve:control:waf
+  roles:
     - alloy
 
 - name: Collecteurs vmagent

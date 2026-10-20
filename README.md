@@ -4,35 +4,70 @@ Démonstrateur de cyber-résilience : une plateforme de paiement qui détecte un
 anomalie et se répare seule, sans intervention humaine.
 
 ```
-navigateur ──► frontend (React + Tailwind) ──► payment-api (FastAPI) ──► Stripe (mode test)
-                    │                               ▲
-                    │ supervision                   │ redémarrage, via proxy Docker à droits réduits
-                    ▼                               │
+                 seul port publié (:5173)
+navigateur ──► frontend : nginx, relais ──/auth/──► auth (jetons Ed25519, cookie httpOnly) ──┐
+                    │                    ──/api/───► payment-api ──► PostgreSQL (réseau interne)
+                    │ supervision (opérateurs)            ▲    └──► Stripe (test), PayPal (sandbox)
+                    ▼                                     │ redémarrage, via proxy Docker à droits réduits
                detector (IsolationForest) ──► remediation (décide, agit, vérifie)
 ```
 
 | Dossier | Rôle | Doc |
 | --- | --- | --- |
-| `frontend/` | Tunnel de paiement, journal des transactions, dashboard de supervision | [README](frontend/README.md) |
-| `backend/` | API de paiement, porte la clé Stripe, expose métriques et sonde | [README](backend/README.md) |
+| `frontend/` | Boutique, connexion, paiement, journal, supervision ; son nginx est le relais unique | [README](frontend/README.md) |
+| `auth/` | Comptes, rôles client / opérateur, jetons signés, freinage de la force brute | [README](auth/README.md) |
+| `backend/` | API de paiement, porte la clé Stripe, vérifie les jetons, journal en base, expose métriques et sonde | [README](backend/README.md) |
+| `db/` | PostgreSQL : une base et un rôle par service, secrets Docker | [README](db/README.md) |
 | `detector/` | Score d'anomalie chaque seconde, appris sur le trafic normal | [README](detector/README.md) |
+| Mailpit | Boîte mail de démonstration (réinitialisation de mot de passe), UI sur `http://localhost:8025` | — |
 | `remediation/` | Écoute le verdict, redémarre la cible, vérifie la reprise | [README](remediation/README.md) |
 
 ## Lancer le démonstrateur
 
 ```bash
 # 1. Secrets, jamais commités
+python scripts/init-secrets.py               # mots de passe PostgreSQL, clé de signature des jetons (secrets/)
 cp backend/.env.example backend/.env         # STRIPE_SECRET_KEY, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET
+cp auth/.env.example auth/.env               # AUTH_PASSWORD_OPERATEUR, AUTH_PASSWORD_CLIENT (8 caractères min.)
 cp detector/.env.example detector/.env       # DETECTOR_ADMIN_TOKEN
 echo "VITE_STRIPE_PUBLISHABLE_KEY=pk_test_..." > .env
 echo "VITE_PAYPAL_CLIENT_ID=..." >> .env     # facultatif : même client ID que dans backend/.env
 
 # 2. Tout monter
-docker compose up --build
+docker compose up --build -d
+
+# 3. Tout arrêter : « down », pas « stop » — les services redémarreraient au prochain lancement de Docker
+docker compose down
 ```
 
-Puis http://localhost:5173. Le détecteur apprend la normale pendant `WARMUP_SECONDS`
+Puis http://localhost:5173 — ou `http://<ip-de-l'hôte>:5173` depuis une autre machine, par exemple
+`http://192.168.137.1:5173` sur le point d'accès —, connexion avec `operateur` (accès à la
+supervision) ou `client` (boutique). Le détecteur apprend la normale pendant `WARMUP_SECONDS`
 (60 par défaut, réglable dans `.env`) avant de scorer.
+
+## Déployer sur le Swarm
+
+Le même `docker-compose.yml` sert au Swarm et suit le
+[contrat de déploiement](infra/docs/contrat-deploiement.md) : image à tag figé pour chaque
+service, secrets et configs Docker, conteneurs en lecture seule avec `tmpfs`, section `deploy`
+(ressources, politique de redémarrage, retour arrière), aucun `depends_on`.
+
+```bash
+export REGISTRY=ghcr.io/<org>                 # registre joignable par tous les nœuds
+docker compose build
+docker compose push auth payment-api detector remediation frontend
+PAYMENT_API_RESTART=on-failure DOCKER_SOCKET_PROXY_REPLICAS=0 \
+  docker stack deploy -c docker-compose.yml paiement
+```
+
+| Variable | Local (défaut) | Swarm | Pourquoi |
+| --- | --- | --- | --- |
+| `PAYMENT_API_RESTART` | `none` | `on-failure` | En local, seule la remédiation relance l'API : c'est la démo. Sur le Swarm, un crash est relancé, un arrêt volontaire reste à la remédiation. |
+| `DOCKER_SOCKET_PROXY_REPLICAS` | `1` | `0` | Le contrat interdit de monter `docker.sock` ; sur le Swarm, le moteur passe par la passerelle SSH (`infra/docs/remediation.md`). |
+
+Reste à faire pour une démo sur le Swarm : brancher le moteur de remédiation sur la passerelle
+SSH, épingler la base sur un nœud. Publier le frontal en mode `host` pour que le relais voie
+l'adresse réelle des clients (le maillage de routage la masque).
 
 ## Rejouer la séquence de résilience
 
@@ -83,14 +118,26 @@ Depuis le conteneur du moteur de remédiation, vers le proxy Docker :
 - Un détecteur injoignable **dégrade** l'état (« Surveillance interrompue ») au lieu de laisser
   le bandeau vert.
 - Les clés Stripe ne sont lues que depuis l'environnement ; aucun `.env` n'est commité.
+- Paiements et transactions exigent un jeton délivré par `auth/` ; un client ne voit et ne
+  confirme que ses paiements, le solde marchand est réservé aux opérateurs. Jetons Ed25519
+  vérifiés localement par l'API (algorithme figé), mots de passe en argon2id, `429` après
+  5 échecs depuis une adresse. Détail dans [auth/README.md](auth/README.md).
+- PostgreSQL n'est joignable que depuis `auth` et `payment-api` (réseau interne, aucun port
+  publié) ; une base et un rôle par service, mots de passe en secrets Docker.
+- Un seul port publié, le frontal nginx (`frontend/nginx.conf`). Il relaie `/auth/` et `/api/` ;
+  `/api/status`, `/detector/score` et `/remediation/state` exigent une session d'opérateur,
+  vérifiée par le service d'authentification (`auth_request`). Ni `/metrics`, ni `/reset` du
+  détecteur, ni la base, ni le proxy Docker ne sont joignables de l'extérieur.
+- La session est un cookie `httpOnly`, `SameSite=Strict` : le JavaScript ne voit jamais le jeton,
+  un autre site ne peut pas s'en servir. Les scripts obtiennent un jeton par `POST /auth/token`.
 
 ## État par pilier
 
 | Pilier | Fait | Reste à faire |
 | --- | --- | --- |
-| **DEV** | Tunnel Stripe test, journal, dashboard, moteur de remédiation | Playbooks supplémentaires (bannir une IP, restaurer la base) |
+| **DEV** | Tunnel Stripe test, journal en PostgreSQL, dashboard, moteur de remédiation, service d’authentification et rôles, métriques Prometheus et logs JSON | Playbooks supplémentaires (bannir une IP, restaurer la base) |
 | **IA** | Détecteur IsolationForest + distance robuste, verdict qui déclenche l'action | Assistant RAG Ollama + LangChain, réapprentissage continu, variables CPU/RAM |
-| **INFRA** | `docker compose` complet, proxy Docker à liste blanche | Ansible, Prometheus, Grafana, Loki, PostgreSQL |
+| **INFRA** | `docker compose` complet (db, auth, payment-api compatibles Swarm), proxy Docker à liste blanche | Ansible, Prometheus, Grafana, Loki |
 | **CYBER** | Droits du moteur réduits, `/reset` protégé, état dégradé si aveugle | WAF, SIEM/SOC, Vault ou SOPS, scénario d'attaque depuis le PC attaquant |
 | **GOUV** | — | EBIOS RM, PCA/PRA, analyse NIS2/DORA |
 

@@ -1,52 +1,187 @@
 # Resilience Pay — démonstrateur complet.
 #
-#   docker compose up --build
+# En local :
+#   python scripts/init-secrets.py     # une fois : mots de passe de la base, clé de signature
+#   docker compose up --build -d
+#   docker compose down                # pour arrêter (pas « stop » : les services redémarreraient avec Docker)
 #
-# Frontend : http://localhost:5173 · API : :8000 · Détecteur : :8100 · Remédiation : :8200
-# Le proxy Docker n'est joignable que depuis le réseau interne, et n'accepte
-# que deux requêtes : lister les conteneurs, redémarrer payment-api.
+# http://localhost:5173 (ou http://<ip-de-l'hôte>:5173 depuis une autre machine) : le seul port publié.
+# Le frontal nginx relaie /api, /auth et la supervision vers les services ; voir frontend/nginx.conf.
+#
+# Sur le Swarm, le même fichier (contrat : infra/docs/contrat-deploiement.md) :
+#   export REGISTRY=ghcr.io/<org>
+#   docker compose build && docker compose push auth payment-api detector remediation frontend
+#   PAYMENT_API_RESTART=on-failure DOCKER_SOCKET_PROXY_REPLICAS=0 \
+#     docker stack deploy -c docker-compose.yml paiement
+#
+# Swarm ignore build, container_name et security_opt : ils ne servent qu'en local.
+# Aucun depends_on : chaque service réessaie seul ses dépendances, Swarm ne garantit aucun ordre.
 
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password, auth_db_password, payments_db_password]
+    configs:
+      # Crée un rôle et une base par service, au premier démarrage du volume.
+      - source: db_init
+        target: /docker-entrypoint-initdb.d/01-roles.sh
+        mode: 0555
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - { type: tmpfs, target: /var/run/postgresql }
+      - { type: tmpfs, target: /tmp }
+    read_only: true
+    cap_drop: [ALL]
+    # Le strict nécessaire à l'image officielle pour préparer ses dossiers, puis passer à l'utilisateur postgres.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+    # Aucun port publié : seuls auth et payment-api la joignent, par le réseau interne « data ».
+    networks: [data]
+    deploy:
+      # Sur le Swarm, le volume est local au nœud : épingler la base sur un nœud (placement) ou
+      # utiliser un volume partagé, sinon elle repart vide si elle change de nœud.
+      replicas: 1
+      resources:
+        limits: { cpus: "1", memory: 512M }
+      restart_policy: { condition: any, delay: 5s }
+
+  # Boîte mail de démonstration : l'e-mail de réinitialisation part en vrai SMTP et se lit
+  # sur http://localhost:8025, sans Internet. Image publique, compatible Swarm telle quelle.
+  mailpit:
+    image: axllent/mailpit:v1.20
+    ports:
+      # Boucle locale uniquement : le PC attaquant partage le réseau de démo, il ne doit pas
+      # pouvoir lire les liens de réinitialisation. Forme courte : Swarm refuse host_ip en forme
+      # longue ; il accepte celle-ci mais ignore l'adresse (publication sur tous les nœuds) — sur
+      # le cluster, ne pas publier Mailpit ou le fermer au pare-feu.
+      - "127.0.0.1:8025:8025"
+    networks: [resilience]
+    deploy:
+      replicas: 1
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+      restart_policy: { condition: any, delay: 5s }
+
+  auth:
+    image: ${REGISTRY:-resilience}/auth:0.3.0
+    build: ./auth
+    env_file: ./auth/.env
+    environment:
+      CORS_ORIGINS: http://localhost:5173,http://localhost:4173
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      APP_URL: http://localhost:5173
+      DATABASE_URL: postgresql+psycopg://auth@db:5432/auth
+      DB_PASSWORD_FILE: /run/secrets/auth_db_password
+      # Partagée par toutes les réplicas : un jeton signé par l'une est vérifiable par toutes.
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      # Adresse du client lue dans X-Forwarded-For, que le relais écrase : sinon toutes les
+      # connexions viendraient du relais, et le freinage de la force brute bloquerait tout le monde.
+      FORWARDED_ALLOW_IPS: "*"
+    secrets: [auth_db_password, jwt_private_key]
+    # Sans état : comptes dans PostgreSQL, clé en secret. Rien ne s'écrit dans le conteneur.
+    read_only: true
+    volumes:
+      - { type: tmpfs, target: /tmp }
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Aucun port publié : joignable seulement par le relais (/auth/) et par payment-api.
+    networks: [resilience, data]
+    deploy:
+      # 1 : le freinage de la force brute compte les échecs en mémoire. Avec deux réplicas,
+      # chacune n'en verrait que la moitié, et l'attaquant aurait deux fois plus d'essais.
+      replicas: 1
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+      restart_policy: { condition: any, delay: 5s, window: 30s }
+      update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s }
+
   payment-api:
+    image: ${REGISTRY:-resilience}/payment-api:0.4.0
     build: ./backend
+    # Local seulement : le proxy Docker n'autorise que le redémarrage du conteneur nommé payment-api.
     container_name: payment-api
     env_file: ./backend/.env
     environment:
       CORS_ORIGINS: http://localhost:5173,http://localhost:4173
-    ports:
-      - "8000:8000"
-    networks: [resilience]
-    restart: "no" # La reprise doit venir du moteur de remédiation, pas de Docker.
+      AUTH_URL: http://auth:8300
+      DATABASE_URL: postgresql+psycopg://payments@db:5432/payments
+      DB_PASSWORD_FILE: /run/secrets/payments_db_password
+      FORWARDED_ALLOW_IPS: "*"  # adresse du client transmise par le relais, pour les journaux
+    secrets: [payments_db_password]
+    read_only: true
+    volumes:
+      - { type: tmpfs, target: /tmp }
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Aucun port publié : joignable par le relais (/api/), le détecteur et la remédiation.
+    networks: [resilience, data]
+    deploy:
+      replicas: 1
+      resources:
+        limits: { cpus: "1", memory: 512M }
+      restart_policy:
+        # none par défaut : la reprise doit venir du moteur de remédiation, pas de Docker — c'est la
+        # démonstration. Sur le Swarm, on-failure : Swarm relance après un crash, mais un arrêt
+        # volontaire (l'attaque « docker stop ») reste au moteur de remédiation.
+        condition: ${PAYMENT_API_RESTART:-none}
+        delay: 5s
+        window: 30s
+      update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s }
 
   detector:
+    image: ${REGISTRY:-resilience}/detector:0.1.0
     build: ./detector
-    container_name: detector
     env_file: ./detector/.env
     environment:
       API_URL: http://payment-api:8000/api
       WARMUP_SECONDS: ${WARMUP_SECONDS:-60}
-    ports:
-      - "8100:8100"
+    read_only: true
+    volumes:
+      - { type: tmpfs, target: /tmp }
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     networks: [resilience]
-    depends_on: [payment-api]
+    deploy:
+      # Une seule réplica : le modèle vit en mémoire, deux réplicas apprendraient deux normales.
+      replicas: 1
+      resources:
+        limits: { cpus: "1", memory: 512M }
+      restart_policy: { condition: any, delay: 5s, window: 30s }
 
   docker-socket-proxy:
     # Pas de proxy générique : une liste blanche nginx de deux requêtes,
     # lire la liste des conteneurs et redémarrer payment-api. Voir proxy/nginx.conf.
+    # Local seulement : le contrat Swarm interdit de monter docker.sock. Sur le Swarm,
+    # DOCKER_SOCKET_PROXY_REPLICAS=0, et le moteur passe par la passerelle SSH de l'infra.
     image: nginx:1.27-alpine
-    container_name: docker-socket-proxy
+    configs:
+      - source: docker_socket_proxy_conf
+        target: /etc/nginx/nginx.conf
     volumes:
-      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - { type: tmpfs, target: /tmp }
     read_only: true
-    tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [internal]
+    deploy:
+      replicas: ${DOCKER_SOCKET_PROXY_REPLICAS:-1}
+      resources:
+        limits: { cpus: "0.25", memory: 64M }
+      restart_policy: { condition: any, delay: 5s }
 
   remediation:
+    image: ${REGISTRY:-resilience}/remediation:0.1.0
     build: ./remediation
-    container_name: remediation
     environment:
       DETECTOR_URL: http://detector:8100
       API_URL: http://payment-api:8000/api
@@ -54,30 +189,80 @@ services:
       TARGETS: payment-api
       COOLDOWN_SECONDS: 45
       VERIFY_TIMEOUT: 40
-    ports:
-      - "8200:8200"
+    read_only: true
+    volumes:
+      - { type: tmpfs, target: /tmp }
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     networks: [resilience, internal]
-    depends_on: [detector, docker-socket-proxy]
+    deploy:
+      # Une seule réplica : deux moteurs décideraient deux fois et redémarreraient deux fois.
+      replicas: 1
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+      restart_policy: { condition: any, delay: 5s, window: 30s }
 
   frontend:
+    image: ${REGISTRY:-resilience}/frontend:0.2.0
     build:
       context: ./frontend
       args:
-        VITE_API_URL: http://localhost:8000/api
-        VITE_DETECTOR_URL: http://localhost:8100
-        VITE_REMEDIATION_URL: http://localhost:8200
+        # Chemins relatifs : le navigateur appelle le relais, quelle que soit la machine.
+        VITE_API_URL: /api
+        VITE_AUTH_URL: ""
+        VITE_DETECTOR_URL: /detector
+        VITE_REMEDIATION_URL: /remediation
         VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
         VITE_CARD_ENTRY: ${VITE_CARD_ENTRY:-own}
         # Facultatif : sans lui, pas de bouton PayPal (le secret reste dans backend/.env).
         VITE_PAYPAL_CLIENT_ID: ${VITE_PAYPAL_CLIENT_ID:-}
         VITE_DATA_SOURCE: api
-    container_name: frontend
+    # nginx en lecture seule : seuls son cache, son pid et /tmp sont inscriptibles, en mémoire.
+    read_only: true
+    volumes:
+      - { type: tmpfs, target: /var/cache/nginx }
+      - { type: tmpfs, target: /var/run }
+      - { type: tmpfs, target: /tmp }
+    cap_drop: [ALL]
+    # Écouter sur le port 80, puis passer les workers à l'utilisateur nginx.
+    cap_add: [CHOWN, SETGID, SETUID, NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    # Le seul port publié de la plateforme.
     ports:
       - "5173:80"
     networks: [resilience]
-    depends_on: [payment-api]
+    deploy:
+      replicas: 1
+      resources:
+        limits: { cpus: "0.5", memory: 64M }
+      restart_policy: { condition: any, delay: 5s, window: 30s }
+      update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s }
+
+volumes:
+  db-data:
 
 networks:
   resilience:
   internal:
     internal: true
+  # Base de données : pas d'accès sortant, rien de publié.
+  data:
+    internal: true
+
+# Créés par scripts/init-secrets.py (dossier ignoré par Git) ; en production, par Vault ou SOPS.
+# Sur le Swarm, un secret ou une config ne se modifie pas : en changer = lui donner un nouveau nom.
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  auth_db_password:
+    file: ./secrets/auth_db_password.txt
+  payments_db_password:
+    file: ./secrets/payments_db_password.txt
+  jwt_private_key:
+    file: ./secrets/jwt_private_key.pem
+
+configs:
+  db_init:
+    file: ./db/init/01-roles.sh
+  docker_socket_proxy_conf:
+    file: ./proxy/nginx.conf
