@@ -5,6 +5,8 @@ export type Role = 'client' | 'operator'
 export interface SessionUser {
   username: string
   role: Role
+  firstName?: string
+  lastName?: string
 }
 
 export interface Session {
@@ -89,13 +91,13 @@ export async function login(username: string, password: string): Promise<void> {
   set({ session: { token: body.token, expiresAt: body.expiresAt, user: body.user } })
 }
 
-export async function register(username: string, password: string): Promise<void> {
+async function sessionCall(path: string, payload: unknown, fallback: string): Promise<void> {
   let res: Response
   try {
-    res = await fetch(`${AUTH_URL}/auth/register`, {
+    res = await fetch(`${AUTH_URL}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(5000),
     })
   } catch {
@@ -103,9 +105,35 @@ export async function register(username: string, password: string): Promise<void
   }
   const body = (await res.json().catch(() => ({}))) as Partial<Session> & { detail?: unknown }
   if (!res.ok || !body.token || !body.user || !body.expiresAt) {
-    throw new Error(typeof body.detail === 'string' ? body.detail : `Création impossible (${res.status}).`)
+    throw new Error(typeof body.detail === 'string' ? body.detail : `${fallback} (${res.status}).`)
   }
   set({ session: { token: body.token, expiresAt: body.expiresAt, user: body.user } })
+}
+
+export async function register(email: string, firstName: string, lastName: string, password: string): Promise<void> {
+  await sessionCall('/auth/register', { email, firstName, lastName, password }, 'Création impossible')
+}
+
+/** Demande l'e-mail de réinitialisation. La réponse est volontairement la même, compte ou pas. */
+export async function forgotPassword(email: string): Promise<string> {
+  let res: Response
+  try {
+    res = await fetch(`${AUTH_URL}/auth/forgot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+      signal: AbortSignal.timeout(5000),
+    })
+  } catch {
+    throw new Error('Service d’authentification injoignable. Réessayez dans un instant.')
+  }
+  const body = (await res.json().catch(() => ({}))) as { detail?: unknown }
+  if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `Demande impossible (${res.status}).`)
+  return typeof body.detail === 'string' ? body.detail : 'Si un compte existe avec cette adresse, un e-mail vient de partir.'
+}
+
+export async function resetPassword(token: string, password: string): Promise<void> {
+  await sessionCall('/auth/reset', { token, password }, 'Réinitialisation impossible')
 }
 
 export function logout(): void {

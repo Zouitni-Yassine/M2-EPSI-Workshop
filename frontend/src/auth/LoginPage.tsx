@@ -1,43 +1,73 @@
 import { useState, type FormEvent } from 'react'
 import { Wordmark } from '../components/Wordmark'
 import { Field } from '../payments/components/Field'
-import { login, register } from './session'
+import { forgotPassword, login, register, resetPassword } from './session'
 
-type Mode = 'login' | 'signup'
+type Mode = 'login' | 'signup' | 'forgot' | 'reset'
 
-export function LoginPage({ notice, onBack }: { notice?: string; onBack?: () => void }) {
-  const [mode, setMode] = useState<Mode>('login')
-  const [username, setUsername] = useState('')
+const TITLES: Record<Mode, [string, string]> = {
+  login: ['Bon retour', 'Connectez-vous pour commander et suivre vos paiements.'],
+  signup: ['Créer un compte', 'Une minute suffit, et la première commande peut partir.'],
+  forgot: ['Mot de passe oublié', 'Indiquez votre adresse : un lien de réinitialisation vous attend ensuite dans votre boîte mail.'],
+  reset: ['Nouveau mot de passe', 'Choisissez-en un nouveau, puis reconnectez-vous d’un geste.'],
+}
+
+export function LoginPage({ notice, onBack, resetToken }: { notice?: string; onBack?: () => void; resetToken?: string }) {
+  const [mode, setMode] = useState<Mode>(resetToken ? 'reset' : 'login')
+  const [email, setEmail] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-
-  const signup = mode === 'signup'
 
   function switchMode(next: Mode) {
     setMode(next)
     setError(null)
+    setInfo(null)
     setConfirm('')
   }
 
+  const needsConfirm = mode === 'signup' || mode === 'reset'
+  const [title, subtitle] = TITLES[mode]
+
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (signup && password !== confirm) {
+    if (needsConfirm && password !== confirm) {
       setError('Les deux mots de passe ne correspondent pas.')
       return
     }
     setBusy(true)
     setError(null)
+    setInfo(null)
     try {
-      if (signup) await register(username.trim(), password)
-      else await login(username.trim(), password)
+      if (mode === 'signup') {
+        await register(email.trim(), firstName.trim(), lastName.trim(), password)
+      } else if (mode === 'forgot') {
+        setInfo(await forgotPassword(email.trim()))
+        setBusy(false)
+      } else if (mode === 'reset') {
+        await resetPassword(resetToken ?? '', password)
+        // La session est ouverte : on nettoie le lien pour qu'un rechargement ne rejoue pas le jeton.
+        window.history.replaceState(null, '', window.location.pathname)
+      } else {
+        await login(email.trim(), password)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
-      if (!signup) setPassword('')
+      if (mode === 'login') setPassword('')
       setBusy(false)
     }
   }
+
+  const disabled =
+    busy ||
+    (mode !== 'reset' && !email.trim()) ||
+    (mode !== 'forgot' && !password) ||
+    (needsConfirm && !confirm) ||
+    (mode === 'signup' && (!firstName.trim() || !lastName.trim()))
 
   return (
     <main className="grid min-h-dvh lg:grid-cols-[5fr_4fr]">
@@ -75,15 +105,14 @@ export function LoginPage({ notice, onBack }: { notice?: string; onBack?: () => 
             </button>
           ) : null}
 
-          <h1 className="font-head text-3xl font-bold tracking-tight">
-            {signup ? 'Créer un compte' : 'Bon retour'}
-          </h1>
-          <p className="mt-1.5 text-[15px] text-text-2">
-            {signup ? 'Une minute suffit, et la première commande peut partir.' : 'Connectez-vous pour commander et suivre vos paiements.'}
-          </p>
+          <h1 className="font-head text-3xl font-bold tracking-tight">{title}</h1>
+          <p className="mt-1.5 text-[15px] text-text-2">{subtitle}</p>
 
-          {notice && !error ? (
+          {notice && !error && !info ? (
             <p className="mt-5 rounded-lg bg-note/10 px-3.5 py-2.5 text-sm text-note">{notice}</p>
+          ) : null}
+          {info ? (
+            <p className="rise mt-5 rounded-lg bg-good/10 px-3.5 py-2.5 text-sm font-medium text-good">{info}</p>
           ) : null}
           {error ? (
             <p role="alert" className="rise mt-5 rounded-lg bg-bad/10 px-3.5 py-2.5 text-sm font-medium text-bad">
@@ -92,24 +121,50 @@ export function LoginPage({ notice, onBack }: { notice?: string; onBack?: () => 
           ) : null}
 
           <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
-            <Field
-              id="auth-username"
-              label="Identifiant"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              placeholder={signup ? 'En minuscules : lettres, chiffres, . _ -' : undefined}
-            />
-            <Field
-              id="auth-password"
-              label="Mot de passe"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={signup ? 'new-password' : 'current-password'}
-              placeholder={signup ? 'Au moins 8 caractères' : undefined}
-            />
-            {signup ? (
+            {mode !== 'reset' ? (
+              <Field
+                id="auth-email"
+                label="Adresse e-mail"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                placeholder="vous@exemple.fr"
+              />
+            ) : null}
+
+            {mode === 'signup' ? (
+              <div className="grid grid-cols-2 gap-3">
+                <Field
+                  id="auth-firstname"
+                  label="Prénom"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  autoComplete="given-name"
+                />
+                <Field
+                  id="auth-lastname"
+                  label="Nom"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  autoComplete="family-name"
+                />
+              </div>
+            ) : null}
+
+            {mode !== 'forgot' ? (
+              <Field
+                id="auth-password"
+                label={mode === 'reset' ? 'Nouveau mot de passe' : 'Mot de passe'}
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                placeholder={mode === 'login' ? undefined : 'Au moins 8 caractères'}
+              />
+            ) : null}
+
+            {needsConfirm ? (
               <Field
                 id="auth-confirm"
                 label="Confirmez le mot de passe"
@@ -120,30 +175,54 @@ export function LoginPage({ notice, onBack }: { notice?: string; onBack?: () => 
               />
             ) : null}
 
+            {mode === 'login' ? (
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={() => switchMode('forgot')}
+                  className="text-sm font-medium text-text-2 transition-colors hover:text-text"
+                >
+                  Mot de passe oublié ?
+                </button>
+              </div>
+            ) : null}
+
             <button
               type="submit"
-              disabled={busy || !username.trim() || !password || (signup && !confirm)}
+              disabled={disabled}
               className="w-full rounded-lg bg-inkwarm px-5 py-3 text-[15px] font-semibold text-paper transition-colors hover:bg-walnut disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {busy ? 'Un instant…' : signup ? 'Créer mon compte' : 'Se connecter'}
+              {busy
+                ? 'Un instant…'
+                : mode === 'signup'
+                  ? 'Créer mon compte'
+                  : mode === 'forgot'
+                    ? 'Envoyer le lien'
+                    : mode === 'reset'
+                      ? 'Changer le mot de passe'
+                      : 'Se connecter'}
             </button>
           </form>
 
           <p className="mt-6 text-center text-sm text-text-2">
-            {signup ? (
+            {mode === 'signup' ? (
               <>
                 Déjà un compte ?{' '}
                 <button type="button" onClick={() => switchMode('login')} className="font-semibold text-text underline-offset-2 hover:underline">
                   Se connecter
                 </button>
               </>
-            ) : (
+            ) : mode === 'login' ? (
               <>
                 Première visite ?{' '}
                 <button type="button" onClick={() => switchMode('signup')} className="font-semibold text-text underline-offset-2 hover:underline">
                   Créer un compte
                 </button>
               </>
+            ) : (
+              <button type="button" onClick={() => switchMode('login')} className="font-semibold text-text underline-offset-2 hover:underline">
+                ← Revenir à la connexion
+              </button>
             )}
           </p>
 

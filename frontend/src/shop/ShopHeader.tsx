@@ -115,7 +115,7 @@ export function ShopHeader({ user, adminView, onShop, onAdmin, onLogin }: Props)
                   <circle cx="12" cy="8.2" r="3.7" fill="none" stroke="currentColor" strokeWidth="1.7" />
                   <path d="M4.8 19.5a7.6 7.6 0 0 1 14.4 0" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
                 </svg>
-                <span className="hidden sm:block">{user.username}</span>
+                <span className="hidden sm:block">{user.firstName || user.username}</span>
               </button>
               {accountOpen ? (
                 <div className="rise absolute right-0 top-full mt-2 w-44 overflow-hidden rounded-lg border border-edge bg-card py-1 shadow-float">
