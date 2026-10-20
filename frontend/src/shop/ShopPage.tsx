@@ -137,7 +137,7 @@ export function ShopPage({ user, onPaid, onRequireLogin }: Props) {
       <footer className="border-t border-edge bg-well">
         <div className="mx-auto grid max-w-[1360px] gap-8 px-6 py-12 sm:grid-cols-[2fr_1fr_1fr]">
           <div>
-            <p className="font-head text-xl font-extrabold tracking-tight">YAZNOW</p>
+            <p className="font-logo text-xl font-bold tracking-tight text-logo">YAZNOW</p>
             <p className="mt-2 max-w-[40ch] text-sm text-text-2">
               Mobilier et objets choisis pour durer. Boutique de démonstration : aucun produit réel,
               paiements en mode test.
@@ -253,29 +253,33 @@ function Hero() {
   )
 }
 
-/* ---- Départements ---- */
+/* ---- Départements : produits sur fond neutre, libellé dessous, comme un grand magasin ---- */
+
+const DEPTS: { label: string; image: string; category: Parameters<typeof setCategory>[0]; pos?: string }[] = [
+  { label: 'Canapés', image: '/img/p-monceau.jpg', category: 'salon', pos: 'center 55%' },
+  { label: 'Chaises', image: '/img/dept-chaises.jpg', category: 'salon' },
+  { label: 'Tables', image: '/img/dept-tables.jpg', category: 'salon' },
+  { label: 'Chambre', image: '/img/dept-chambre.jpg', category: 'chambre', pos: 'center 40%' },
+  { label: 'Luminaires', image: '/img/dept-luminaires.jpg', category: 'luminaires' },
+]
 
 function Departments() {
   return (
     <section className="mx-auto max-w-[1360px] px-6 pt-12" aria-label="Catégories">
       <h2 className="text-center font-head text-2xl font-bold tracking-tight sm:text-3xl">Parcourir par univers</h2>
-      <div className="mt-8 grid gap-5 sm:grid-cols-3">
-        {CATEGORIES.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            onClick={() => setCategory(c.id)}
-            className="group relative overflow-hidden rounded-panel"
-          >
-            <img
-              src={c.image}
-              alt=""
-              className="aspect-[4/3] w-full object-cover transition-transform duration-500 group-hover:scale-105"
-            />
-            <span className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-            <span className="absolute inset-x-0 bottom-4 text-center font-head text-xl font-bold text-white">
-              {c.label}
+      <div className="mt-8 grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-5">
+        {DEPTS.map((d) => (
+          <button key={d.label} type="button" onClick={() => setCategory(d.category)} className="group">
+            <span className="block overflow-hidden rounded-panel bg-well">
+              <img
+                src={d.image}
+                alt=""
+                loading="lazy"
+                style={d.pos ? { objectPosition: d.pos } : undefined}
+                className="aspect-square w-full object-cover transition-transform duration-500 group-hover:scale-105"
+              />
             </span>
+            <span className="mt-3 block text-center text-[15px] font-medium">{d.label}</span>
           </button>
         ))}
       </div>
