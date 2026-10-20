@@ -9,12 +9,18 @@ import { ShopPage } from './shop/ShopPage'
 
 type View = 'shop' | 'login' | AdminView
 
-// Lien du mail de réinitialisation : /?reset=<jeton>. Lu une seule fois, au chargement.
-const RESET_TOKEN = new URLSearchParams(window.location.search).get('reset') ?? undefined
+// Lien du mail de réinitialisation : /?reset=<jeton>. Lu au chargement, puis l'URL est
+// nettoyée tout de suite : un rechargement ou un retour au login ne rejoue pas le formulaire.
+const INITIAL_RESET = (() => {
+  const token = new URLSearchParams(window.location.search).get('reset') ?? undefined
+  if (token) window.history.replaceState(null, '', window.location.pathname)
+  return token
+})()
 
 export default function App() {
   const { session, notice } = useAuth()
-  const [view, setView] = useState<View>(RESET_TOKEN ? 'login' : 'shop')
+  const [view, setView] = useState<View>(INITIAL_RESET ? 'login' : 'shop')
+  const [resetToken, setResetToken] = useState(INITIAL_RESET)
   // Incrémenté à chaque paiement abouti pour que le journal se recharge.
   const [version, setVersion] = useState(0)
 
@@ -28,12 +34,13 @@ export default function App() {
   useEffect(() => {
     if (prevSession.current !== session) {
       prevSession.current = session
+      setResetToken(undefined)
       setView('shop')
     }
   }, [session])
 
   if (view === 'login' && !user) {
-    return <LoginPage notice={notice} onBack={() => setView('shop')} resetToken={RESET_TOKEN} />
+    return <LoginPage notice={notice} onBack={() => setView('shop')} resetToken={resetToken} onClearReset={() => setResetToken(undefined)} />
   }
 
   const adminView: AdminView | null = operator && (view === 'pay' || view === 'ledger' || view === 'ops') ? view : null

@@ -12,7 +12,7 @@ const TITLES: Record<Mode, [string, string]> = {
   reset: ['Nouveau mot de passe', 'Choisissez-en un nouveau, puis reconnectez-vous d’un geste.'],
 }
 
-export function LoginPage({ notice, onBack, resetToken }: { notice?: string; onBack?: () => void; resetToken?: string }) {
+export function LoginPage({ notice, onBack, resetToken, onClearReset }: { notice?: string; onBack?: () => void; resetToken?: string; onClearReset?: () => void }) {
   const [mode, setMode] = useState<Mode>(resetToken ? 'reset' : 'login')
   const [email, setEmail] = useState('')
   const [firstName, setFirstName] = useState('')
@@ -24,6 +24,9 @@ export function LoginPage({ notice, onBack, resetToken }: { notice?: string; onB
   const [busy, setBusy] = useState(false)
 
   function switchMode(next: Mode) {
+    // Quitter le formulaire de réinitialisation oublie le jeton : le prochain passage
+    // par « Se connecter » affiche bien l'e-mail et le mot de passe.
+    if (mode === 'reset' && next !== 'reset') onClearReset?.()
     setMode(next)
     setError(null)
     setInfo(null)
@@ -50,8 +53,6 @@ export function LoginPage({ notice, onBack, resetToken }: { notice?: string; onB
         setBusy(false)
       } else if (mode === 'reset') {
         await resetPassword(resetToken ?? '', password)
-        // La session est ouverte : on nettoie le lien pour qu'un rechargement ne rejoue pas le jeton.
-        window.history.replaceState(null, '', window.location.pathname)
       } else {
         await login(email.trim(), password)
       }
