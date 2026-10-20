@@ -18,17 +18,25 @@ uvicorn app.main:app --reload --port 8000
 
 ## Routes
 
-| Route | Rôle |
-| --- | --- |
-| `GET /api/health` | Le frontend l'appelle au démarrage pour choisir Stripe ou la simulation locale |
-| `POST /api/payment_intents` | Crée un `PaymentIntent` chez Stripe, renvoie le `clientSecret` |
-| `GET /api/payment_intents/:id` | Relit le paiement après confirmation : statut, réseau, 4 derniers chiffres, refus |
-| `GET /api/payment_intents` | Les 25 derniers paiements, pour l'onglet Transactions |
-| `GET /api/balance` | Solde Stripe (disponible / en attente) |
-| `POST /api/paypal/orders` | Crée une commande PayPal sandbox (`{"amount": centimes}`) |
-| `POST /api/paypal/orders/:id/capture` | Capture après approbation du payeur dans la fenêtre PayPal |
-| `GET /api/paypal/orders/:id` | Relit une commande PayPal |
-| `GET /api/paypal/orders` | Les 25 dernières commandes PayPal de ce conteneur |
+| Route | Accès | Rôle |
+| --- | --- | --- |
+| `GET /api/health` | ouvert | Le frontend l'appelle au démarrage pour choisir Stripe ou la simulation locale |
+| `GET /api/status` | ouvert | Sonde lue chaque seconde par le détecteur, le moteur de remédiation et le canary |
+| `POST /api/payment_intents` | connecté | Crée un `PaymentIntent` chez Stripe au nom de l'utilisateur, renvoie le `clientSecret` |
+| `GET /api/payment_intents/:id` | propriétaire ou opérateur | Relit le paiement après confirmation : statut, réseau, 4 derniers chiffres, refus |
+| `GET /api/payment_intents` | connecté | Les 25 derniers paiements : les siens pour un client, tous pour un opérateur |
+| `GET /api/balance` | opérateur | Solde Stripe (disponible / en attente) |
+| `POST /api/paypal/orders` | connecté | Crée une commande PayPal sandbox (`{"amount": centimes}`) |
+| `POST /api/paypal/orders/:id/capture` | propriétaire ou opérateur | Capture après approbation du payeur dans la fenêtre PayPal |
+| `GET /api/paypal/orders/:id` | propriétaire ou opérateur | Relit une commande PayPal |
+| `GET /api/paypal/orders` | connecté | Les 25 dernières commandes PayPal de ce conteneur, filtrées comme les paiements |
+
+**Accès.** Les routes protégées attendent `Authorization: Bearer <jeton>`, délivré par le
+service d'authentification (`auth/`, `POST /auth/login`). L'API vérifie le jeton elle-même avec
+la clé publique de `AUTH_URL/auth/jwks.json`, chargée une fois puis gardée en mémoire
+(`app/security.py`). Chaque paiement porte son propriétaire : en métadonnée chez Stripe, dans le
+`custom_id` chez PayPal. Un client qui demande le paiement d'un autre reçoit `404`, pas `403` :
+on ne lui confirme même pas qu'il existe.
 
 La réponse suit exactement le type `PaymentIntent` de `frontend/src/payments/domain/types.ts`
 — y compris le `rail` (Autorisation / 3-D Secure / Capture / Compensation) et le code de refus
@@ -66,6 +74,27 @@ même forme `PaymentIntent` que Stripe, avec `"method": "paypal"`.
 donc tenu en mémoire et se vide au redémarrage du conteneur. Il faudra le brancher sur la base
 de données du SI.
 
+## Journal des paiements (PostgreSQL)
+
+Stripe et PayPal restent la source de vérité de l'argent ; la table `payments` garde notre vue
+(propriétaire, dernier état connu, de quoi afficher le journal) dans `app/store.py`.
+
+| Situation | Comportement |
+| --- | --- |
+| Paiement créé, confirmé, relu ou capturé | Écrit en base (création ou mise à jour), sans `clientSecret` |
+| `GET /api/payment_intents`, `GET /api/paypal/orders` | Lus en base, filtrés par propriétaire |
+| payment-api redémarré par la remédiation | Journal intact : il est en base, plus en mémoire |
+| Base en panne | Les paiements passent, l'écriture est sautée et journalisée ; le journal Stripe est relu chez Stripe, celui de PayPal répond `503` |
+| Base de retour (ou démarrage) | Réconciliation : les 100 derniers paiements Stripe sont rejoués en base |
+
+Une sonde interroge la base toutes les deux secondes en tâche de fond ; `/api/status` et
+`/api/health` exposent `db` sans jamais attendre la base, pour qu'une base lente ne fasse
+pas passer l'API pour morte aux yeux du détecteur. `/api/health` reste à `200` quand la base
+tombe : redémarrer l'API ne la réparerait pas.
+
+`DATABASE_URL` choisit la base (SQLite `./data/payments.db` par défaut hors Docker), le mot de
+passe vient de `DB_PASSWORD` ou du fichier `DB_PASSWORD_FILE`, jamais de l'URL.
+
 ## Tests
 
 ```bash
@@ -74,7 +103,10 @@ python -m pytest
 ```
 
 Les tests PayPal tournent contre un faux PayPal (`httpx.MockTransport`) : aucun appel réseau
-et aucun identifiant réel.
+et aucun identifiant réel. `test_security.py` fait de même avec un faux service
+d'authentification : jeton expiré, mauvaise audience, autre clé, HS256 forgé, rôle inconnu.
+Chaque test a sa base SQLite jetable (`tests/conftest.py`), avec le même code SQLAlchemy que
+PostgreSQL ; `test_store.py` couvre la panne de la base et la réconciliation.
 
 ## Secrets
 

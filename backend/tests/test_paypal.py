@@ -14,7 +14,10 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import main, paypal
+from app import main, paypal, security, store
+from app.security import User
+
+CAMILLE = User("camille", "client")
 
 
 class FakePayPal:
@@ -102,9 +105,20 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakePayPal:
     monkeypatch.setattr(paypal, "_http", httpx.Client(base_url=paypal.SANDBOX_API, transport=httpx.MockTransport(fake)))
     monkeypatch.setattr(paypal, "_bucket", paypal._Bucket(100))
     paypal._token.update(value="", expires=0.0)
-    paypal._ledger.clear()
     paypal._probe.update(at=0.0, up=False, ms=0)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def as_user():
+    """Connecté en client par défaut ; la vérification des jetons elle-même est testée dans test_security.py."""
+
+    def login(user: User) -> None:
+        main.app.dependency_overrides[security.current_user] = lambda: user
+
+    login(CAMILLE)
+    yield login
+    main.app.dependency_overrides.clear()
 
 
 client = TestClient(main.app)
@@ -132,7 +146,8 @@ def test_creation_renvoie_un_payment_intent(fake: FakePayPal) -> None:
     assert set(intent["rail"].values()) == {"pending"}
     sent = fake.orders[intent["id"]]["purchase_units"][0]
     assert sent["amount"] == {"currency_code": "EUR", "value": "12.34"}
-    assert sent["custom_id"] == intent["idempotencyKey"]
+    assert sent["custom_id"] == f"{intent['idempotencyKey']}:camille"
+    assert intent["owner"] == "camille"
 
 
 def test_capture_apres_approbation(fake: FakePayPal) -> None:
@@ -203,6 +218,42 @@ def test_jeton_mis_en_cache_puis_renouvele(fake: FakePayPal) -> None:
 def test_sans_identifiants(fake: FakePayPal, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PAYPAL_CLIENT_ID")
     assert client.post("/api/paypal/orders", json={"amount": 100}).status_code == 503
+
+
+def test_un_client_ne_voit_ni_ne_capture_la_commande_d_un_autre(fake: FakePayPal, as_user) -> None:
+    mine = create()
+    fake.approve(mine["id"])
+
+    as_user(User("bob", "client"))
+    assert client.get("/api/paypal/orders").json() == []
+    assert client.get(f"/api/paypal/orders/{mine['id']}").status_code == 404
+    assert client.post(f"/api/paypal/orders/{mine['id']}/capture").status_code == 404
+    assert not any(p.endswith("/capture") for _, p in fake.calls)
+
+    as_user(User("operateur", "operator"))
+    assert [i["id"] for i in client.get("/api/paypal/orders").json()] == [mine["id"]]
+
+
+def test_journal_survit_au_redemarrage(fake: FakePayPal) -> None:
+    intent = create()
+    store.reset()  # le conteneur a redémarré : plus rien en mémoire, la base reste
+    assert [i["id"] for i in client.get("/api/paypal/orders").json()] == [intent["id"]]
+
+
+def test_proprietaire_retrouve_chez_paypal_si_la_base_l_ignore(fake: FakePayPal, journal, monkeypatch: pytest.MonkeyPatch) -> None:
+    intent = create()
+    fake.approve(intent["id"])
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{journal / 'vide.db'}")
+    store.reset()  # base neuve : la commande n'y est pas, le custom_id chez PayPal fait foi
+    assert client.post(f"/api/paypal/orders/{intent['id']}/capture").json()["status"] == "succeeded"
+
+
+def test_base_en_panne_le_paiement_passe_quand_meme(fake: FakePayPal, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(store, "_up", False)
+    intent = create()
+    fake.approve(intent["id"])
+    assert client.post(f"/api/paypal/orders/{intent['id']}/capture").json()["status"] == "succeeded"
+    assert client.get("/api/paypal/orders").status_code == 503
 
 
 def test_status_expose_la_sonde(fake: FakePayPal, monkeypatch: pytest.MonkeyPatch) -> None:

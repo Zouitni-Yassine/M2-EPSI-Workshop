@@ -1,3 +1,4 @@
+import { authHeaders, checkSession } from '../../auth/session'
 import type { Cents, PaymentIntent } from '../domain/types'
 
 /**
@@ -16,9 +17,10 @@ export function createPayPalCheckout(baseUrl: string, clientId: string): PayPalC
   const call = async <T>(path: string, init?: RequestInit): Promise<T> => {
     const res = await fetch(`${baseUrl}/paypal${path}`, {
       ...init,
-      headers: { 'Content-Type': 'application/json', ...init?.headers },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(), ...init?.headers },
     })
     if (!res.ok) {
+      checkSession(res)
       const body = (await res.json().catch(() => ({}))) as { detail?: string }
       throw new Error(body.detail ?? `${res.status} sur /paypal${path}`)
     }
