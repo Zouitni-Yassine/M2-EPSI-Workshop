@@ -278,6 +278,12 @@ def forgot(body: Forgot, request: Request) -> dict[str, str]:
         raise HTTPException(status_code=429, detail=f"Trop de tentatives. Réessayez dans {wait} s.", headers={"Retry-After": str(wait)})
     throttle.fail(ip)  # Chaque demande compte : impossible d'inonder la boîte d'un tiers.
 
+    # Un identifiant hérité sans forme d'e-mail (comptes seedés comme « operateur ») ne
+    # déclenche jamais d'envoi : la réinitialisation ne vaut que pour les comptes à adresse.
+    if not users.EMAIL.match(email):
+        RESETS.labels("unknown").inc()
+        return {"detail": "Si un compte existe avec cette adresse, un e-mail vient de partir."}
+
     user = state.store.get(email)
     if user is not None:
         token = state.signer.issue_reset(email, RESET_TTL_MINUTES, state.store.password_stamp(email) or "")
