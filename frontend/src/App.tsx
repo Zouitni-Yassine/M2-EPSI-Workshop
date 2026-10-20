@@ -5,12 +5,14 @@ import { Wordmark } from './components/Wordmark'
 import { LedgerPage } from './payments/LedgerPage'
 import { PayPage } from './payments/PayPage'
 import { OpsPage } from './ops/OpsPage'
+import { ShopPage } from './shop/ShopPage'
 
-type View = 'pay' | 'ledger' | 'ops'
+type View = 'shop' | 'pay' | 'ledger' | 'ops'
 
 const TABS: { id: View; label: string; operatorOnly?: boolean }[] = [
-  { id: 'pay', label: 'Paiement' },
-  { id: 'ledger', label: 'Transactions' },
+  { id: 'shop', label: 'Boutique' },
+  { id: 'pay', label: 'Paiement', operatorOnly: true },
+  { id: 'ledger', label: 'Transactions', operatorOnly: true },
   { id: 'ops', label: 'Supervision', operatorOnly: true },
 ]
 
@@ -24,7 +26,7 @@ export default function App() {
 }
 
 function Workspace({ user }: { user: SessionUser }) {
-  const [view, setView] = useState<View>('pay')
+  const [view, setView] = useState<View>('shop')
   // Incrémenté à chaque paiement abouti pour que le journal se recharge.
   const [version, setVersion] = useState(0)
 
@@ -77,10 +79,12 @@ function Workspace({ user }: { user: SessionUser }) {
 
       {view === 'ops' && operator ? (
         <OpsPage />
-      ) : view === 'ledger' ? (
+      ) : view === 'ledger' && operator ? (
         <LedgerPage version={version} operator={operator} />
-      ) : (
+      ) : view === 'pay' && operator ? (
         <PayPage onPaid={() => setVersion((v) => v + 1)} />
+      ) : (
+        <ShopPage onPaid={() => setVersion((v) => v + 1)} />
       )}
     </div>
   )
