@@ -74,6 +74,27 @@ même forme `PaymentIntent` que Stripe, avec `"method": "paypal"`.
 donc tenu en mémoire et se vide au redémarrage du conteneur. Il faudra le brancher sur la base
 de données du SI.
 
+## Journal des paiements (PostgreSQL)
+
+Stripe et PayPal restent la source de vérité de l'argent ; la table `payments` garde notre vue
+(propriétaire, dernier état connu, de quoi afficher le journal) dans `app/store.py`.
+
+| Situation | Comportement |
+| --- | --- |
+| Paiement créé, confirmé, relu ou capturé | Écrit en base (création ou mise à jour), sans `clientSecret` |
+| `GET /api/payment_intents`, `GET /api/paypal/orders` | Lus en base, filtrés par propriétaire |
+| payment-api redémarré par la remédiation | Journal intact : il est en base, plus en mémoire |
+| Base en panne | Les paiements passent, l'écriture est sautée et journalisée ; le journal Stripe est relu chez Stripe, celui de PayPal répond `503` |
+| Base de retour (ou démarrage) | Réconciliation : les 100 derniers paiements Stripe sont rejoués en base |
+
+Une sonde interroge la base toutes les deux secondes en tâche de fond ; `/api/status` et
+`/api/health` exposent `db` sans jamais attendre la base, pour qu'une base lente ne fasse
+pas passer l'API pour morte aux yeux du détecteur. `/api/health` reste à `200` quand la base
+tombe : redémarrer l'API ne la réparerait pas.
+
+`DATABASE_URL` choisit la base (SQLite `./data/payments.db` par défaut hors Docker), le mot de
+passe vient de `DB_PASSWORD` ou du fichier `DB_PASSWORD_FILE`, jamais de l'URL.
+
 ## Tests
 
 ```bash
@@ -84,6 +105,8 @@ python -m pytest
 Les tests PayPal tournent contre un faux PayPal (`httpx.MockTransport`) : aucun appel réseau
 et aucun identifiant réel. `test_security.py` fait de même avec un faux service
 d'authentification : jeton expiré, mauvaise audience, autre clé, HS256 forgé, rôle inconnu.
+Chaque test a sa base SQLite jetable (`tests/conftest.py`), avec le même code SQLAlchemy que
+PostgreSQL ; `test_store.py` couvre la panne de la base et la réconciliation.
 
 ## Secrets
 

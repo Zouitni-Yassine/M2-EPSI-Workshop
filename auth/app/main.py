@@ -31,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import OperationalError
 
 from . import tokens, users
 
@@ -126,7 +127,16 @@ state = _State()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     data_dir = os.getenv("AUTH_DATA_DIR", "./data")
-    state.store = users.Store(os.getenv("DATABASE_URL") or f"sqlite:///{data_dir}/auth.db")
+    # La base peut démarrer après nous (Swarm ne garantit aucun ordre) : on l'attend une minute.
+    for attempt in range(1, 31):
+        try:
+            state.store = users.Store(users.database_url(data_dir))
+            break
+        except OperationalError as exc:
+            audit("warning", "base injoignable, nouvel essai", event="db", attempt=attempt, error=str(exc.orig).splitlines()[0])
+            time.sleep(2)
+    else:
+        raise RuntimeError("base injoignable après une minute")
     state.signer = tokens.Signer(tokens.load_key(data_dir), ttl_seconds=int(os.getenv("TOKEN_TTL_MINUTES", "120")) * 60)
     users.seed_from_env(state.store, audit)
     audit("info", "service d'authentification prêt", event="start", kid=state.signer.kid)

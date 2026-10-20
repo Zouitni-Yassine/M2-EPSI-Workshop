@@ -1,41 +1,97 @@
 # Resilience Pay — démonstrateur complet.
 #
+#   python scripts/init-secrets.py     # une fois : mots de passe de la base, clé de signature
 #   docker compose up --build
 #
 # Frontend : http://localhost:5173 · API : :8000 · Détecteur : :8100 · Remédiation : :8200 · Auth : :8300
 # Le proxy Docker n'est joignable que depuis le réseau interne, et n'accepte
 # que deux requêtes : lister les conteneurs, redémarrer payment-api.
+#
+# db, auth et payment-api suivent le contrat Swarm (infra/docs/contrat-deploiement.md) :
+# image à tag figé, secrets et configs Docker, tmpfs en volume, section deploy, pas de depends_on.
 
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password, auth_db_password, payments_db_password]
+    configs:
+      # Crée un rôle et une base par service, au premier démarrage du volume.
+      - source: db_init
+        target: /docker-entrypoint-initdb.d/01-roles.sh
+        mode: 0555
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - { type: tmpfs, target: /var/run/postgresql }
+      - { type: tmpfs, target: /tmp }
+    read_only: true
+    cap_drop: [ALL]
+    # Le strict nécessaire à l'image officielle pour préparer ses dossiers, puis passer à l'utilisateur postgres.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+    # Aucun port publié : seuls auth et payment-api la joignent, par le réseau interne « data ».
+    networks: [data]
+    deploy:
+      # Sur le Swarm, le volume est local au nœud : épingler la base sur un nœud (placement) ou
+      # utiliser un volume partagé, sinon elle repart vide si elle change de nœud.
+      replicas: 1
+      resources:
+        limits: { cpus: "1", memory: 512M }
+      restart_policy: { condition: any, delay: 5s }
+
   auth:
+    image: ${REGISTRY:-resilience}/auth:0.2.0
     build: ./auth
-    container_name: auth
     env_file: ./auth/.env
     environment:
       CORS_ORIGINS: http://localhost:5173,http://localhost:4173
-    # Comptes et clé de signature : conservés d'un redémarrage à l'autre, sessions comprises.
-    volumes:
-      - auth-data:/data
+      DATABASE_URL: postgresql+psycopg://auth@db:5432/auth
+      DB_PASSWORD_FILE: /run/secrets/auth_db_password
+      # Partagée par toutes les réplicas : un jeton signé par l'une est vérifiable par toutes.
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+    secrets: [auth_db_password, jwt_private_key]
+    # Sans état : comptes dans PostgreSQL, clé en secret. Rien ne s'écrit dans le conteneur.
     read_only: true
-    tmpfs: [/tmp]
+    volumes:
+      - { type: tmpfs, target: /tmp }
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     ports:
       - "8300:8300"
-    networks: [resilience]
+    networks: [resilience, data]
+    deploy:
+      # 1 tant que le port 8300 est publié en direct : docker compose ne publie pas deux fois le
+      # même port. Sur le Swarm (maillage de routage), 2 réplicas fonctionnent telles quelles.
+      replicas: 1
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+      restart_policy: { condition: any, delay: 5s, window: 30s }
+      update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s }
 
   payment-api:
+    image: ${REGISTRY:-resilience}/payment-api:0.2.0
     build: ./backend
+    # container_name et restart sont ignorés par Swarm. En local, le proxy Docker n'autorise que
+    # le redémarrage du conteneur nommé payment-api, et la reprise doit venir du moteur de remédiation.
     container_name: payment-api
     env_file: ./backend/.env
     environment:
       CORS_ORIGINS: http://localhost:5173,http://localhost:4173
       AUTH_URL: http://auth:8300
+      DATABASE_URL: postgresql+psycopg://payments@db:5432/payments
+      DB_PASSWORD_FILE: /run/secrets/payments_db_password
+    secrets: [payments_db_password]
     ports:
       - "8000:8000"
-    networks: [resilience]
-    depends_on: [auth]
-    restart: "no" # La reprise doit venir du moteur de remédiation, pas de Docker.
+    networks: [resilience, data]
+    restart: "no"
 
   detector:
     build: ./detector
@@ -95,12 +151,31 @@ services:
     ports:
       - "5173:80"
     networks: [resilience]
-    depends_on: [payment-api, auth]
+    depends_on: [payment-api]
 
 volumes:
-  auth-data:
+  db-data:
 
 networks:
   resilience:
   internal:
     internal: true
+  # Base de données : pas d'accès sortant, rien de publié.
+  data:
+    internal: true
+
+# Créés par scripts/init-secrets.py (dossier ignoré par Git) ; en production, par Vault ou SOPS.
+# Sur le Swarm, un secret ou une config ne se modifie pas : en changer = lui donner un nouveau nom.
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  auth_db_password:
+    file: ./secrets/auth_db_password.txt
+  payments_db_password:
+    file: ./secrets/payments_db_password.txt
+  jwt_private_key:
+    file: ./secrets/jwt_private_key.pem
+
+configs:
+  db_init:
+    file: ./db/init/01-roles.sh

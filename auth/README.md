@@ -63,10 +63,15 @@ python -m app.users list
 
 ## Données
 
-Par défaut, la base SQLite et la clé de signature sont dans `AUTH_DATA_DIR` (`./data`, ou le
-volume `auth-data` sous Docker) : un redémarrage ne déconnecte personne. Pour PostgreSQL,
-renseigner `DATABASE_URL` (et ajouter `psycopg[binary]` aux dépendances). Pour une clé gérée
-par Vault ou SOPS, `JWT_PRIVATE_KEY_FILE`.
+Sous Docker (compose ou Swarm), le service est **sans état** :
+
+- comptes dans PostgreSQL, base `auth` (`DATABASE_URL`, mot de passe dans `DB_PASSWORD_FILE`) ;
+- clé de signature en secret Docker (`JWT_PRIVATE_KEY_FILE`), créée par
+  `scripts/init-secrets.py`. Toutes les réplicas signent avec la même clé : un jeton émis par
+  l'une est vérifiable partout, et un redémarrage ne déconnecte personne.
+
+Au démarrage, le service attend la base jusqu'à une minute (Swarm ne garantit aucun ordre).
+Lancé seul, sans ces variables, il retombe sur SQLite et une clé générée dans `AUTH_DATA_DIR`.
 
 ## Tests
 

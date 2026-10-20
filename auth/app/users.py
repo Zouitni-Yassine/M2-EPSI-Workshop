@@ -1,8 +1,9 @@
 """
 Comptes utilisateurs : stockage, mots de passe, comptes de démonstration.
 
-La base est choisie par DATABASE_URL (SQLite par défaut, dans AUTH_DATA_DIR).
-Le jour où le SI passe sur PostgreSQL, seule l'URL change.
+La base est choisie par DATABASE_URL : PostgreSQL sous Docker, SQLite dans
+AUTH_DATA_DIR quand le service tourne seul. Le mot de passe ne figure jamais
+dans l'URL : il vient de DB_PASSWORD ou du fichier DB_PASSWORD_FILE.
 
     python -m app.users add alice client     # mot de passe demandé au clavier
     python -m app.users list
@@ -20,6 +21,7 @@ from typing import Callable
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from sqlalchemy import Boolean, Column, DateTime, Integer, MetaData, String, Table, create_engine, func, select, text
+from sqlalchemy.engine import URL, make_url
 
 ROLES = ("client", "operator")
 USERNAME = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
@@ -59,6 +61,12 @@ def secret(name: str) -> str:
     return os.getenv(name, "")
 
 
+def database_url(data_dir: str) -> URL:
+    url = make_url(os.getenv("DATABASE_URL") or f"sqlite:///{data_dir}/auth.db")
+    password = secret("DB_PASSWORD")
+    return url.set(password=password) if password else url
+
+
 def _verify(stored: str, password: str) -> bool:
     try:
         return _hasher.verify(stored, password)
@@ -78,12 +86,14 @@ def check(username: str, role: str, password: str) -> str | None:
 
 
 class Store:
-    def __init__(self, url: str) -> None:
-        if url.startswith("sqlite:///"):
-            folder = os.path.dirname(url.removeprefix("sqlite:///"))
-            if folder:
-                os.makedirs(folder, exist_ok=True)
-        self.engine = create_engine(url, pool_pre_ping=True)
+    def __init__(self, url: URL) -> None:
+        options: dict = {"pool_pre_ping": True}
+        if url.get_backend_name() == "postgresql":
+            # Une base injoignable répond en deux secondes, pas après le délai TCP du système.
+            options["connect_args"] = {"connect_timeout": 2}
+        elif url.database:
+            os.makedirs(os.path.dirname(url.database) or ".", exist_ok=True)
+        self.engine = create_engine(url, **options)
         metadata.create_all(self.engine)
 
     def ping(self) -> bool:
@@ -161,8 +171,7 @@ def _cli(argv: list[str]) -> int:
     from dotenv import load_dotenv
 
     load_dotenv()
-    data_dir = os.getenv("AUTH_DATA_DIR", "./data")
-    store = Store(os.getenv("DATABASE_URL") or f"sqlite:///{data_dir}/auth.db")
+    store = Store(database_url(os.getenv("AUTH_DATA_DIR", "./data")))
 
     if argv[:1] == ["list"]:
         for username, role, disabled in store.list():

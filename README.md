@@ -4,11 +4,11 @@ Démonstrateur de cyber-résilience : une plateforme de paiement qui détecte un
 anomalie et se répare seule, sans intervention humaine.
 
 ```
-                    auth (jetons Ed25519) ◄── connexion
-                         │ clé publique
-                         ▼
-navigateur ──► frontend (React + Tailwind) ──► payment-api (FastAPI) ──► Stripe (mode test)
-                    │                               ▲
+                    auth (jetons Ed25519) ◄── connexion ────────────┐
+                         │ clé publique                            │
+                         ▼                                         ▼
+navigateur ──► frontend (React + Tailwind) ──► payment-api ──► PostgreSQL (réseau interne)
+                    │                               ▲    └──► Stripe (mode test), PayPal (sandbox)
                     │ supervision                   │ redémarrage, via proxy Docker à droits réduits
                     ▼                               │
                detector (IsolationForest) ──► remediation (décide, agit, vérifie)
@@ -18,7 +18,8 @@ navigateur ──► frontend (React + Tailwind) ──► payment-api (FastAPI)
 | --- | --- | --- |
 | `frontend/` | Connexion, tunnel de paiement, journal des transactions, dashboard de supervision | [README](frontend/README.md) |
 | `auth/` | Comptes, rôles client / opérateur, jetons signés, freinage de la force brute | [README](auth/README.md) |
-| `backend/` | API de paiement, porte la clé Stripe, vérifie les jetons, expose métriques et sonde | [README](backend/README.md) |
+| `backend/` | API de paiement, porte la clé Stripe, vérifie les jetons, journal en base, expose métriques et sonde | [README](backend/README.md) |
+| `db/` | PostgreSQL : une base et un rôle par service, secrets Docker | [README](db/README.md) |
 | `detector/` | Score d'anomalie chaque seconde, appris sur le trafic normal | [README](detector/README.md) |
 | `remediation/` | Écoute le verdict, redémarre la cible, vérifie la reprise | [README](remediation/README.md) |
 
@@ -26,6 +27,7 @@ navigateur ──► frontend (React + Tailwind) ──► payment-api (FastAPI)
 
 ```bash
 # 1. Secrets, jamais commités
+python scripts/init-secrets.py               # mots de passe PostgreSQL, clé de signature des jetons (secrets/)
 cp backend/.env.example backend/.env         # STRIPE_SECRET_KEY, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET
 cp auth/.env.example auth/.env               # AUTH_PASSWORD_OPERATEUR, AUTH_PASSWORD_CLIENT (8 caractères min.)
 cp detector/.env.example detector/.env       # DETECTOR_ADMIN_TOKEN
@@ -93,6 +95,8 @@ Depuis le conteneur du moteur de remédiation, vers le proxy Docker :
   confirme que ses paiements, le solde marchand est réservé aux opérateurs. Jetons Ed25519
   vérifiés localement par l'API (algorithme figé), mots de passe en argon2id, `429` après
   5 échecs depuis une adresse. Détail dans [auth/README.md](auth/README.md).
+- PostgreSQL n'est joignable que depuis `auth` et `payment-api` (réseau interne, aucun port
+  publié) ; une base et un rôle par service, mots de passe en secrets Docker.
 - Pas encore protégés : `/api/status`, `/score` du détecteur et `/state` du moteur, sondés sans
   jeton par les services internes. Ils seront fermés à l'extérieur quand seul le frontal sera
   publié (relais nginx).
@@ -101,9 +105,9 @@ Depuis le conteneur du moteur de remédiation, vers le proxy Docker :
 
 | Pilier | Fait | Reste à faire |
 | --- | --- | --- |
-| **DEV** | Tunnel Stripe test, journal, dashboard, moteur de remédiation, service d'authentification et rôles | Playbooks supplémentaires (bannir une IP, restaurer la base), PostgreSQL |
+| **DEV** | Tunnel Stripe test, journal en PostgreSQL, dashboard, moteur de remédiation, service d'authentification et rôles | Playbooks supplémentaires (bannir une IP, restaurer la base) |
 | **IA** | Détecteur IsolationForest + distance robuste, verdict qui déclenche l'action | Assistant RAG Ollama + LangChain, réapprentissage continu, variables CPU/RAM |
-| **INFRA** | `docker compose` complet, proxy Docker à liste blanche | Ansible, Prometheus, Grafana, Loki, PostgreSQL |
+| **INFRA** | `docker compose` complet (db, auth, payment-api compatibles Swarm), proxy Docker à liste blanche | Ansible, Prometheus, Grafana, Loki |
 | **CYBER** | Droits du moteur réduits, `/reset` protégé, état dégradé si aveugle | WAF, SIEM/SOC, Vault ou SOPS, scénario d'attaque depuis le PC attaquant |
 | **GOUV** | — | EBIOS RM, PCA/PRA, analyse NIS2/DORA |
 

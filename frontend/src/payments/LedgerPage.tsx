@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { euros, localTime } from './domain/money'
+import { euros, isToday, ledgerDate, localTime } from './domain/money'
 import type { Balance, IntentStatus, PaymentIntent } from './domain/types'
 import { usePaymentEngine } from './engine'
 import { BrandLogo, PayPalMark } from './components/BrandLogo'
@@ -37,7 +37,8 @@ export function LedgerPage({ version, operator }: { version: number; operator: b
     if (operator) void choice.engine.balance().then(setBalance)
   }, [choice, version, operator])
 
-  const accepted = rows.filter((r) => r.status === 'succeeded')
+  // Les tuiles « aujourd'hui » ne comptent que les paiements du jour, pas tout le journal.
+  const accepted = rows.filter((r) => r.status === 'succeeded' && isToday(r.createdAt))
   const volume = accepted.reduce((s, r) => s + r.amount, 0)
   const refused = rows.filter((r) => r.status === 'canceled').length
 
@@ -125,7 +126,7 @@ export function LedgerPage({ version, operator }: { version: number; operator: b
                   <td className="px-6 py-3.5 text-text-2">{r.reference}</td>
                   {operator ? <td className="px-6 py-3.5 text-text-2">{r.owner || '—'}</td> : null}
                   <td className="px-6 py-3.5 text-right text-text-2">
-                    {new Date(r.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                    {ledgerDate(r.createdAt)}
                   </td>
                 </tr>
               ))}

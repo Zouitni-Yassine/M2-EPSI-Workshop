@@ -9,7 +9,6 @@ journal fonctionnent sans savoir d'où vient le paiement.
 
 from __future__ import annotations
 
-import collections
 import os
 import re
 import secrets
@@ -23,6 +22,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from . import store
 from .security import User, current_user
 
 # Figée : même avec des identifiants live collés par erreur, aucun argent réel ne bouge.
@@ -308,19 +308,10 @@ def to_intent(order: dict[str, Any], error: dict[str, str] | None = None) -> dic
     return out
 
 
-# Pas d'API « lister les commandes » chez PayPal : on garde les 25 dernières en mémoire.
-# Elles disparaissent si le conteneur redémarre — à brancher sur la base du SI.
-_ledger: collections.OrderedDict[str, dict[str, Any]] = collections.OrderedDict()
-_ledger_lock = threading.Lock()
-
-
+# Pas d'API « lister les commandes » chez PayPal : le journal est notre base, et lui seul.
+# Contrairement à Stripe, une commande manquée pendant une panne de la base ne se rattrape pas.
 def _remember(intent: dict[str, Any]) -> dict[str, Any]:
-    with _ledger_lock:
-        _ledger[intent["id"]] = intent
-        _ledger.move_to_end(intent["id"])
-        while len(_ledger) > 25:
-            _ledger.popitem(last=False)
-    return intent
+    return store.record(intent, "paypal")
 
 
 def _order_id(order_id: str) -> str:
@@ -341,10 +332,13 @@ def _check_owner(owner: str, user: User) -> None:
 
 
 def _owner_of(order_id: str, path: str) -> str:
-    with _ledger_lock:
-        known = _ledger.get(order_id)
+    try:
+        known = store.owner_of(order_id)
+    except store.StoreError:
+        known = None
     if known is not None:
-        return known["owner"]
+        return known
+    # Inconnue de la base (ou base en panne) : PayPal garde le propriétaire dans custom_id.
     return to_intent(_paypal("GET", path))["owner"]
 
 
@@ -407,5 +401,7 @@ def get_order(order_id: str, user: User = Depends(current_user)) -> dict[str, An
 
 @router.get("/orders")
 def list_orders(user: User = Depends(current_user)) -> list[dict[str, Any]]:
-    with _ledger_lock:
-        return [i for i in reversed(_ledger.values()) if user.is_operator or i["owner"] == user.username]
+    try:
+        return store.recent("paypal", None if user.is_operator else user.username)
+    except store.StoreError as exc:
+        raise HTTPException(status_code=503, detail="Journal PayPal indisponible : base injoignable") from exc
