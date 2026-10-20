@@ -81,6 +81,13 @@
   roles:
     - cadvisor
 
+# Adresse IP virtuelle d'entrée de l'application (keepalived) : NPM et le WAF la visent, un
+# worker en panne la cède à un autre en quelques secondes (docs/reseau.md)
+- name: Adresse virtuelle de l'application
+  hosts: swarm_workers
+  roles:
+    - app_vip
+
 # Métriques applicatives : vmagent dans le Swarm, sur le réseau overlay "monitoring"
 - name: Collecte des métriques applicatives
   hosts: swarm_managers[0]

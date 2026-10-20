@@ -168,6 +168,7 @@ service devient un `job`, avec les labels `service` et `stack`. Règles côté d
 |---|---|---|
 | `paiement_payment-api` | `tasks.paiement_payment-api:8000/metrics` | `payments_total{provider, status}` (stripe/paypal × ok/refused/error), `http_requests_total{method, route, code}`, `http_request_duration_seconds{method, route}` (histogramme), `payment_api_dependency_up{dependency}` (stripe, paypal, db) |
 | `paiement_auth` | `tasks.paiement_auth:8300/metrics` | `auth_login_total{result}` (success, failure, locked), `auth_signup_total{result}`, `auth_reset_total{result}` |
+| `probe_transactions` (stack `probe`) | `tasks.probe_transactions:9110/metrics` | `paiement_probe_*` : sonde de transaction par le relais public, recopie du score du détecteur et de l'état du moteur ([application.md](application.md#sonde-de-transaction-et-dashboard-démo)) |
 
 - `route` est le **modèle** de route FastAPI (`/api/payment_intents/{intent_id}`), jamais l'URL
   brute ; une URL inconnue (scan) compte sous `route="unmatched"`. `/metrics` n'est pas compté.
@@ -332,10 +333,12 @@ et `action` (suggestion : le moteur reste libre de décider).
 | `PaiementApiDown` | aucune réplica de payment-api ne répond (`absent(up == 1)`), service vu dans l'heure | 1 min | critical | auto / `paiement_payment-api` / restart |
 | `PaiementAuthDown` | idem pour le service d'authentification | 1 min | critical | auto / `paiement_auth` / restart |
 | `PaiementApiHighErrorRate` | plus de 5 % de 5xx (hors sondes, hors 502 = erreur Stripe) **et** plus de 0,02 erreur/s, sauf si la base est en panne | 2 min | critical | auto / `paiement_payment-api` / restart |
-| `PaiementApiHighLatency` | p95 hors sondes au-dessus de 2 s, avec au moins 3 requêtes/min | 3 min | warning | auto / `paiement_payment-api` / scale |
+| `PaiementApiHighLatency` | p95 hors sondes au-dessus de 2 s (5 s pour la confirmation, qui attend Stripe), avec au moins 3 requêtes/min dans le groupe | 3 min | warning | auto / `paiement_payment-api` / scale |
 | `PaiementDatabaseDown` | `payment_api_dependency_up{dependency="db"} == 0` sur toutes les réplicas | 1 min | critical | manual / `paiement_db` / restart |
 | `PaiementProviderDown` | Stripe ou PayPal en échec, sur les réplicas sondées dans les 2 dernières minutes | 3 min | warning | manual / `paiement_payment-api` / none |
 | `PaiementAuthBruteForce` | plus de 0,5 échec de connexion/s (`failure` + `locked`) | 2 min | warning | manual / `paiement_auth` / none |
+| `PaiementTransactionProbeFailing` | sonde de transaction : 2 échecs de suite ou aucun succès depuis 90 s | - | critical | manual / `paiement_payment-api` / none |
+| `PaiementProbeDown` | la sonde de transaction ne répond plus | 2 min | warning | manual / `probe_transactions` / none |
 
 Choix et limites :
 
@@ -456,6 +459,7 @@ Les dashboards sont provisionnés par fichiers depuis `monitoring/grafana/dashbo
 
 | Dossier | Dashboard | Origine |
 |---|---|---|
+| Démo | Démo / Remédiation (`demo-remediation`) | `monitoring/grafana/scripts/gen-demo-dashboard.py` : écran de la démonstration (sonde de transaction, détecteur, moteur de remédiation, alertes), rafraîchi toutes les 5 s ; voir [application.md](application.md#sonde-de-transaction-et-dashboard-démo) |
 | Vue centrale | Plateforme - vue centrale (`central`) | `monitoring/grafana/scripts/gen-central-dashboard.py` : un seul écran pour Proxmox, Ceph, Swarm, la supervision, les alertes et les logs, lisible de loin pendant la démo |
 | Infrastructure | Proxmox & Ceph (`proxmox`) | `monitoring/grafana/scripts/gen-proxmox-dashboard.py` : une cinquantaine de panneaux construits à partir des métriques réellement collectées (hyperviseurs, invités, stockages, capacité et pools Ceph, OSD/MON/MGR, latences) |
 | Infrastructure | Nœuds - Node Exporter Full | grafana.com 1860, adapté par `monitoring/grafana/scripts/fetch-dashboards.py` |
@@ -467,6 +471,7 @@ Pour regénérer : modifier le script, pas le JSON, puis lancer depuis `infra/mo
 ```sh
 python3 monitoring/grafana/scripts/gen-proxmox-dashboard.py
 python3 monitoring/grafana/scripts/gen-central-dashboard.py
+python3 monitoring/grafana/scripts/gen-demo-dashboard.py
 python3 monitoring/grafana/scripts/fetch-dashboards.py         # révisions figées, grafana.com n'est pas requis au déploiement
 cd ../../ansible && vault-env ansible-playbook monitoring.yml --limit monitoring_core
 ```

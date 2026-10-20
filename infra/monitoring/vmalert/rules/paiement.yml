@@ -65,20 +65,33 @@ groups:
         annotations:
           summary: "payment-api : {{ $value | humanizePercentage }} de réponses 5xx sur 2 min (hors sondes et erreurs Stripe)"
 
-      # p95 hors sondes, avec un minimum de trafic (3 requêtes par minute).
+      # p95 hors sondes, avec un minimum de trafic (3 requêtes par minute), en deux groupes :
+      # - routes internes (création, lecture) : seuil 2 s ;
+      # - confirmation (/confirm) : elle attend Stripe (p95 d'environ 2,4 s en mode test, mesuré
+      #   le 20/10 avec la sonde de transaction), seuil 5 s. Avec un seuil unique de 2 s sur
+      #   toutes les routes, le seul trafic de la sonde déclenchait l'alerte en permanence.
       - alert: PaiementApiHighLatency
         expr: |
-          histogram_quantile(0.95,
-            sum by (le, service, stack) (rate(http_request_duration_seconds_bucket{service="paiement_payment-api", route!~"/api/(status|health)|unmatched"}[2m]))
-          ) > 2
-            and on (service, stack) sum by (service, stack) (rate(http_requests_total{service="paiement_payment-api", route!~"/api/(status|health)|unmatched"}[2m])) > 0.05
+          (
+            histogram_quantile(0.95,
+              sum by (le, service, stack) (rate(http_request_duration_seconds_bucket{service="paiement_payment-api", route!~"/api/(status|health)|unmatched|.*/confirm"}[2m]))
+            ) > 2
+              and on (service, stack) sum by (service, stack) (rate(http_requests_total{service="paiement_payment-api", route!~"/api/(status|health)|unmatched|.*/confirm"}[2m])) > 0.05
+          )
+          or
+          (
+            histogram_quantile(0.95,
+              sum by (le, service, stack) (rate(http_request_duration_seconds_bucket{service="paiement_payment-api", route=~".*/confirm"}[2m]))
+            ) > 5
+              and on (service, stack) sum by (service, stack) (rate(http_requests_total{service="paiement_payment-api", route=~".*/confirm"}[2m])) > 0.05
+          )
         for: 3m
         labels:
           severity: warning
           remediation: auto
           action: scale
         annotations:
-          summary: "payment-api lent : p95 à {{ $value | humanizeDuration }} sur 2 min (seuil 2 s)"
+          summary: "payment-api lent : p95 à {{ $value | humanizeDuration }} sur 2 min (seuils : 2 s, 5 s pour la confirmation Stripe)"
 
       # Base vue en panne par toutes les réplicas (sondée en tâche de fond toutes les 2 s).
       # Remédiation manuelle : Swarm relance déjà une base dont le healthcheck échoue, la base est
@@ -124,3 +137,36 @@ groups:
           action: none
         annotations:
           summary: "{{ $value | humanize }} échecs de connexion par seconde sur le service d'authentification : force brute ?"
+
+      # Sonde de transaction (stack probe, infra/monitoring/probe) : un client réel passe par le
+      # relais public toutes les 30 s (connexion, création, confirmation carte de test). Elle
+      # ne fait que constater : la reprise est faite par le moteur de remédiation (détecteur
+      # ML), d'où remediation="manual". Deux échecs de suite, ou plus aucun succès depuis 90 s
+      # (sonde bloquée, transactions trop lentes). Le service visé est celui du paiement.
+      - alert: PaiementTransactionProbeFailing
+        expr: |
+          max by (stack) (paiement_probe_consecutive_failures{service="probe_transactions", check="transaction"}) >= 2
+            or max by (stack) (paiement_probe_seconds_since_success{service="probe_transactions", check="transaction"}) > 90
+        labels:
+          severity: critical
+          remediation: manual
+          service: paiement_payment-api
+          stack: paiement
+          action: none
+        annotations:
+          summary: "Transaction de test en échec par le relais public (2 échecs de suite ou aucun succès depuis 90 s) : les clients ne peuvent plus payer"
+
+      # La sonde elle-même ne répond plus : sans elle, la panne précédente passerait inaperçue.
+      - alert: PaiementProbeDown
+        expr: |
+          absent(up{service="probe_transactions"} == 1)
+            and on() count(present_over_time(up{service="probe_transactions"}[1h])) > 0
+        for: 2m
+        labels:
+          severity: warning
+          remediation: manual
+          service: probe_transactions
+          stack: probe
+          action: none
+        annotations:
+          summary: "La sonde de transaction (stack probe) ne répond plus : paiements non vérifiés de bout en bout"

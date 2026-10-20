@@ -19,6 +19,7 @@ swarm_drain_managers: true
 swarm_scrape_targets:
   - { service: paiement_payment-api, port: 8000, path: /metrics }  # paiements, HTTP, dépendances
   - { service: paiement_auth, port: 8300, path: /metrics }         # connexions, inscriptions
+  - { service: probe_transactions, port: 9110, path: /metrics }    # sonde de transaction (stack probe)
 
 # Stacks dont le moteur de remédiation peut piloter les services (passerelle "remediate")
 remediation_allowed_stacks: [demo, paiement]

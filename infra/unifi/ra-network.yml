@@ -25,13 +25,16 @@ policies:
   - { name: ra-app-to-keycloak, from: RA-APP, to: "ip:10.0.1.241", protocol: tcp, ports: [443], desc: "SSO" }
   - { name: ra-dmz-to-loki, from: RA-DMZ, to: "ip:10.0.1.233", protocol: tcp, ports: [3100], desc: "logs" }
   - { name: ra-dmz-to-keycloak, from: RA-DMZ, to: "ip:10.0.1.241", protocol: tcp, ports: [443], desc: "SSO (NetBird)" }
-  # Exposition publique de l'application (docs/application-exposition.md) : WAF (RA-DMZ) vers le
+  # Exposition publique de l'application (docs/application.md, Exposition publique) : WAF (RA-DMZ) vers le
   # frontal publié par Swarm sur tous les nœuds (maillage de routage, port 5173)
   - { name: ra-dmz-to-app, from: RA-DMZ, to: RA-APP, protocol: tcp, ports: [5173], desc: "WAF vers le frontal de l'application (port publié par Swarm)" }
-  # À activer quand le WAF sera en RA-DMZ (10.30.2.251) : NPM (172.16.1.10, réseau DMZ VLAN 9 de
-  # la zone Internal, hors projet) vers le WAF en HTTPS. Le script ne cible qu'une zone RA-*
-  # entière en destination : le firewall nftables du WAF limite ensuite 8443 à NPM.
-  # - { name: ra-npm-to-waf, from: "ip:172.16.1.10", to: RA-DMZ, protocol: tcp, ports: [8443], desc: "reverse proxy NPM vers le WAF (HTTPS)" }
+  # NPM (172.16.1.10, réseau DMZ VLAN 9 de la zone Internal, hors projet) vers le WAF (RA-DMZ,
+  # 10.30.2.251) en HTTPS. Le script ne cible qu'une zone RA-* entière en destination : le
+  # firewall nftables du WAF limite ensuite 8443 à NPM.
+  - { name: ra-npm-to-waf, from: "ip:172.16.1.10", to: RA-DMZ, protocol: tcp, ports: [8443], desc: "reverse proxy NPM vers le WAF (HTTPS)" }
+  # TEMPORAIRE (20/10, en attendant le WAF en RA-DMZ) : NPM directement vers le frontal, SANS WAF.
+  # À retirer dès que app.slabreze.fr passe par le WAF (ra-npm-to-waf).
+  - { name: ra-npm-to-app-temp, from: "ip:172.16.1.10", to: RA-APP, protocol: tcp, ports: [5173], desc: "TEMPORAIRE : NPM vers le frontal sans WAF" }
   # Accès VPN : le filtrage par utilisateur et par groupe Keycloak est fait par NetBird
   - { name: ra-vpn-to-mgmt, from: RA-VPN, to: management, desc: "VPN admin (droits par groupe dans NetBird)" }
   - { name: ra-vpn-to-dmz, from: RA-VPN, to: RA-DMZ, desc: "VPN admin" }

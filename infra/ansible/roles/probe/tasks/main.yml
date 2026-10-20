@@ -1,0 +1,147 @@
+# Sonde de transaction (sur swarm_managers[0]) : image construite depuis infra/monitoring/probe,
+# poussée dans le registre privé, puis stack "probe" déployée avec les identifiants du registre.
+# Idempotent : tag = empreinte des sources (image reconstruite seulement si elles changent),
+# secrets et stack inchangés tant que Vault et les variables ne changent pas.
+
+- name: Module docker_stack (dépendance Python)
+  ansible.builtin.apt:
+    name: python3-jsondiff
+    state: present
+
+# Empreintes des sources (calculées sur le poste de contrôle), dans un ordre fixe
+- name: Tag de l'image (empreinte des sources)
+  ansible.builtin.set_fact:
+    probe_image_tag: >-
+      {{ (lookup('ansible.builtin.pipe', 'cd ' ~ (probe_src_dir | quote) ~ ' && sha256sum '
+          ~ (probe_source_files | map('quote') | join(' '))) | hash('sha256'))[:12] }}
+
+# Référence complète, relue par le play des workers (hostvars : un fait, pas un défaut de rôle)
+- name: Image de la sonde
+  ansible.builtin.set_fact:
+    probe_image_ref: "{{ app_registry }}/{{ probe_image_name }}:{{ probe_image_tag }}"
+
+- name: Image déjà dans le registre ?
+  ansible.builtin.uri:
+    url: "https://{{ app_registry }}/v2/{{ probe_image_name }}/manifests/{{ probe_image_tag }}"
+    method: HEAD
+    url_username: "{{ app_registry_username }}"
+    url_password: "{{ app_registry_password }}"
+    force_basic_auth: true
+    headers:
+      Accept: >-
+        application/vnd.oci.image.index.v1+json,
+        application/vnd.oci.image.manifest.v1+json,
+        application/vnd.docker.distribution.manifest.list.v2+json,
+        application/vnd.docker.distribution.manifest.v2+json
+    status_code: [200, 404]
+  register: probe_image_present
+  changed_when: false
+  no_log: true
+
+- name: Dossier de construction
+  ansible.builtin.file:
+    path: "{{ probe_build_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Sources de la sonde
+  ansible.builtin.copy:
+    src: "{{ probe_src_dir }}/{{ item }}"
+    dest: "{{ probe_build_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ probe_source_files }}"
+
+# Identifiants du registre transmis aux workers le temps du téléchargement (with_registry_auth) :
+# la connexion du manager est déjà faite par app_stack, refaite ici sans changement sinon
+- name: Connexion au registre privé
+  community.docker.docker_login:
+    registry_url: "{{ app_registry }}"
+    username: "{{ app_registry_username }}"
+    password: "{{ app_registry_password }}"
+  no_log: true
+
+- name: Construire et pousser l'image
+  when: probe_image_present.status == 404
+  block:
+    - name: docker build
+      ansible.builtin.command:
+        argv:
+          - docker
+          - build
+          - --quiet
+          - --pull
+          - -t
+          - "{{ app_registry }}/{{ probe_image_name }}:{{ probe_image_tag }}"
+          - --label
+          - org.opencontainers.image.title=resilience-probe
+          - --label
+          - "org.opencontainers.image.version={{ probe_image_tag }}"
+          - "{{ probe_build_dir }}"
+
+    - name: docker push
+      ansible.builtin.command: docker push --quiet {{ app_registry }}/{{ probe_image_name }}:{{ probe_image_tag }}
+
+# Même principe que les stacks monitoring et paiement : nom = empreinte salée et tronquée de
+# la valeur, une rotation dans Vault crée un nouveau secret et met à jour le service.
+- name: Noms versionnés des secrets
+  ansible.builtin.set_fact:
+    probe_swarm_secrets: >-
+      {{ probe_swarm_secrets | default({}) | combine({item.key: probe_stack_name ~ '_' ~ item.key ~ '_'
+         ~ (('probe-secret:' ~ item.key ~ ':' ~ item.value) | hash('sha256'))[:12]}) }}
+  loop: "{{ probe_secret_values | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+
+- name: Mots de passe des comptes (secrets Swarm)
+  community.docker.docker_secret:
+    name: "{{ probe_swarm_secrets[item.key] }}"
+    data: "{{ item.value }}"
+    labels:
+      com.epsi.usage: "{{ probe_stack_name }}"
+  loop: "{{ probe_secret_values | dict2items }}"
+  no_log: true
+
+- name: Répertoire de la stack
+  ansible.builtin.file:
+    path: "{{ probe_stack_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Fichier de stack
+  ansible.builtin.template:
+    src: "{{ probe_src_dir }}/stack.yml.j2"
+    dest: "{{ probe_stack_dir }}/stack.yml"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Stack probe
+  community.docker.docker_stack:
+    name: "{{ probe_stack_name }}"
+    compose:
+      - "{{ probe_stack_dir }}/stack.yml"
+    with_registry_auth: true
+    state: present
+
+- name: Secrets présents
+  ansible.builtin.command: >-
+    docker secret ls --filter label=com.epsi.usage={{ probe_stack_name }}
+    --format "{{ '{{' }}.Name{{ '}}' }}"
+  register: probe_secrets_present
+  changed_when: false
+
+# Un secret encore utilisé (mise à jour en cours) ne peut pas être supprimé : il le sera au
+# passage suivant
+- name: Supprimer les anciens secrets
+  community.docker.docker_secret:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ probe_secrets_present.stdout_lines | reject('in', probe_swarm_secrets.values() | list) | list }}"
+  failed_when: false

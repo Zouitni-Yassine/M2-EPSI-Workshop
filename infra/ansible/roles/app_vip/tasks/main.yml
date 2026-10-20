@@ -1,0 +1,21 @@
+- name: Installer keepalived
+  ansible.builtin.apt:
+    name: keepalived
+    state: present
+
+# Le worker de rang le plus bas a la priorité la plus haute ; tous démarrent en BACKUP, VRRP
+# élit le maître. Communication en unicast entre workers (pas de multicast sur le vnet).
+- name: Configuration keepalived
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recharger keepalived
+
+- name: keepalived actif
+  ansible.builtin.systemd_service:
+    name: keepalived
+    enabled: true
+    state: started

@@ -372,7 +372,7 @@ au 20/10/2026. Segmentation réseau : [reseau.md](reseau.md).
 flowchart LR
   NET["Internet<br/>app.slabreze.fr"] -- "443 (TLS)" --> NPM["NPM<br/>172.16.1.10<br/>DMZ VLAN 9, zone Internal"]
   NPM -- "8443 (TLS, CA interne)" --> WAF["waf01<br/>10.30.2.251 (RA-DMZ)<br/>ModSecurity + CRS"]
-  WAF -- "5173 (HTTP)" --> SW["Swarm RA-APP<br/>10.30.1.221-223:5173<br/>maillage ingress"]
+  WAF -- "5173 (HTTP)" --> SW["Swarm RA-APP<br/>l'adresse virtuelle 10.30.1.200:5173 (reseau.md)<br/>maillage ingress"]
   SW --> FE["paiement_frontend<br/>nginx : fichiers statiques<br/>+ relais /api /auth"]
   FE --> API["paiement_payment-api"] & AUTH["paiement_auth"]
 ```
@@ -562,3 +562,186 @@ Constats et corrections :
 | Double décision, supervision injoignable une minute | Gel d'environ 45 s des deux VM de ceph01 (sauvegarde planifiée sur l'hyperviseur parent) : Swarm a déplacé le moteur en pleine action | Hors application ; à éviter pendant la démo (pas de sauvegarde planifiée à ce moment-là) |
 | Tâches replacées refusées (« connection refused » sur le registre) | Le registre est sur dockerwrk01, gelé lui aussi | Images téléchargées d'avance sur chaque worker par `app-deploy.yml` (identifiants du registre retirés aussitôt) |
 
+## Sonde de transaction et dashboard Démo
+
+Une **sonde de transaction** joue en permanence le rôle d'un client de Resilience Pay, par le
+relais public (port 5173), comme le ferait un navigateur. Elle mesure ce que voit le client
+(« puis-je payer ? »), indépendamment des métriques internes de l'application, et alimente le
+dashboard Grafana **Démo / Remédiation** filmé pour le jury. Elle ne répare rien : la reprise
+reste le travail du détecteur ML et du moteur de remédiation.
+
+### Fichiers
+
+| Fichier | Rôle |
+|---|---|
+| `infra/monitoring/probe/probe.py` | La sonde (Python standard + `prometheus_client`) |
+| `infra/monitoring/probe/Dockerfile`, `requirements.txt` | Image `python:3.12-slim`, utilisateur 10010, compatible `read_only` |
+| `infra/monitoring/probe/stack.yml.j2` | Stack Swarm `probe` |
+| `infra/ansible/roles/probe/`, `infra/ansible/probe.yml` | Construction de l'image, secrets, déploiement, image pré-téléchargée sur les workers |
+| `infra/monitoring/grafana/scripts/gen-demo-dashboard.py` | Générateur du dashboard `dashboards/Démo/demo-remediation.json` |
+| `infra/monitoring/vmalert/rules/paiement.yml` | Alertes `PaiementTransactionProbeFailing`, `PaiementProbeDown` |
+
+### Fonctionnement
+
+| Cadence | Vérification | Succès |
+|---|---|---|
+| 5 s (`probe_health_interval`) | `GET /` puis `GET /api/health` | frontal 200 avec `<div id="root">`, API 200 et `"ok": true` |
+| 30 s (`probe_transaction_interval`) | connexion du compte `client`, `POST /api/payment_intents` (**100 centimes, titulaire « Sonde »**), `POST …/confirm` avec la carte de test Stripe `4242…` | 200, 201, puis 200 et `status: succeeded` |
+| 5 s | session `operateur` en lecture seule : `GET /detector/score`, `GET /remediation/state` | recopie du score et des événements du moteur |
+
+- **Adresses** : `probe_base_urls`, par défaut le port 5173 des trois workers, essayés dans
+  l'ordre (repli si un nœud ne répond pas, comme l'upstream du WAF). L'URL publique
+  `https://app.slabreze.fr` pourra y être ajoutée pour tester aussi le WAF.
+- **Panne vue par la sonde** : le frontal ou `/api/health` échoue, ou la dernière transaction a
+  échoué. Dès que la vérification légère repasse après une panne, une transaction est rejouée
+  sans attendre l'échéance des 30 s (au plus 6 fois, une toutes les 5 s) : la fin de panne est
+  mesurée à 5 s près. Le début est daté du lancement de la vérification en échec.
+- **Pourquoi une stack `probe` à part** (et pas dans `monitoring`) : la sonde a son propre
+  cycle de vie (image construite à partir du dépôt, secrets de l'application) et dépend de la
+  stack `paiement`, alors que la stack `monitoring` (vmagent) est générique et déployée par
+  `swarm.yml`. Elle n'est attachée qu'au réseau overlay `monitoring` (collecte de `/metrics`
+  sur le port 9110) et sort vers le relais par `docker_gwbridge` : elle ne voit aucun réseau
+  interne de la stack `paiement`. Elle n'est pas dans `remediation_allowed_stacks`.
+- **Pourquoi la sonde recopie le détecteur et le moteur** : le détecteur n'expose pas de
+  `/metrics` (score uniquement en JSON sur `/score`), et le moteur garde ses événements en
+  mémoire (`/state`) sans les journaliser : ses logs Loki ne contiennent que les accès HTTP.
+  Plutôt que modifier le code des développeurs, la sonde lit ces deux pages par le relais
+  (session `operateur`, GET uniquement) et les recopie : score en métrique et dans son
+  journal, chaque nouvel événement du moteur en une ligne de journal (avec son heure d'origine
+  `at`). Les événements déjà présents au démarrage de la sonde ne sont pas rejoués.
+
+### Sorties
+
+Métriques (job `probe_transactions`, labels `service=probe_transactions`, `stack=probe`) :
+
+| Métrique | Sens |
+|---|---|
+| `paiement_probe_payments_ok` | 1 = paiements possibles, 0 = en panne (vu par la sonde) |
+| `paiement_probe_up{check}` | dernier résultat de `sante` (vérification légère) ou `transaction` |
+| `paiement_probe_checks_total{check, result}`, `paiement_probe_step_total{step, result}` | vérifications et étapes (`frontal`, `sante`, `connexion`, `creation`, `confirmation`) par résultat `ok` / `echec` |
+| `paiement_probe_transactions_total{status}` | `succeeded` ou `echec_<étape>` |
+| `paiement_probe_transaction_duration_seconds` (histogramme), `paiement_probe_step_duration_seconds{step}` | durées |
+| `paiement_probe_last_success_timestamp_seconds{check}`, `paiement_probe_seconds_since_success{check}`, `paiement_probe_consecutive_failures{check}` | fraîcheur, échecs de suite |
+| `paiement_probe_down_seconds_total`, `paiement_probe_last_outage_seconds`, `paiement_probe_last_outage_end_timestamp_seconds` | temps de panne cumulé, durée et fin de la dernière panne |
+| `paiement_probe_detector_score`, `_threshold`, `_anomaly`, `_ready` | recopie de `/detector/score` |
+| `paiement_probe_remediation_in_progress`, `_actions`, `_last_recovery_seconds`, `paiement_probe_remediation_events_total{kind}` | recopie de `/remediation/state` |
+| `paiement_probe_observer_up` | lecture du détecteur et du moteur réussie |
+
+Journal (stdout, donc Loki : `{stack="probe", service="probe_transactions"}`), une ligne
+logfmt par fait :
+
+| `type=` | Quand | Champs |
+|---|---|---|
+| `etat` | toutes les 5 s | `paiements` (ok/panne), `panne` (0/1), `sante`, `depuis_succes_s`, `score`, `seuil`, `anomalie`, `moteur`, `remediation` |
+| `transaction` | chaque transaction | `result`, `duree_ms`, `etape_echec`, `paiement` (id Stripe) |
+| `incident` | début et fin de panne | `phase` (debut/fin), `duree_s`, `texte` |
+| `evenement` | nouvel événement du moteur | `kind` (detect, act, verify, restore), `etape`, `at`, `texte` |
+
+**Pourquoi deux sources.** VictoriaMetrics ne garde qu'un échantillon par série et par 30 s
+(`-dedup.minScrapeInterval`, deux vmagents) : une panne de 15 s peut tomber entre deux
+échantillons. Les métriques servent donc aux alertes et aux valeurs durables (compteurs,
+dernière panne) ; le dashboard lit l'état à 5 s près dans le journal (`unwrap` LogQL).
+
+### Secrets
+
+Mots de passe des comptes `client` et `operateur` (`PAIEMENT_AUTH_PASSWORD_CLIENT`,
+`PAIEMENT_AUTH_PASSWORD_OPERATEUR`, `secret/infra/paiement-app`) en secrets Swarm
+`probe_client_password_<empreinte>` et `probe_operateur_password_<empreinte>` (empreinte salée,
+label `com.epsi.usage=probe`), montés en 0400 pour l'uid 10010. Rien dans l'environnement du
+service ni dans le journal. Une rotation dans Vault crée de nouveaux secrets au passage suivant
+du playbook ; les anciens sont supprimés.
+
+### Déploiement
+
+```sh
+cd /srv/M2-EPSI-Workshop/infra/ansible
+vault-env ansible-playbook probe.yml                               # image, secrets, stack probe
+vault-env ansible-playbook swarm.yml --limit 'swarm_managers[0]'   # collecte (une fois)
+vault-env ansible-playbook monitoring.yml --limit monitoring_core  # alertes, dashboard
+```
+
+- **Image** : construite sur dockermgr01 à partir des fichiers de `infra/monitoring/probe`
+  (pas de GitHub : une modification locale est prise en compte sans pousser), taguée par
+  l'empreinte de ces fichiers (`10.30.1.221:5000/resilience-probe:<12 caractères>`), poussée
+  seulement si le tag est absent du registre ; déploiement `with_registry_auth`. Comme pour
+  l'application, l'image est téléchargée d'avance sur les trois workers (identifiants retirés
+  aussitôt). Second passage : `changed=0`.
+- **Collecte** : cible `probe_transactions` (port 9110) ajoutée à `swarm_scrape_targets`.
+  Avec `--limit 'swarm_managers[0]'`, le dernier play de `swarm.yml` (passerelle de
+  remédiation) refuse volontairement de s'exécuter sur un seul manager : l'échec à cet endroit
+  est attendu, la collecte est déjà redéployée.
+
+### Alertes
+
+| Alerte | Condition | Durée | Sévérité | `remediation` / `service` / `action` |
+|---|---|---|---|---|
+| `PaiementTransactionProbeFailing` | 2 transactions de test en échec de suite, ou aucun succès depuis 90 s | - | critical | manual / `paiement_payment-api` / none |
+| `PaiementProbeDown` | la sonde ne répond plus (même principe que `PaiementApiDown`) | 2 min | warning | manual / `probe_transactions` / none |
+
+`remediation="manual"` : la sonde constate, le moteur répare (détecteur ML, chemin rapide).
+
+**Correction de `PaiementApiHighLatency`.** Dès la mise en service de la sonde, l'alerte s'est
+déclenchée : la confirmation attend Stripe (p95 de 2,4 s en mode test) et le seul trafic de la
+sonde (4 requêtes/min) dépassait le seuil de trafic. Le p95 est désormais calculé en deux
+groupes : routes internes (seuil 2 s) et confirmation (seuil 5 s), chacun avec son minimum de
+trafic de 3 requêtes/min.
+
+### Dashboard « Démo / Remédiation »
+
+Dossier Grafana **Démo**, uid `demo-remediation`, rafraîchi toutes les 5 s, 15 dernières
+minutes, non modifiable dans l'interface (fichier généré). Régénérer :
+`python3 scripts/gen-demo-dashboard.py` depuis `infra/monitoring/grafana`.
+
+| Zone | Panneaux | Source |
+|---|---|---|
+| Bandeau | **Paiements** OK / EN PANNE / SONDE MUETTE ; depuis la dernière transaction réussie ; score d'anomalie ; moteur EN VEILLE / EN ACTION ; dernier temps de reprise (sonde et moteur) | journal de la sonde (Loki), métrique du moteur |
+| Couloirs | **Avant / pendant / après** : paiements, anomalie détectée, moteur, à 5 s près | Loki |
+| Détection | score du détecteur et seuil 0,55 ; transactions de test (barres réussies / échouées, durée) | Loki |
+| payment-api | réplicas qui répondent, requêtes/s hors sondes, 5xx/s, latence p95 | VictoriaMetrics |
+| Chronologie | événements du moteur et début / fin de panne de la sonde, en clair ; alertes actives (série `ALERTS` de vmalert, celles envoyées à Alertmanager) | Loki, VictoriaMetrics |
+
+Annotations sur tous les graphes : incident détecté (rouge), action du moteur (orange),
+vérification (bleu), service rétabli (vert), panne / reprise vues par la sonde (violet),
+alertes `Paiement*` (jaune).
+
+Vérification faite par l'API Grafana (`/api/dashboards/uid/demo-remediation`, puis chaque
+requête de chaque panneau et de chaque annotation par `/api/ds/query`, compte `admin` local) :
+les 14 panneaux et les 6 annotations renvoient des données.
+
+### Test d'incident (20/10/2026, heures UTC, Paris = UTC+2)
+
+Même scénario que le test de reprise : `docker stop` du conteneur `payment-api` sur son nœud
+(dockerwrk03), puis aucune action humaine. Images de la stack `paiement` au commit `509a14a`.
+
+| Heure | Source | Fait |
+|---|---|---|
+| 18:32:04 | sonde | dernière transaction réussie avant l'incident (2,5 s) |
+| **18:32:17** | opérateur | `docker stop` du conteneur (arrêté à 18:32:18,9) |
+| 18:32:21 | moteur | « Anomalie confirmée par le détecteur (score 0.77 ≥ 0.55) », décision de recréer `paiement_payment-api` (**+4 s**) |
+| 18:32:24 | sonde | paiements EN PANNE (`/api/health` : 504 puis 502) ; bandeau rouge, moteur EN ACTION |
+| 18:32:36 | moteur | redémarré par la passerelle 10.30.1.211 en 14,2 s (1/1 réplica), transaction de contrôle passée, « Service rétabli en 15 s — 0 intervention humaine » |
+| **18:32:37** | sonde | paiements rétablis, panne vue **13 s** |
+| 18:32:39 | sonde | transaction de test réussie (6,7 s, lancée pendant la panne) |
+
+Indisponibilité réelle : environ 19 s (de l'arrêt à 18:32:36 ; `curl` depuis le poste de
+contrôle : 502 jusqu'à 18:32:34, 200 à 18:32:39). La sonde de ce test datait la panne de la fin
+de sa vérification en échec (délai de 4 s) : elle l'a vue à 18:32:24 et a donc compté 13 s.
+Elle date maintenant le début du lancement de cette vérification. Sur le dashboard : bandeau
+EN PANNE puis OK, trois couloirs rouges/orange pendant 13 à 15 s, pic du score à 0,87,
+annotations des cinq événements, chronologie de 7 lignes, « Dernier temps de reprise » 13 s
+(sonde) et 15 s (moteur). `PaiementApiDown` est passée en attente (`pending`) sans se
+déclencher (`for: 1m`) : le chemin rapide (détecteur) a tout réglé avant le filet de sécurité.
+
+### Limites
+
+- La sonde utilise le compte `operateur` de l'application pour lire le détecteur et le moteur
+  (GET seulement par le relais) ; un compte dédié en lecture seule serait plus propre, mais
+  `auth` ne sème que `operateur` et `client`.
+- Une panne plus courte que 5 s peut échapper à la sonde (cadence de la vérification légère).
+- Les transactions de la sonde (2 par minute, 1,00 €) s'ajoutent au journal Stripe de test et
+  à la base `payments` (titulaire « Sonde »), ainsi qu'au trafic que le détecteur apprend comme
+  normal.
+- Le moteur ne journalise pas ses événements : si la sonde est arrêtée pendant un incident, ils
+  ne restent visibles que dans `/remediation/state` (50 derniers, en mémoire). Suggestion aux
+  développeurs : un `print(..., flush=True)` dans `event()` de `remediation/app/main.py`.
+- Le ménage des anciennes images de la sonde (registre, workers) n'est pas automatisé.

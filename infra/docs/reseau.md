@@ -21,6 +21,20 @@ en défense en profondeur, par le firewall nftables des machines de destination.
 - **Côté passerelle** (UCG Ultra, UniFi Network 10.6) : réseaux, zones et règles décrits dans
   [`unifi/ra-network.yml`](../unifi/ra-network.yml), appliqués par [`unifi/unifi-ra`](../unifi/unifi-ra).
 
+### Adresse virtuelle de l'application : 10.30.1.200
+
+Le frontal est publié par Swarm sur le port 5173 de **chaque** nœud. Pour ne pas viser un worker
+précis (point unique de défaillance), NPM puis le WAF visent l'adresse virtuelle **10.30.1.200**,
+portée par un worker à la fois (keepalived, VRRP en unicast entre workers, rôle `app_vip`, play
+de `swarm.yml`). Un worker dont le frontal ne répond plus, ou qui tombe, la cède à un autre ;
+`nopreempt` évite une seconde bascule à son retour. Le firewall des workers n'accepte VRRP
+(protocole 112) que des autres workers ; pas d'authentification VRRP (elle mettrait un mot de passe
+en clair dans la configuration, et reste faible).
+
+Test du 20/10 (requêtes toutes les 0,5 s sur `http://10.30.1.200:5173/api/health`, arrêt de
+keepalived sur le porteur) : bascule de dockerwrk01 vers dockerwrk02 en moins d'une seconde,
+**une requête perdue**.
+
 ## 2. Flux autorisés
 
 Les zones personnalisées UniFi refusent tout par défaut (sauf Internet, la passerelle et le trafic
