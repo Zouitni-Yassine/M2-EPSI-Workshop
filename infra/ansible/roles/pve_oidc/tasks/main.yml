@@ -1,0 +1,113 @@
+# Connexion à Proxmox par Keycloak (realm OpenID). La configuration d'accès est commune au
+# cluster (/etc/pve, répliqué par corosync) : tout se fait une seule fois, sur le premier nœud.
+# root@pam, le realm pve et les tokens existants (supervision, Terraform) ne sont pas touchés.
+# Rôle de l'utilisateur = groupe Keycloak : Proxmox ajoute à chaque connexion l'utilisateur
+# aux groupes <groupe>-keycloak existants, et le retire des autres (groups-overwrite). Les
+# groupes et leurs ACL sont créés ici d'avance ; un nouveau groupe Keycloak n'en crée pas.
+
+- name: Configuration OpenID de Proxmox
+  run_once: true
+  block:
+    - name: Secret du client OIDC Proxmox (lu dans Keycloak)
+      community.general.keycloak_clientsecret_info:
+        auth_keycloak_url: "{{ oidc_keycloak_url }}"
+        auth_realm: master
+        auth_username: admin
+        auth_password: "{{ hostvars[oidc_keycloak_host].keycloak_admin_password }}"
+        realm: "{{ hostvars[oidc_keycloak_host].keycloak_realm }}"
+        client_id: "{{ pve_oidc_client_id }}"
+      delegate_to: localhost
+      become: false
+      register: pve_oidc_secret
+      no_log: true
+
+    - name: Groupes Proxmox existants
+      ansible.builtin.command: pvesh get /access/groups --output-format json
+      register: pve_oidc_groups
+      changed_when: false
+
+    - name: Groupes Proxmox issus de Keycloak
+      ansible.builtin.command:
+        argv: [pveum, group, add, "{{ item.group }}-{{ pve_oidc_realm }}",
+               --comment, "Groupe Keycloak {{ item.group }} ({{ item.role }})"]
+      loop: "{{ pve_oidc_group_roles }}"
+      when: (item.group ~ '-' ~ pve_oidc_realm) not in (pve_oidc_groups.stdout | from_json | map(attribute='groupid'))
+
+    - name: ACL existantes
+      ansible.builtin.command: pvesh get /access/acl --output-format json
+      register: pve_oidc_acl
+      changed_when: false
+
+    - name: Rôle de chaque groupe sur tout le cluster
+      ansible.builtin.command:
+        argv: [pveum, acl, modify, /, --groups, "{{ item.group }}-{{ pve_oidc_realm }}",
+               --roles, "{{ item.role }}", --propagate, "1"]
+      loop: "{{ pve_oidc_group_roles }}"
+      when: >-
+        pve_oidc_acl.stdout | from_json
+        | selectattr('path', 'eq', '/') | selectattr('type', 'eq', 'group')
+        | selectattr('ugid', 'eq', item.group ~ '-' ~ pve_oidc_realm)
+        | selectattr('roleid', 'eq', item.role) | list | length == 0
+
+    - name: Realms existants
+      ansible.builtin.command: pvesh get /access/domains --output-format json
+      register: pve_oidc_domains
+      changed_when: false
+
+    - name: Réglages attendus du realm {{ pve_oidc_realm }}
+      ansible.builtin.set_fact:
+        pve_oidc_wanted:
+          issuer-url: "{{ oidc_issuer }}"
+          client-id: "{{ pve_oidc_client_id }}"
+          client-key: "{{ pve_oidc_secret.clientsecret_info.value }}"
+          autocreate: 1
+          groups-claim: groups
+          groups-autocreate: 0
+          groups-overwrite: 1
+          comment: "Keycloak (SSO, double authentification)"
+        pve_oidc_exists: >-
+          {{ pve_oidc_realm in (pve_oidc_domains.stdout | from_json | map(attribute='realm')) }}
+      no_log: true
+
+    - name: Réglages actuels du realm {{ pve_oidc_realm }}
+      ansible.builtin.command: pvesh get /access/domains/{{ pve_oidc_realm }} --output-format json
+      register: pve_oidc_current
+      changed_when: false
+      when: pve_oidc_exists | bool
+      no_log: true
+
+    # L'identifiant (username-claim) est fixé à la création et ne peut plus changer
+    - name: Créer le realm {{ pve_oidc_realm }}
+      ansible.builtin.command:
+        argv: >-
+          {{ [ 'pveum', 'realm', 'add', pve_oidc_realm, '--type', 'openid',
+               '--username-claim', 'preferred_username' ]
+             + (pve_oidc_wanted | dict2items
+                | map(attribute='key') | map('regex_replace', '^', '--')
+                | zip(pve_oidc_wanted | dict2items | map(attribute='value') | map('string'))
+                | map('list') | flatten) }}
+      when: not pve_oidc_exists | bool
+      no_log: true
+
+    - name: Réglages du realm à corriger
+      ansible.builtin.set_fact:
+        pve_oidc_drift: >-
+          {%- set cur = pve_oidc_current.stdout | from_json -%}
+          {%- set out = [] -%}
+          {%- for k, v in pve_oidc_wanted.items() if (cur[k] | default('') | string) != (v | string) -%}
+          {%- set _ = out.append(k) -%}
+          {%- endfor -%}
+          {{ out }}
+      when: pve_oidc_exists | bool
+      no_log: true
+
+    - name: Mettre à jour le realm {{ pve_oidc_realm }}
+      ansible.builtin.command:
+        argv: >-
+          {{ [ 'pveum', 'realm', 'modify', pve_oidc_realm ]
+             + (pve_oidc_wanted | dict2items
+                | map(attribute='key') | map('regex_replace', '^', '--')
+                | zip(pve_oidc_wanted | dict2items | map(attribute='value') | map('string'))
+                | map('list') | flatten) }}
+      when: pve_oidc_exists | bool and pve_oidc_drift | length > 0
+      no_log: true

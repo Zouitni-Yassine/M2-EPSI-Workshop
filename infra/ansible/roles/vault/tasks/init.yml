@@ -1,0 +1,100 @@
+# Code retour de "vault status" : 0 descellé, 2 scellé, 1 erreur
+- name: État de Vault
+  ansible.builtin.command: vault status -format=json
+  environment: { VAULT_ADDR: "https://127.0.0.1:8200" }
+  register: vault_status_raw
+  changed_when: false
+  failed_when: vault_status_raw.rc == 1
+  until: vault_status_raw.rc != 1
+  retries: 10
+  delay: 3
+
+- name: Lire l'état
+  ansible.builtin.set_fact:
+    vault_state: "{{ vault_status_raw.stdout | from_json }}"
+
+# Première initialisation : 5 clés de descellement, 3 nécessaires. Le résultat est écrit sur
+# l'hôte (0600), rapatrié sur le poste de contrôle, puis effacé de l'hôte.
+- name: Initialiser Vault
+  ansible.builtin.shell: |
+    set -o pipefail
+    umask 077
+    vault operator init -format=json -key-shares=5 -key-threshold=3 > /root/vault-init.json
+  args:
+    executable: /bin/bash
+  environment: { VAULT_ADDR: "https://127.0.0.1:8200" }
+  when: not vault_state.initialized
+
+- name: Répertoire des clés sur le poste de contrôle
+  ansible.builtin.file:
+    path: "{{ vault_init_file | dirname }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+
+- name: Rapatrier les clés sur le poste de contrôle
+  ansible.builtin.fetch:
+    src: /root/vault-init.json
+    dest: "{{ vault_init_file }}"
+    flat: true
+  when: not vault_state.initialized
+
+- name: Protéger le fichier des clés
+  ansible.builtin.file:
+    path: "{{ vault_init_file }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  when: not vault_state.initialized
+
+- name: Effacer les clés de l'hôte
+  ansible.builtin.file:
+    path: /root/vault-init.json
+    state: absent
+
+- name: Clés disponibles sur le poste de contrôle
+  ansible.builtin.stat:
+    path: "{{ vault_init_file }}"
+  delegate_to: localhost
+  become: false
+  register: vault_init_stat
+
+- name: Descellement impossible sans les clés
+  ansible.builtin.fail:
+    msg: >-
+      Vault est scellé et {{ vault_init_file }} est absent : le desceller à la main avec
+      3 clés (vault operator unseal), conservées dans Vaultwarden.
+  when: (vault_state.sealed or not vault_state.initialized) and not vault_init_stat.stat.exists
+
+- name: Charger les clés
+  ansible.builtin.set_fact:
+    vault_init: "{{ lookup('ansible.builtin.file', vault_init_file) | from_json }}"
+  no_log: true
+  when: vault_init_stat.stat.exists
+
+- name: Desceller Vault
+  ansible.builtin.command: vault operator unseal {{ item }}
+  environment: { VAULT_ADDR: "https://127.0.0.1:8200" }
+  loop: "{{ vault_init.unseal_keys_b64[:3] }}"
+  no_log: true
+  when: vault_state.sealed or not vault_state.initialized
+
+# Configuration de base, avec le token root tant qu'il existe (à révoquer une fois
+# l'authentification des admins par Keycloak en place)
+- name: Moteurs de secrets et audit
+  ansible.builtin.shell: |
+    set -o pipefail
+    changed=0
+    vault secrets list -format=json | jq -e '."secret/"' >/dev/null || { vault secrets enable -path=secret kv-v2; changed=1; }
+    vault audit list -format=json | jq -e '."syslog/"' >/dev/null || { vault audit enable syslog tag=vault-audit; changed=1; }
+    echo "changed=$changed"
+  args:
+    executable: /bin/bash
+  environment:
+    VAULT_ADDR: "https://127.0.0.1:8200"
+    VAULT_TOKEN: "{{ vault_init.root_token }}"
+  register: vault_config
+  changed_when: "'changed=1' in vault_config.stdout"
+  no_log: true
+  when: vault_init is defined

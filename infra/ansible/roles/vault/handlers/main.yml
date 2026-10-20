@@ -1,0 +1,6 @@
+# Un redémarrage scelle Vault : le rôle le descelle ensuite (tasks/init.yml)
+- name: Redémarrer Vault
+  ansible.builtin.systemd_service:
+    name: vault
+    state: restarted
+    daemon_reload: true

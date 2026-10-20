@@ -17,6 +17,14 @@ table inet host_fw {
         elements = { {{ fw_monitoring_allowed | join(', ') }} }
     }
 
+{% if fw_admin_ports | default([]) | length > 0 %}
+    set admin_web_nets {
+        type ipv4_addr
+        flags interval
+        elements = { {{ fw_admin_web_allowed | join(', ') }} }
+    }
+
+{% endif %}
     chain input {
         type filter hook input priority filter; policy drop;
 
@@ -26,7 +34,14 @@ table inet host_fw {
         meta l4proto { icmp, ipv6-icmp } accept
 
         ip saddr @admin_nets tcp dport 22 accept comment "SSH admin"
-        ip saddr @monitoring_nets tcp dport { {{ fw_open_ports | join(', ') }} } accept comment "Supervision"
+        ip saddr @monitoring_nets tcp dport { {{ fw_open_ports | join(', ') }} } accept comment "Services (LAN)"
+{% if fw_admin_ports | default([]) | length > 0 %}
+        ip saddr @admin_web_nets tcp dport { {{ fw_admin_ports | join(', ') }} } accept comment "Interfaces web (VPN admin)"
+{% endif %}
+
+{% for source in fw_grafana_allowed | default([]) %}
+        ip saddr {{ source }} tcp dport 3000 accept comment "Grafana Remi VPN"
+{% endfor %}
 
         limit rate 10/minute log prefix "host_fw drop: " level info
     }

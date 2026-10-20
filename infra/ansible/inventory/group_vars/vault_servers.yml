@@ -1,0 +1,12 @@
+fw_open_ports:
+  - 8200 # Vault (API, interface, métriques)
+  - 9100 # node_exporter
+
+# Accessibles aussi depuis le VPN d'administration (fw_admin_web_allowed)
+fw_admin_ports:
+  - 8200 # Vault (interface et API)
+
+# AppRole d'Ansible (roles/vault/tasks/config.yml) : identifiants sur le poste de contrôle
+# seulement, utilisables depuis son adresse seulement
+vault_approle_file: /root/.vault/approle-ansible.json
+vault_ansible_cidr: 10.0.1.110/32

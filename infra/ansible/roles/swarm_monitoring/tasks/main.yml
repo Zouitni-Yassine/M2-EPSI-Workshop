@@ -16,9 +16,17 @@
     group: root
     mode: "0700"
 
+# Secrets Swarm immuables, comme les configs : le nom porte une empreinte du contenu, une
+# rotation (nouvelle valeur dans Vault) crée un nouveau secret et met à jour le service.
+# Empreinte salée et tronquée : elle ne permet pas de retrouver un mot de passe aléatoire.
+- name: Nom du secret VictoriaMetrics
+  ansible.builtin.set_fact:
+    swarm_vm_secret_name: "vm_auth_password_{{ ('swarm-vm-secret:' ~ vm_auth_password) | hash('sha256') | truncate(12, true, '') }}"
+  no_log: true
+
 - name: Mot de passe de VictoriaMetrics (secret Swarm)
   community.docker.docker_secret:
-    name: vm_auth_password
+    name: "{{ swarm_vm_secret_name }}"
     data: "{{ vm_auth_password }}"
     labels:
       com.epsi.usage: monitoring
@@ -65,4 +73,17 @@
     state: absent
   loop: "{{ swarm_scrape_configs.stdout_lines | select('match', '^vmagent_swarm_scrape_')
             | reject('equalto', 'vmagent_swarm_scrape_' ~ (swarm_scrape_config | hash('sha1') | truncate(12, true, ''))) | list }}"
+  failed_when: false
+
+- name: Secrets VictoriaMetrics présents
+  ansible.builtin.command: docker secret ls --filter label=com.epsi.usage=monitoring --format "{{ '{{' }}.Name{{ '}}' }}"
+  register: swarm_vm_secrets
+  changed_when: false
+
+- name: Supprimer les anciens secrets VictoriaMetrics
+  community.docker.docker_secret:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ swarm_vm_secrets.stdout_lines | select('match', '^vm_auth_password')
+            | reject('equalto', swarm_vm_secret_name) | list }}"
   failed_when: false

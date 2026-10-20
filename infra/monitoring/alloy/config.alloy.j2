@@ -46,6 +46,15 @@ loki.relabel "journal" {
     source_labels = ["__journal_com_docker_stack_namespace"]
     target_label  = "stack"
   }
+
+  // Conteneur hors Swarm (ex. WAF) : nom du conteneur. Les tâches Swarm, dont le nom change à
+  // chaque déploiement, gardent seulement service/stack (cardinalité maîtrisée)
+  rule {
+    source_labels = ["__journal_com_docker_swarm_service_name", "__journal_container_name"]
+    separator     = ";"
+    regex         = "^;(.+)$"
+    target_label  = "container"
+  }
 }
 
 loki.source.journal "system" {
@@ -54,3 +63,21 @@ loki.source.journal "system" {
   labels        = { job = "journal" }
   forward_to    = [loki.write.default.receiver]
 }
+{% if alloy_log_files | default([]) | length > 0 %}
+
+// Journaux écrits dans des fichiers (hors journald) : alloy_log_files de l'inventaire.
+// Lecture autorisée par ACL sur le seul répertoire concerné (rôle alloy).
+local.file_match "files" {
+  path_targets = [
+{% for f in alloy_log_files %}
+    { __path__ = "{{ f.path }}", job = "{{ f.job }}" },
+{% endfor %}
+  ]
+}
+
+loki.source.file "files" {
+  targets       = local.file_match.files.targets
+  tail_from_end = true
+  forward_to    = [loki.write.default.receiver]
+}
+{% endif %}

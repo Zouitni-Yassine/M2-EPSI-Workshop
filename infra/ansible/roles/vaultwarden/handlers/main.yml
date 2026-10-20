@@ -1,0 +1,5 @@
+- name: Redémarrer Vaultwarden
+  ansible.builtin.systemd_service:
+    name: vaultwarden
+    state: restarted
+    daemon_reload: true

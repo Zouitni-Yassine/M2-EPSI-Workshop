@@ -7,8 +7,8 @@ supervisé. Chaque étape est rejouable : relancer une commande sur une infra d�
 |---|---|---|
 | 1 | Terraform | Template `debian13-cloud` (VMID 9000), image cloud Debian 13 brute |
 | 2 | Packer | Template `debian13-docker` (VMID 9100) : Debian 13 + Docker CE, durci |
-| 3 | Terraform | 6 VM Swarm, 3 LXC de supervision, HA Proxmox |
-| 4 | Ansible | Cluster Swarm, stack d'observabilité, dashboards, alertes |
+| 3 | Terraform | 6 VM Swarm, 3 LXC de supervision, 3 LXC d'identité, HA Proxmox |
+| 4 | Ansible | Cluster Swarm, stack d'observabilité, dashboards, alertes, identités et secrets |
 | 5 | — | Vérifications |
 
 Plan d'adressage (LAN `10.0.1.0/24`, VMID = dernier octet de l'IP) :
@@ -21,6 +21,19 @@ Plan d'adressage (LAN `10.0.1.0/24`, VMID = dernier octet de l'IP) :
 | dockerwrk01-03 | .221-.223 | ceph01-03 | Workers Swarm |
 | vmagent01 / vmagent02 | .231 / .232 | ceph02 / ceph03 | Collecte des métriques |
 | monitoring01 | .233 | ceph01 | VictoriaMetrics, vmalert, Alertmanager, Loki, Grafana |
+| iam01 / vault01 / vaultwarden01 | .241 / .242 / .243 | ceph02 / ceph03 / ceph01 | Keycloak, Vault, Vaultwarden |
+| waf01 | .251 | ceph01 | WAF de l'équipe cyber (hors Terraform) |
+
+Groupes de l'inventaire Ansible (`inventory/hosts.yml`) :
+
+| Groupe | Machines | Ce qu'Ansible y gère |
+|---|---|---|
+| `swarm` (`swarm_managers`, `swarm_workers`) | dockermgr01-03, dockerwrk01-03 | Tout (`swarm.yml`) |
+| `monitoring` (`vmagents`, `monitoring_core`) | vmagent01-02, monitoring01 | Tout (`monitoring.yml`) |
+| `identity` (`keycloak_servers`, `vault_servers`, `vaultwarden_servers`) | iam01, vault01, vaultwarden01 | Tout (`identity.yml`) |
+| `pve` | ceph01-03 | CA interne, SSO Proxmox, envoi des logs (Alloy) |
+| `control` | control01 (= .110, connexion locale) | Envoi des logs (Alloy) |
+| `waf` | waf01 | **Envoi des logs seulement** (rôle `alloy`) : la VM et son firewall nftables appartiennent à l'équipe cyber |
 
 ---
 
@@ -42,12 +55,21 @@ Organisation :
 
 - Dépôt cloné dans `/srv/M2-EPSI-Workshop`, branche `DEV`.
 - `/terraform` est un lien symbolique vers `/srv/M2-EPSI-Workshop/infra/terraform`.
-- Le wrapper `/usr/local/bin/tf` est une copie de `infra/terraform/scripts/tf` :
+- Trois scripts copiés dans `/usr/local/bin` :
+  - `tf` (`infra/terraform/scripts/tf`) : Terraform avec verrou local, secrets lus dans Vault ;
+  - `vault-env` (`infra/scripts/vault-env`) : lance une commande avec les secrets de Vault dans
+    son environnement (§2) ;
+  - `vault-unseal` (`infra/scripts/vault-unseal`) : descelle Vault après un redémarrage.
 
   ```sh
-  install -m 0755 /srv/M2-EPSI-Workshop/infra/terraform/scripts/tf /usr/local/bin/tf
-  ln -s /srv/M2-EPSI-Workshop/infra/terraform /terraform
+  R=/srv/M2-EPSI-Workshop/infra
+  install -m 0755 $R/terraform/scripts/tf  /usr/local/bin/tf
+  install -m 0755 $R/scripts/vault-env     /usr/local/bin/vault-env
+  install -m 0755 $R/scripts/vault-unseal  /usr/local/bin/vault-unseal
+  ln -s $R/terraform /terraform
   ```
+
+  Après une modification d'un de ces scripts dans le dépôt, refaire le `install`.
 
 ### Clés SSH
 
@@ -67,9 +89,13 @@ ssh-keygen -R 10.0.1.221 && ssh-keyscan -t ed25519 10.0.1.221 >> /root/.ssh/know
 
 | Utilisateur | Token | Rôle (ACL sur `/`) | Usage |
 |---|---|---|---|
-| `terraform@pve` | `tf` | `TerraformRole` | Terraform |
-| `terraform@pve` | `packer` | `TerraformRole` | Packer |
-| `svc_monitoring@pve` | `monitoring` | `PVEAuditor` | prometheus-pve-exporter (lecture seule) |
+| `terraform@pve` | `tf-20261020` | `TerraformRole` | Terraform |
+| `terraform@pve` | `packer-20261020` | `TerraformRole` | Packer |
+| `svc_monitoring@pve` | `monitoring-20261020` | `PVEAuditor` | prometheus-pve-exporter (lecture seule) |
+
+Le nom porte la date de création : une rotation crée un nouveau token à côté de l'ancien
+(bleu/vert, [comptes-et-rotation.md](comptes-et-rotation.md#26-tokens-proxmox--bleuvert)).
+Les identifiants sont dans Vault (`secret/infra/terraform`, `secret/infra/monitoring`).
 
 `TerraformRole` regroupe les privilèges `Datastore.*`, `Pool.*`, `SDN.Use`, `Sys.Audit`,
 `Sys.Console`, `Sys.Modify` et `VM.*` (allocation, clone, config, migrate, power, snapshot...).
@@ -82,7 +108,7 @@ Trois pièges :
 
   ```sh
   pveum acl modify / --users 'svc_monitoring@pve' --roles PVEAuditor
-  pveum acl modify / --tokens 'svc_monitoring@pve!monitoring' --roles PVEAuditor
+  pveum acl modify / --tokens 'svc_monitoring@pve!monitoring-20261020' --roles PVEAuditor
   ```
 
 - **L'API HA (`/cluster/ha/...`) exige `Sys.Console`.** Sans ce privilège, `proxmox_haresource`
@@ -113,53 +139,51 @@ Aucun secret n'est dans le dépôt, et le dépôt est public. Les `.gitignore` e
 `*.env`, `*.tfstate*`, `*.tfplan`, `*.tfvars`, `*.pkrvars.hcl`, `backend.hcl`, `id_*`, `*.pem`
 et `*.key`. Avant chaque push, un scan compare le diff sortant aux valeurs réelles des secrets.
 
-Les secrets vivent dans quatre fichiers du poste de contrôle, tous en `chmod 600`.
+**Depuis le 20/10/2026, tous les secrets sont dans HashiCorp Vault** (https://10.0.1.242:8200),
+sous `secret/infra/*`. Les anciens fichiers `/terraform/.env`, `/root/.proxmox-env`,
+`/root/.monitoring-env` et `/root/.iam-env` sont détruits.
 
-### `/terraform/.env` (source de vérité pour les tokens et le S3)
+| Chemin Vault | Clés | Pour |
+|---|---|---|
+| `secret/infra/monitoring` | `GRAFANA_ADMIN_PASSWORD`, `VM_AUTH_PASSWORD`, `ALERTMANAGER_AUTH_PASSWORD`, `LOKI_AUTH_PASSWORD`, `REMEDIATION_AM_PASSWORD`, `PVE_MONITOR_TOKEN_ID`, `PVE_MONITOR_TOKEN_SECRET`, `DISCORD_WEBHOOK_URL`, `HEALTHCHECKS_PING_URL` | `swarm.yml`, `monitoring.yml` |
+| `secret/infra/identity` | `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_DB_PASSWORD`, `VAULTWARDEN_ADMIN_TOKEN` | `identity.yml` |
+| `secret/infra/terraform` | `PROXMOX_VE_API_TOKEN`, `PKR_VAR_proxmox_token_id`, `PKR_VAR_proxmox_token_secret`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Terraform, Packer, backend S3 |
+| `secret/infra/unifi` | `UNIFI_URL`, `UNIFI_USERNAME`, `UNIFI_PASSWORD` | Compte de service UniFi |
 
-```ini
-TOKEN-ID=
-TOKEN-SECRET=
-MONITOR-TOKEN-ID=
-MONITOR-TOKEN-SECRET=
-S3-ACCESS-KEY=
-S3-SECRET-KEY=
-```
-
-### `/root/.proxmox-env` (Terraform et Packer)
-
-Chargé automatiquement par le wrapper `tf`. Pour Packer, le charger à la main.
+**`vault-env`** (`infra/scripts/vault-env`) se connecte avec l'AppRole `ansible`, lit tous ces
+secrets, exporte chaque clé comme variable d'environnement du même nom, révoque son token, puis
+lance la commande. Toute commande qui a besoin d'un secret passe par lui :
 
 ```sh
-export PROXMOX_VE_API_TOKEN=          # "<TOKEN-ID>=<TOKEN-SECRET>", construit depuis /terraform/.env
-export PKR_VAR_proxmox_token_id=      # terraform@pve!packer
-export PKR_VAR_proxmox_token_secret=
-export AWS_ACCESS_KEY_ID=             # S3-ACCESS-KEY de /terraform/.env (backend du state)
-export AWS_SECRET_ACCESS_KEY=         # S3-SECRET-KEY de /terraform/.env
+vault-env ansible-playbook site.yml
+vault-env packer build .
+tf plan                     # le wrapper tf se relance lui-même par vault-env
 ```
 
-### `/root/.monitoring-env` (Ansible)
+- Les playbooks refusent de démarrer si un mot de passe fait moins de 16 caractères ou si le
+  token PVE est absent (lancement sans `vault-env`).
+- Si Vault est scellé, `vault-env` s'arrête : lancer d'abord `vault-unseal`
+  ([Démarrage du lab](#démarrage-du-lab)).
+- `HEALTHCHECKS_PING_URL` ou `DISCORD_WEBHOOK_URL` vide : route correspondante désactivée.
+- `GRAFANA_ADMIN_PASSWORD` est réappliqué par le rôle `grafana` s'il ne correspond plus.
 
-À charger avec `source` avant **tout** playbook, y compris `swarm.yml` : Alloy, sur les nœuds
-Swarm, a besoin du mot de passe de Loki.
+Pour générer une valeur, directement dans Vault (sur vault01, token admin) :
 
 ```sh
-export GRAFANA_ADMIN_PASSWORD=        # >= 16 caractères ; appliqué au premier démarrage de Grafana uniquement
-export HEALTHCHECKS_PING_URL=         # vide = route Watchdog désactivée
-export PVE_MONITOR_TOKEN_ID=          # MONITOR-TOKEN-ID de /terraform/.env
-export PVE_MONITOR_TOKEN_SECRET=      # MONITOR-TOKEN-SECRET de /terraform/.env
-export DISCORD_WEBHOOK_URL=           # vide = pas d'envoi vers Discord
-export VM_AUTH_PASSWORD=              # VictoriaMetrics, vmagent, vmalert (utilisateur "monitoring")
-export ALERTMANAGER_AUTH_PASSWORD=    # Alertmanager (utilisateur "monitoring")
-export LOKI_AUTH_PASSWORD=            # Loki via nginx (utilisateur "monitoring")
+vault kv patch secret/infra/monitoring LOKI_AUTH_PASSWORD="$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 32)"
 ```
 
-`monitoring.yml` refuse de démarrer si un mot de passe fait moins de 16 caractères ou si le token
-PVE est absent. Pour générer un mot de passe :
+Politiques, AppRole, compte de secours, descellement : [identites.md](identites.md#4-vault--secrets-des-machines).
+Inventaire de tous les comptes et rotation : [comptes-et-rotation.md](comptes-et-rotation.md).
 
-```sh
-openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 32
-```
+Fichiers sensibles sur le poste de contrôle, hors du dépôt :
+
+- `/root/.vault/approle-ansible.json` : identifiants de l'AppRole `ansible` (`0600`), utilisables
+  depuis 10.0.1.110 seulement ;
+- `/root/.vault/init.json` : clés de descellement et token root de Vault (`0600`), copiés dans
+  Vaultwarden, **gardés jusqu'après la démo du 23/10** puis supprimés ;
+- `/root/.pki/` : clé et certificat de la CA interne, certificats émis (`0700`) ;
+- `/root/.remediation/` : clé SSH du moteur de remédiation (`swarm.yml`).
 
 ### `infra/terraform/backend.hcl` (non versionné)
 
@@ -170,8 +194,13 @@ bucket    = "<nom-du-bucket>"
 endpoints = { s3 = "https://<domaine-s3>" }
 ```
 
-Pour une nouvelle installation, on peut versionner des fichiers d'exemple qui ne contiennent que les
-noms de variables ci-dessus : `env.example`, `proxmox-env.example` et `monitoring-env.example`.
+### Réinstallation à partir de zéro
+
+Vault ne peut pas fournir les secrets dont il a besoin pour être installé. Sur un lab vide :
+exporter à la main les variables ci-dessus dans un shell (valeurs reprises de Vaultwarden ou
+générées), dérouler les étapes 1 à 4 **sans** `vault-env` (`export VAULT_ENV_LOADED=1` : le
+wrapper `tf` ne tente alors pas de se relancer par `vault-env`), puis écrire les secrets dans
+`secret/infra/*`. Les lancements suivants passent par `vault-env`.
 
 ---
 
@@ -188,8 +217,7 @@ Première initialisation, avec le backend S3 :
 ```sh
 cd /terraform
 cp backend.hcl.example backend.hcl    # puis renseigner bucket et endpoint
-source /root/.proxmox-env
-terraform init -backend-config=backend.hcl
+tf init -backend-config=backend.hcl
 ```
 
 Lors d'une installation à partir de zéro, le template 9100 n'existe pas encore. Il faut donc
@@ -206,7 +234,8 @@ Le state est sur un bucket S3 externe (DataCore Swarm). Le verrouillage natif de
 refuse (HTTP 501, testé). C'est le wrapper `tf` qui prend le verrou, avec
 `flock -n /run/lock/terraform.lock`. Si une autre exécution est en cours, il sort avec le code 75.
 
-**Toujours passer par `tf`, jamais par `terraform` directement**, sauf pour le `init`. Le verrou
+**Toujours passer par `tf`, jamais par `terraform` directement** : il charge aussi les secrets
+(token Proxmox, clés S3) depuis Vault par `vault-env`. Le verrou
 n'est valable que sur le poste de contrôle : Terraform n'est lancé que depuis .110.
 
 ### Étape 2 : template `debian13-docker` (Packer)
@@ -216,17 +245,16 @@ Packer clone le 9000 en VM temporaire (IP de build `10.0.1.200`), puis lance les
 Il convertit enfin la VM en template 9100 avec un lecteur cloud-init.
 
 ```sh
-source /root/.proxmox-env
 cd /srv/M2-EPSI-Workshop/infra/packer/debian13-docker
 packer init .
-packer build .
+vault-env packer build .     # PKR_VAR_proxmox_token_id / _secret lus dans Vault
 ```
 
 Pour reconstruire le template, supprimer d'abord le 9100 existant : Packer ne remplace pas un
 VMID occupé. Les VM déjà clonées ne sont pas touchées, car Terraform ignore les changements de
 `clone`.
 
-### Étape 3 : VM Swarm, LXC de supervision et HA (Terraform)
+### Étape 3 : VM Swarm, LXC de supervision et d'identité, HA (Terraform)
 
 ```sh
 tf plan
@@ -240,7 +268,9 @@ Ce que l'apply crée :
 - **`monitoring.tf`** : 3 LXC Debian 13 non privilégiés, avec `nesting=1`, requis par le sandboxing
   systemd. Le template LXC est téléchargé sur chacun des 3 nœuds, car le stockage `local` n'est pas
   partagé.
-- **`ha.tf`** : HA sur les 9 invités (`max_restart 2`, `max_relocate 1`, `failback`), plus deux
+- **`identity.tf`** : 3 LXC Debian 13 non privilégiés pour Keycloak (iam01), Vault (vault01) et
+  Vaultwarden (vaultwarden01), un par hyperviseur.
+- **`ha.tf`** : HA sur les 12 invités (`max_restart 2`, `max_relocate 1`, `failback`), plus deux
   types de règles :
   - `home-cephXX` (node-affinity non stricte) : chaque invité préfère son nœud d'origine et y
     revient quand le nœud remonte ;
@@ -255,29 +285,30 @@ provoque pas de dérive dans Terraform.
 
 ```sh
 cd /srv/M2-EPSI-Workshop/infra/ansible
-source /root/.monitoring-env
-ansible-playbook site.yml               # = swarm.yml puis monitoring.yml
+vault-env ansible-playbook site.yml     # = swarm.yml, monitoring.yml, identity.yml
 ```
 
-On peut aussi lancer les deux playbooks séparément, dans cet ordre :
+On peut aussi lancer les trois playbooks séparément (toujours par `vault-env`), dans cet ordre :
 
 | Playbook | Cibles | Contenu |
 |---|---|---|
 | `swarm.yml` | `swarm` | Rôles `docker_host` (daemon.json, nftables) et `alloy`, nœud par nœud (`serial: 1`) pour préserver le quorum. Puis `swarm init`, `join`, labels `role` et `pve_node`, drain des managers. cAdvisor sur les workers |
-| `monitoring.yml` | `monitoring` | `lxc_base` et `alloy` sur les 3 LXC. `pve_exporter` et `vmagent` sur les vmagents. `vmsingle`, `alertmanager`, `vmalert`, `loki` (+ nginx), `grafana` sur monitoring01 |
+| `monitoring.yml` | `monitoring`, puis `pve:control:waf` | `lxc_base` et `alloy` sur les 3 LXC. `alloy` seul sur les hyperviseurs, le poste de contrôle et le WAF (play « Envoi des logs »). `pve_exporter` et `vmagent` sur les vmagents. `vmsingle`, `alertmanager`, `vmalert`, `loki` (+ nginx), `grafana` sur monitoring01 |
+| `identity.yml` | `identity`, puis tous les hôtes pour la CA | `lxc_base` et `alloy` sur les 3 LXC. `internal_ca` (CA dans le magasin de confiance de toutes les machines). `keycloak` (+ realm `epsi`), `vault` (initialisation, politiques, AppRole), `vaultwarden`. `grafana_oidc` et `pve_oidc` (SSO). Voir [identites.md](identites.md) |
 
 Les playbooks sont idempotents : un second passage doit afficher `changed=0`.
 
-Si l'on change les mots de passe de la stack, lancer `swarm.yml` **avant** `monitoring.yml`. Un
+Si l'on change les mots de passe de la stack, pousser aux **clients avant le serveur** : un
 client qui envoie des identifiants à un serveur qui ne les exige pas encore n'est pas gêné.
-L'inverse provoquerait des refus (401) le temps du déploiement.
+L'inverse provoque des refus (401) et, pour Loki, des logs perdus. Procédure :
+[comptes-et-rotation.md](comptes-et-rotation.md#22-basic-auth-et-loki--les-clients-dabord).
 
 ### Étape 5 : vérifications
 
-Préparation :
+Préparation, dans un shell ouvert par `vault-env bash` (secrets en variables jusqu'à `exit`) :
 
 ```sh
-source /root/.monitoring-env
+vault-env bash
 M=10.0.1.233
 K=/root/.ssh/id_ed25519_infra
 ```
@@ -311,15 +342,15 @@ curl -s -o /dev/null -w "%{http_code}\n" -u monitoring:$LOKI_AUTH_PASSWORD      
 curl -s -u monitoring:$VM_AUTH_PASSWORD --data-urlencode 'query=up == 0' http://$M:8428/api/v1/query
 ```
 
-**Logs.** Chaque hôte doit apparaître :
+**Logs.** Chaque hôte doit apparaître (17 machines, dont waf01, parfois muet sur 5 min) :
 
 ```sh
 curl -s -u monitoring:$LOKI_AUTH_PASSWORD -G http://$M:3100/loki/api/v1/query \
-  --data-urlencode 'query=sum by (host) (count_over_time({job="journal"}[5m]))'
+  --data-urlencode 'query=sum by (host) (count_over_time({job="journal"}[1h]))'
 ```
 
-**Grafana** : ouvrir http://10.0.1.233:3000 (utilisateur `admin`, mot de passe
-`GRAFANA_ADMIN_PASSWORD`). Contrôler l'état des sources :
+**Grafana** : ouvrir http://10.0.1.233:3000 et se connecter par Keycloak (compte de secours :
+`admin`, mot de passe `GRAFANA_ADMIN_PASSWORD`). Contrôler l'état des sources :
 
 ```sh
 for ds in victoriametrics loki; do
@@ -363,6 +394,76 @@ ssh -i /root/.ssh/id_ed25519_proxmox root@10.0.1.100 ha-manager status
 
 ## 4. Opérations courantes
 
+### Démarrage du lab
+
+Le lab est éteint chaque nuit. Check-list du matin, et **d'avant démo**, depuis .110. Vault
+redémarre toujours scellé : tant qu'il l'est, `vault-env`, donc Ansible et `tf`, refusent de
+tourner.
+
+1. **Hyperviseurs et HA** : quorum, toutes les ressources HA en `started` :
+
+   ```sh
+   ssh -i /root/.ssh/id_ed25519_proxmox root@10.0.1.100 'pvecm status | grep -i quorate; ha-manager status'
+   ```
+
+2. **Desceller Vault** (l'alerte `VaultSealed` est alors active) :
+
+   ```sh
+   vault-unseal                 # clés lues dans /root/.vault/init.json tant qu'il existe,
+                                # sinon 3 clés saisies sans écho (Vaultwarden)
+   vault-env true && echo OK    # vault-env refonctionne
+   ```
+
+   `vault-unseal` ne dépend ni d'Ansible ni de `vault-env` et n'affiche aucune clé. Ne pas
+   utiliser `identity.yml` pour desceller : il passe par `vault-env`, qui échoue tant que Vault
+   est scellé. Détails : [identites.md](identites.md#descellement).
+
+3. **Swarm** : 6 nœuds `Ready`, managers `Drain` :
+
+   ```sh
+   ssh -i /root/.ssh/id_ed25519_infra debian@10.0.1.211 sudo docker node ls
+   ```
+
+4. **Supervision**, dans un shell ouvert par `vault-env bash` (variables jusqu'à `exit`, le
+   token Vault est déjà révoqué) :
+
+   ```sh
+   vault-env bash
+   M=10.0.1.233
+   J() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
+
+   # 0 cible down : []
+   curl -s -u monitoring:$VM_AUTH_PASSWORD --data-urlencode 'query=up == 0' \
+     http://$M:8428/api/v1/query | J 'd["data"]["result"]'
+
+   # Alertes actives : Watchdog seulement
+   curl -s -u monitoring:$ALERTMANAGER_AUTH_PASSWORD \
+     "http://$M:9093/api/v2/alerts?active=true&silenced=false&inhibited=false" \
+     | J '" ".join(a["labels"]["alertname"] for a in d)'
+
+   # Sources Grafana : OK, OK, puis 200 pour Alertmanager
+   for ds in victoriametrics loki; do
+     curl -s -u admin:$GRAFANA_ADMIN_PASSWORD http://$M:3000/api/datasources/uid/$ds/health | J 'd["status"]'
+   done
+   curl -s -o /dev/null -w "%{http_code}\n" -u admin:$GRAFANA_ADMIN_PASSWORD \
+     http://$M:3000/api/datasources/proxy/uid/alertmanager/api/v2/status
+
+   # Logs : les 17 machines sur la dernière heure (waf01 peut être muet sur 5 min)
+   curl -s -u monitoring:$LOKI_AUTH_PASSWORD -G http://$M:3100/loki/api/v1/query \
+     --data-urlencode 'query=sum by (host) (count_over_time({job=~".+"}[1h]))' \
+     | J 'sorted(r["metric"]["host"] for r in d["data"]["result"])'
+   exit
+   ```
+
+5. **healthchecks.io** : le check du Watchdog est vert. **Discord** : l'alerte `VaultSealed` du
+   matin est passée en « RÉSOLU ».
+6. **Avant la démo** : ouvrir Grafana (dashboard « Plateforme - vue centrale »), se connecter
+   par Keycloak (TOTP prêt), vérifier que la stack applicative et la stack `demo` sont à leur
+   nombre de réplicas (`docker service ls` sur un manager).
+
+Contrôlé le 20/10/2026 : quorum OK, 6 nœuds Swarm prêts, `[]` pour les cibles down, `Watchdog`
+seule alerte active, sources Grafana `OK`, 17 machines dans Loki sur une heure.
+
 ### Ajouter un worker Swarm
 
 1. Dans `infra/terraform/swarm.tf`, ajouter une entrée dans `local.swarm_nodes` :
@@ -381,14 +482,14 @@ ssh -i /root/.ssh/id_ed25519_proxmox root@10.0.1.100 ha-manager status
    ```
 
 4. Enregistrer la clé d'hôte (`ssh-keyscan`, voir les prérequis).
-5. Lancer `ansible-playbook swarm.yml` : le nœud rejoint le Swarm.
-6. Lancer `ansible-playbook monitoring.yml --limit vmagents` : les cibles node, docker et cAdvisor
+5. Lancer `vault-env ansible-playbook swarm.yml` : le nœud rejoint le Swarm.
+6. Lancer `vault-env ansible-playbook monitoring.yml --limit vmagents` : les cibles node, docker et cAdvisor
    du nouveau nœud sont ajoutées au scrape.
 
 ### Monter de version VictoriaMetrics
 
 Modifier `vm_version` dans `inventory/group_vars/monitoring.yml`, puis lancer
-`ansible-playbook monitoring.yml`.
+`vault-env ansible-playbook monitoring.yml`.
 
 Le rôle `vm_install` télécharge la release GitHub et vérifie son checksum dans
 `/opt/victoriametrics/<version>/`. Il bascule ensuite le lien `/usr/local/bin/<binaire>` et
@@ -399,7 +500,7 @@ remettre l'ancienne valeur de `vm_version` et relancer le playbook.
 
 1. Déposer le JSON dans `monitoring/grafana/dashboards/<Dossier>/`. Le nom du répertoire devient
    le dossier Grafana.
-2. Lancer `ansible-playbook monitoring.yml --limit monitoring_core`.
+2. Lancer `vault-env ansible-playbook monitoring.yml --limit monitoring_core`.
 
 Grafana relit les fichiers toutes les 60 s. Un fichier retiré du dépôt est supprimé du serveur,
 et le dashboard disparaît (`disableDeletion: false`). Les dashboards ne sont pas modifiables dans
@@ -416,30 +517,27 @@ Deux dashboards sont générés par script : `monitoring/grafana/scripts/gen-cen
    (`vmalert -dryRun`) avant d'être installés.
 2. Mettre les labels `severity` et, si possible, `host`, ainsi qu'une annotation `summary` : ces
    champs sont repris dans le message Discord.
-3. Lancer `ansible-playbook monitoring.yml --limit monitoring_core`.
+3. Lancer `vault-env ansible-playbook monitoring.yml --limit monitoring_core`.
 
 Chaque fichier est validé par `vmalert -dryRun` avant d'être copié, puis vmalert est rechargé.
 
 ### Faire tourner un secret
 
-Exemple avec le mot de passe de Loki :
+Nouvelle valeur générée directement dans Vault, puis `vault-env ansible-playbook site.yml` deux
+fois (application, puis `changed=0`). Ordre clients puis serveur pour les mots de passe de la
+stack, cas particuliers (Keycloak, Grafana, tokens Proxmox, `root@pam`, secrets Swarm) et
+inventaire complet : [comptes-et-rotation.md](comptes-et-rotation.md).
 
-```sh
-# 1. remplacer la valeur de LOKI_AUTH_PASSWORD dans /root/.monitoring-env
-source /root/.monitoring-env
-cd /srv/M2-EPSI-Workshop/infra/ansible
-ansible-playbook swarm.yml          # Alloy des nœuds Swarm
-ansible-playbook monitoring.yml     # Alloy des LXC, vmagents (scrape), htpasswd nginx, Grafana
-```
+### Desceller Vault après un redémarrage
 
-Pendant la rotation, les pushes refusés sont retentés par Alloy.
+Alerte `VaultSealed` sur Discord, et `vault-env` refuse de tourner. Lancer `vault-unseal` sur
+.110 (voir [Démarrage du lab](#démarrage-du-lab) et [identites.md](identites.md#descellement)).
 
-| Secret | À faire |
-|---|---|
-| `VM_AUTH_PASSWORD`, `ALERTMANAGER_AUTH_PASSWORD` | `monitoring.yml` seul suffit : seuls les LXC les utilisent |
-| `DISCORD_WEBHOOK_URL`, `HEALTHCHECKS_PING_URL` | `monitoring.yml --limit monitoring_core` |
-| `GRAFANA_ADMIN_PASSWORD` | N'est appliqué qu'à la création de la base de Grafana. Ensuite : `grafana cli admin reset-admin-password` sur monitoring01 |
-| Token Proxmox | Régénérer le token dans Proxmox, mettre à jour `/terraform/.env`, puis relancer `monitoring.yml --limit vmagents` (exporter PVE) |
+### Renouveler un certificat interne
+
+Supprimer `/root/.pki/issued/<hôte>/` sur le poste de contrôle, puis relancer
+`vault-env ansible-playbook identity.yml` :
+le rôle réémet le certificat (1 an), l'installe et redémarre le service.
 
 ### Reconstruire un LXC
 
@@ -449,8 +547,8 @@ Exemple avec `vmagent01` (procédure non testée à ce jour : vérifier le plan 
 tf apply -replace='proxmox_virtual_environment_container.monitoring["vmagent01"]' \
          -replace='proxmox_haresource.guests["vmagent01"]'
 ssh-keygen -R 10.0.1.231 && ssh-keyscan -t ed25519 10.0.1.231 >> /root/.ssh/known_hosts
-cd /srv/M2-EPSI-Workshop/infra/ansible && source /root/.monitoring-env
-ansible-playbook monitoring.yml --limit vmagent01
+cd /srv/M2-EPSI-Workshop/infra/ansible
+vault-env ansible-playbook monitoring.yml --limit vmagent01
 ```
 
 Le second vmagent continue de collecter pendant la reconstruction.
@@ -464,6 +562,15 @@ Pour **monitoring01** :
 ---
 
 ## 5. Dépannage
+
+Erreurs rencontrées au déploiement des services d'identité (corrigées dans les rôles) :
+
+| Symptôme | Cause | Correction |
+|---|---|---|
+| Keycloak redémarre en boucle : `Unknown option: '--config-file'` | `--config-file` est une option globale de `kc.sh`, à placer avant la sous-commande | `kc.sh --config-file=... start --optimized` |
+| Vault redémarre en boucle : `failed to open bolt file: .../vault.db: no such file or directory` | Le stockage Raft ne crée pas son répertoire | Le rôle crée `/var/lib/vault/data` (`0700`, vault) |
+| Docker refusé dans un LXC non privilégié | L'option `keyctl` est réservée à `root@pam` | Vaultwarden extrait de l'image et lancé en natif |
+| vmagent01-02 et monitoring01 **sans firewall** depuis leur création (seule la table Debian par défaut chargée) | Le premier passage de `monitoring.yml` a échoué avant les handlers : `/etc/nftables.conf` écrit mais jamais rechargé, et plus aucun changement détecté ensuite | `force_handlers = True` dans `ansible.cfg` ; `lxc_base` vérifie que la table `host_fw` est chargée et recharge sinon. Corrigé le 19/10/2026 |
 
 Erreurs rencontrées pendant la construction, avec leur cause et leur correctif.
 
@@ -483,4 +590,7 @@ Erreurs rencontrées pendant la construction, avec leur cause et leur correctif.
 | Ansible : `pip` échoue sur un vmagent | `python3-packaging` absent | Installé par le rôle `pve_exporter` |
 | `tar: Cannot change ownership to uid ...` en synchronisant depuis Windows | tar conserve les uid/gid Windows | `tar xf - --no-same-owner --no-same-permissions`, puis vérifier `git status` (bits d'exécution) |
 | Un script envoyé par `ssh host 'bash -s' < script` s'arrête au milieu | Un `ssh` imbriqué dans le script consomme le reste de stdin | `ssh -n` pour les appels imbriqués |
-| `401` dans les logs d'Alloy ou de vmagent | Mot de passe changé côté serveur avant les clients, ou `.monitoring-env` non chargé | `source /root/.monitoring-env`, puis relancer `swarm.yml` et `monitoring.yml` |
+| `401` dans les logs d'Alloy ou de vmagent, « dropping data » chez Alloy | Mot de passe changé côté serveur avant les clients | Pousser aux clients, puis au serveur ([comptes-et-rotation.md](comptes-et-rotation.md#22-basic-auth-et-loki--les-clients-dabord)) |
+| `vault-env : Vault est scellé` | Redémarrage de vault01 (lab rallumé, bascule HA) | `vault-unseal` |
+| `Secrets absents : lancer le playbook par vault-env` | Playbook lancé sans `vault-env` | `vault-env ansible-playbook ...` |
+| Token Proxmox supprimé : « ignore invalid acl token » dans les logs | ACL du token restée dans `user.cfg` | Retirer l'ACL avant de supprimer le token ([comptes-et-rotation.md](comptes-et-rotation.md#26-tokens-proxmox--bleuvert)) |

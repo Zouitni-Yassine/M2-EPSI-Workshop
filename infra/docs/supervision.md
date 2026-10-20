@@ -44,7 +44,7 @@ flowchart LR
   AM -- alertes + résolutions --> DISCORD["Discord"]
   AM -- Watchdog, chaque minute --> HC["healthchecks.io"]
 
-  JOURNAL["journald<br/>(système + conteneurs)"] --> ALLOY["Alloy<br/>(tous les hôtes)"] -- push --> NGX --> LOKI
+  JOURNAL["journald (système + conteneurs)<br/>+ fichiers alloy_log_files"] --> ALLOY["Alloy<br/>(17 machines)"] -- push --> NGX --> LOKI
 
   GRAF --> VM & LOKI & AM
 ```
@@ -55,8 +55,9 @@ En résumé :
   VictoriaMetrics, qui ne garde qu'un échantillon par série et par intervalle.
 - **Alertes** : vmalert évalue les règles sur VictoriaMetrics et envoie les alertes à
   Alertmanager, qui les route vers Discord. L'alerte Watchdog part vers healthchecks.io.
-- **Logs** : sur chaque machine, Alloy lit journald, où arrivent aussi les logs des conteneurs
-  Docker, et pousse vers Loki à travers nginx.
+- **Logs** : sur chaque machine (VM, LXC, hyperviseurs, poste de contrôle, WAF), Alloy lit
+  journald, où arrivent aussi les logs des conteneurs Docker, et quelques fichiers de logs. Il
+  pousse vers Loki à travers nginx.
 - **Visualisation** : Grafana interroge les trois sources.
 
 Versions déployées : VictoriaMetrics v1.154.0 (binaires officiels, somme de contrôle vérifiée),
@@ -79,7 +80,7 @@ automatiquement aux scrapes, aux dashboards et aux logs, sans modifier la config
 | `alertmanager.yml` | `monitoring/alertmanager/alertmanager.yml.j2` | monitoring01 : `/etc/prometheus/alertmanager.yml` |
 | `loki.yml` | `monitoring/loki/config.yml.j2` | monitoring01 : `/etc/loki/config.yml` |
 | Reverse proxy de Loki | `monitoring/loki/nginx-loki.conf.j2` | monitoring01 |
-| Agent de logs (promtail / Alloy) | `monitoring/alloy/config.alloy.j2` | tous les hôtes : `/etc/alloy/config.alloy` |
+| Agent de logs (promtail / Alloy) | `monitoring/alloy/config.alloy.j2` | les 17 machines de l'inventaire : `/etc/alloy/config.alloy` |
 | Sources de données Grafana | `monitoring/grafana/datasources.yml.j2` | monitoring01 |
 | Dashboards Grafana (JSON) | `monitoring/grafana/dashboards/<Dossier>/*.json` | monitoring01 : `/var/lib/grafana/dashboards/` |
 | Générateurs de dashboards | `monitoring/grafana/scripts/` | (poste de contrôle) |
@@ -135,11 +136,13 @@ Configuration : `monitoring/vmagent/scrape.yml.j2`. Intervalle de scrape : 30 s.
 
 | Job | Cibles | Port | Ce que ça mesure |
 |---|---|---|---|
-| `node` | 6 VM Swarm, 3 LXC, 3 hyperviseurs | 9100 | CPU, RAM, disques, réseau, charge, PSI de chaque machine (labels `host`, `role`, `pve_node`) |
+| `node` | 6 VM Swarm, 6 LXC, 3 hyperviseurs | 9100 | CPU, RAM, disques, réseau, charge, PSI de chaque machine (labels `host`, `role`, `pve_node`) |
 | `pve` | API Proxmox (10.0.1.100) via l'exporter local | 127.0.0.1:9221 | État des nœuds, des VM et LXC (CPU, RAM, disque, réseau), des stockages, et métadonnées HA. Une seule cible : les métriques `cluster` couvrent tous les nœuds. Le token est `PVEAuditor` (lecture seule) |
 | `ceph` | Les 3 hyperviseurs | 9283 | Module `prometheus` du mgr Ceph : santé, OSD, MON, pools, capacité, I/O, latences. Seul le mgr actif répond. `instance` est forcé à `ceph` et `honor_labels` est activé, pour que les séries ne changent pas quand le mgr bascule |
 | `docker` | Les 6 nœuds Swarm | 9323 | Métriques du démon Docker et du Swarm (`swarm_manager_nodes`, `swarm_manager_leader`…) |
 | `cadvisor` | Les 3 workers | 8080 | CPU, RAM, réseau et I/O par conteneur, avec les labels service et stack Swarm. Les managers sont drainés et n'hébergent aucun conteneur, d'où l'absence de cAdvisor dessus |
+| `keycloak` | iam01 | 9000 (HTTPS) | Santé et métriques de Keycloak (interface de gestion) |
+| `vault` | vault01 | 8200 (HTTPS) | Métriques de Vault, dont `vault_core_unsealed` (1 = descellé). Lisibles sans token, port filtré par le firewall |
 | `vmagent`, `victoriametrics`, `vmalert`, `alertmanager`, `loki`, `grafana` | La stack elle-même | 8429, 8428, 8880, 9093, 3100, 3000 | Santé de la chaîne de supervision (authentification Basic, sauf Grafana) |
 
 cAdvisor tourne hors Swarm, en réseau `host` : son port passe ainsi par le pare-feu de l'hôte, ce
@@ -161,24 +164,52 @@ service devient un `job`, avec les labels `service` et `stack`. Règles côté d
 
 ## 6. Logs
 
-- **Collecte** : sur chaque hôte (VM Swarm et LXC), Grafana Alloy lit le journal systemd
-  (rôle `alloy`). Docker utilise le driver `journald`, donc les logs des conteneurs passent par
-  le même chemin. Alloy n'a besoin que du groupe `systemd-journal`, pas d'accès au socket Docker.
+### Collecte
+
+**Grafana Alloy sur les 17 machines de l'inventaire** (rôle `alloy`) :
+
+| Machines | Groupe | Play |
+|---|---|---|
+| 6 VM Swarm | `swarm` | `swarm.yml` |
+| 3 LXC de supervision, 3 LXC d'identité | `monitoring`, `identity` | `monitoring.yml`, `identity.yml` (avec `lxc_base`) |
+| 3 hyperviseurs | `pve` | `monitoring.yml`, play « Envoi des logs » |
+| Poste de contrôle (control01 = .110, connexion locale) | `control` | idem |
+| WAF de l'équipe cyber (waf01, .251) | `waf` | idem. **Seul le rôle `alloy`** y est appliqué : la VM et son firewall nftables appartiennent à l'équipe cyber. Alloy y suit les rotations du mot de passe de Loki |
+
+- **journald** : Alloy lit le journal systemd (groupe `systemd-journal` seulement). Docker
+  utilise le driver `journald` : les logs des conteneurs passent par le même chemin, sans accès
+  au socket Docker.
+- **Fichiers** (`alloy_log_files`, par groupe) : journaux écrits hors journald.
+
+  | Fichier | Machines | `job` |
+  |---|---|---|
+  | `/var/log/pveproxy/access.log` | Hyperviseurs | `pveproxy` (accès à l'interface web et à l'API Proxmox) |
+  | `/var/log/postgresql/postgresql-*-main.log` | iam01 | `postgresql` (connexions et erreurs de la base de Keycloak) |
+
+  Lecture par **ACL** sur le seul répertoire concerné (et ACL par défaut, pour les fichiers que
+  logrotate recrée). Alloy n'est **pas** ajouté au groupe `www-data` : sur un hyperviseur, ce
+  groupe lit `/etc/pve` (secrets du cluster, dont celui du client OIDC).
 - **Envoi** : vers `http://10.0.1.233:3100/loki/api/v1/push`, en authentification Basic.
 - **Rétention** : 14 jours (`loki_retention: 336h`), stockage local TSDB, compactor actif.
 
-Labels disponibles :
+**Limite : Ceph.** Ses journaux sont en `0600` et logrotate les recrée ainsi : ils ne sont pas
+collectés. La santé de Ceph est suivie par les métriques (job `ceph`, alertes `CephHealth*`).
+
+### Labels
 
 | Label | Origine |
 |---|---|
-| `job` | toujours `journal` |
+| `job` | `journal` (journald), `pveproxy` ou `postgresql` (fichiers) |
 | `host`, `role`, `pve_node` | inventaire Ansible |
 | `unit` | unité systemd |
 | `level` | priorité journald (`err`, `warning`, `info`…) |
 | `identifier` | identifiant syslog (nom du processus, tag nginx…) |
-| `service`, `stack` | service et stack Swarm (conteneurs uniquement) |
+| `service`, `stack` | service et stack Swarm (conteneurs Swarm uniquement) |
+| `container` | nom du conteneur, pour les conteneurs **hors Swarm** seulement (ex. WAF). Les tâches Swarm, dont le nom change à chaque déploiement, n'ont que `service` et `stack` |
 
-Exemples LogQL (Grafana > Explore > Loki) :
+### Requêtes LogQL
+
+Grafana > Explore > Loki :
 
 ```logql
 # Logs d'un service Swarm (nom d'exemple : remplacer par le service réel)
@@ -190,12 +221,44 @@ Exemples LogQL (Grafana > Explore > Loki) :
 # Mots-clés d'erreur dans les logs d'une stack
 {stack="paiement"} |~ "(?i)error|exception|timeout"
 
-# Échecs d'authentification sur Loki (nginx)
-{unit="nginx.service"} |~ "password mismatch|was not found"
-
 # Débit de logs par hôte
 sum by (host) (rate({job="journal"}[5m]))
 ```
+
+Requêtes utiles pour le SIEM :
+
+```logql
+# Keycloak : échecs de connexion (événements de sécurité)
+{host="iam01"} |= "org.keycloak.events" |= "LOGIN_ERROR"
+
+# Keycloak : échecs par minute (base d'une règle de détection de force brute)
+sum(count_over_time({host="iam01"} |= "org.keycloak.events" |= "LOGIN_ERROR" [1m]))
+
+# Proxmox : accès à l'interface et à l'API refusés (401/403)
+{job="pveproxy"} |~ `" (401|403) `
+
+# Hyperviseurs : échecs SSH
+{role="pve", unit="ssh.service"} |~ "Failed password|Invalid user"
+
+# Vault : journal d'audit (chaque requête), et accès refusés
+{identifier="vault-audit"}
+{identifier="vault-audit"} |= "permission denied"
+
+# PostgreSQL de Keycloak : échecs d'authentification
+{job="postgresql"} |= "authentication failed"
+
+# Loki : identifiants refusés par nginx (401), y compris un client resté sur l'ancien mot de passe
+{identifier="nginx_loki"}
+
+# Alloy : lots de logs abandonnés (ex. pendant une rotation de mot de passe)
+{unit="alloy.service"} |= "dropping data"
+
+# WAF : logs des conteneurs hors Swarm
+{host="waf01", container=~".+"}
+```
+
+Les erreurs de nginx devant Loki (dont les 401) passent par journald, avec l'identifiant
+`nginx_loki`.
 
 ## 7. Alerting
 
@@ -218,6 +281,13 @@ est réécrit dans VictoriaMetrics et survit à un redémarrage de vmalert.
 | `CephHealthError` | Ceph en `HEALTH_ERR` | 1 min | critical |
 | `SwarmNodeNotReady` | un nœud Swarm n'est pas `ready` | 2 min | critical |
 | `SwarmNoLeader` | aucun manager leader (quorum perdu) | 1 min | critical |
+| `VaultSealed` | Vault joignable mais pas descellé : `up{job="vault"} == 1 unless on(instance) vault_core_unsealed == 1`. Descellement : `vault-unseal` | 1 min | critical |
+
+**`VaultSealed`, corrigée le 20/10/2026.** La première version testait `vault_core_unsealed == 0`.
+Or un Vault scellé n'expose plus cette métrique (page de métriques vide, mais `up = 1`) :
+l'alerte ne s'est pas déclenchée après le redémarrage du cluster. La nouvelle expression alerte
+dès que la cible répond sans se déclarer descellée. Testée de bout en bout : Vault scellé,
+alerte sur Discord, descellement, résolution sur Discord.
 
 ### Routage (Alertmanager)
 
@@ -267,9 +337,10 @@ nginx partent dans journald, donc dans Loki (`{unit="nginx.service"}`).
 
 Gestion des mots de passe :
 
-- **Sources** : `VM_AUTH_PASSWORD`, `ALERTMANAGER_AUTH_PASSWORD` et `LOKI_AUTH_PASSWORD` sont
-  dans `/root/.monitoring-env` sur la machine d'administration (.110), et nulle part ailleurs
-  dans le dépôt.
+- **Sources** : `VM_AUTH_PASSWORD`, `ALERTMANAGER_AUTH_PASSWORD`, `LOKI_AUTH_PASSWORD` et
+  `REMEDIATION_AM_PASSWORD` sont dans Vault (`secret/infra/monitoring`), lus par `vault-env` au
+  lancement des playbooks, et nulle part dans le dépôt. Rotation :
+  [comptes-et-rotation.md](comptes-et-rotation.md).
 - **Déploiement** : Ansible les dépose dans des fichiers 0640, lisibles par le seul groupe du
   service (`/etc/vmagent/*_password`, `/etc/vmalert/*_password`,
   `/etc/victoria-metrics/http_password`, `/etc/alloy/loki_password`). Les tâches concernées sont
@@ -284,8 +355,10 @@ Autres mesures :
 - **Comptes et services** : chaque service a son utilisateur système. Les unités systemd sont
   durcies (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`).
   pve-exporter et l'interface d'Alloy n'écoutent qu'en local.
-- **Grafana** : compte admin à mot de passe fort (`GRAFANA_ADMIN_PASSWORD`), inscription et
-  accès anonyme désactivés.
+- **Grafana** : connexion des administrateurs par Keycloak (OIDC, double authentification,
+  rôle déduit du groupe : voir [identites.md](identites.md)). Le compte `admin` local, à mot de
+  passe fort (`GRAFANA_ADMIN_PASSWORD`), reste le compte de secours. Inscription et accès anonyme
+  désactivés.
 - **Accès aux machines** : SSH par clé uniquement. Mises à jour de sécurité automatiques.
 
 Limites assumées :
@@ -320,7 +393,7 @@ Pour regénérer : modifier le script, pas le JSON, puis lancer depuis `infra/mo
 python3 monitoring/grafana/scripts/gen-proxmox-dashboard.py
 python3 monitoring/grafana/scripts/gen-central-dashboard.py
 python3 monitoring/grafana/scripts/fetch-dashboards.py         # révisions figées, grafana.com n'est pas requis au déploiement
-cd ../../ansible && source /root/.monitoring-env && ansible-playbook monitoring.yml --limit monitoring_core
+cd ../../ansible && vault-env ansible-playbook monitoring.yml --limit monitoring_core
 ```
 
 **Piège rencontré : les lignes en double dans les tableaux.** Un tableau Grafana qui fusionne
@@ -334,23 +407,22 @@ la clé de jointure.
 
 | Interface | URL | Identifiants |
 |---|---|---|
-| Grafana | http://10.0.1.233:3000 | `admin` / `GRAFANA_ADMIN_PASSWORD` |
+| Grafana | http://10.0.1.233:3000 | Keycloak (« Sign in with Keycloak ») ; secours : `admin` / `GRAFANA_ADMIN_PASSWORD` |
 | vmui (requêtes PromQL/MetricsQL) | http://10.0.1.233:8428/vmui | `monitoring` / `VM_AUTH_PASSWORD` |
 | vmalert (règles, alertes actives) | http://10.0.1.233:8880 | `monitoring` / `VM_AUTH_PASSWORD` |
 | vmagent (cibles de scrape) | http://10.0.1.231:8429/targets, http://10.0.1.232:8429/targets | `monitoring` / `VM_AUTH_PASSWORD` |
 | Alertmanager | http://10.0.1.233:9093 | `monitoring` / `ALERTMANAGER_AUTH_PASSWORD` |
 | Loki (API uniquement, à consulter depuis Grafana) | http://10.0.1.233:3100 | `monitoring` / `LOKI_AUTH_PASSWORD` |
 
-Les identifiants sont dans `/root/.monitoring-env` sur la machine d'administration (10.0.1.110).
-Ils ne sont jamais dans le dépôt.
+Les identifiants sont dans Vault (`secret/infra/monitoring`) et, pour les humains, dans
+Vaultwarden (dossier « Infra - Supervision »). Ils ne sont jamais dans le dépôt.
 
 Déploiement et mise à jour, depuis `infra/ansible` :
 
 ```sh
-source /root/.monitoring-env
-ansible-playbook monitoring.yml   # stack de supervision
-ansible-playbook swarm.yml        # nœuds Swarm, dont Alloy (a besoin de LOKI_AUTH_PASSWORD)
+vault-env ansible-playbook monitoring.yml   # stack de supervision, Alloy des hyperviseurs, de .110 et du WAF
+vault-env ansible-playbook swarm.yml        # nœuds Swarm, dont Alloy (a besoin de LOKI_AUTH_PASSWORD)
 ```
 
 Les deux playbooks sont idempotents. Ils vérifient au démarrage que les secrets sont présents
-dans l'environnement.
+dans l'environnement (lancement sans `vault-env`).

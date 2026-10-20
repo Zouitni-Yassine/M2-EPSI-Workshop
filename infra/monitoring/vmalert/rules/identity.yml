@@ -1,0 +1,13 @@
+groups:
+  - name: identity
+    rules:
+      # Scellé = aucun secret lisible ; arrive après tout redémarrage (pas de descellement auto).
+      # Un Vault scellé n'expose plus vault_core_unsealed (page de métriques vide, up = 1) :
+      # on alerte donc dès que la cible répond sans se déclarer descellée.
+      - alert: VaultSealed
+        expr: up{job="vault"} == 1 unless on(instance) vault_core_unsealed == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Vault est scellé sur {{ $labels.host }} : descellement manuel nécessaire (3 clés)"

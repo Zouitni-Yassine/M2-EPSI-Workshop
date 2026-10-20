@@ -1,0 +1,66 @@
+# Émet un certificat serveur signé par la CA interne et l'installe sur l'hôte.
+# Paramètres : cert_dest_dir, cert_group (groupe du service qui lit la clé), cert_notify
+# Noms couverts : nom court, nom DNS, IP de l'hôte et 127.0.0.1 (contrôles locaux)
+
+- name: Répertoire des certificats émis
+  ansible.builtin.file:
+    path: "{{ pki_dir }}/issued/{{ inventory_hostname }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+
+- name: Clé du serveur
+  community.crypto.openssl_privatekey:
+    path: "{{ pki_dir }}/issued/{{ inventory_hostname }}/server.key"
+    type: ECC
+    curve: secp256r1
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+
+- name: Demande de certificat du serveur
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: "{{ pki_dir }}/issued/{{ inventory_hostname }}/server.key"
+    common_name: "{{ inventory_hostname }}"
+    subject_alt_name:
+      - "DNS:{{ inventory_hostname }}"
+      - "DNS:{{ inventory_hostname }}.epsi.lsn"
+      - "IP:{{ ansible_host }}"
+      - "IP:127.0.0.1"
+    extended_key_usage: [serverAuth]
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  register: issue_csr
+
+- name: Certificat du serveur (1 an)
+  community.crypto.x509_certificate:
+    path: "{{ pki_dir }}/issued/{{ inventory_hostname }}/server.crt"
+    csr_content: "{{ issue_csr.csr }}"
+    provider: ownca
+    ownca_path: "{{ pki_dir }}/ca.crt"
+    ownca_privatekey_path: "{{ pki_dir }}/ca.key"
+    ownca_not_after: +365d
+    mode: "0644"
+  delegate_to: localhost
+  become: false
+
+- name: Certificat installé
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/issued/{{ inventory_hostname }}/server.crt"
+    dest: "{{ cert_dest_dir }}/tls.crt"
+    owner: root
+    group: "{{ cert_group }}"
+    mode: "0644"
+  notify: "{{ cert_notify }}"
+
+- name: Clé installée
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/issued/{{ inventory_hostname }}/server.key"
+    dest: "{{ cert_dest_dir }}/tls.key"
+    owner: root
+    group: "{{ cert_group }}"
+    mode: "0640"
+  no_log: true
+  notify: "{{ cert_notify }}"

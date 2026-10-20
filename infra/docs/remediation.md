@@ -129,7 +129,7 @@ Vérifié aussi :
 ## 6. Exploitation
 
 - **Autoriser la stack applicative** : ajouter son nom à `remediation_allowed_stacks`, puis
-  lancer `ansible-playbook swarm.yml --limit swarm_managers` (après `source /root/.monitoring-env`).
+  lancer `vault-env ansible-playbook swarm.yml --limit swarm_managers`.
 - **Faire tourner la clé du moteur** :
   1. supprimer `/root/.remediation/id_ed25519*` sur le poste de contrôle ;
   2. retirer le secret du service du moteur, puis `docker secret rm remediation_ssh_key` ;

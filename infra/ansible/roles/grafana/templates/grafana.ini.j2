@@ -7,7 +7,7 @@ root_url = http://{{ ansible_host }}:3000/
 
 [security]
 admin_user = admin
-admin_password = {{ grafana_admin_password }}
+# Mot de passe : GF_SECURITY_ADMIN_PASSWORD dans /etc/grafana/secrets.env (jamais ici)
 disable_gravatar = true
 
 [users]

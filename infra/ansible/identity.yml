@@ -1,0 +1,59 @@
+# Identités et secrets (LXC créés par infra/terraform/identity.tf)
+#   cd /srv/M2-EPSI-Workshop/infra/ansible
+#   vault-env ansible-playbook identity.yml
+# Secrets lus dans Vault (secret/infra/*) par vault-env : voir docs/identites.md
+# Keycloak : https://10.0.1.241   Vault : https://10.0.1.242:8200   Vaultwarden : https://10.0.1.243
+# Inclut le SSO de Grafana et de Proxmox (rôles grafana_oidc et pve_oidc)
+
+- name: Socle commun des LXC d'identité
+  hosts: identity
+  pre_tasks:
+    - name: Secrets présents dans l'environnement
+      ansible.builtin.assert:
+        that:
+          - keycloak_admin_password | length >= 16
+          - keycloak_db_password | length >= 16
+          - vaultwarden_admin_token | length >= 32
+          - loki_auth_password | length >= 16
+        fail_msg: "Secrets absents : lancer le playbook par vault-env (vault-env ansible-playbook ...)"
+        quiet: true
+      run_once: true
+      delegate_to: localhost
+      become: false
+  roles:
+    - lxc_base
+    - alloy
+
+# Les collecteurs et Grafana interrogent ces services en HTTPS : la CA interne doit être
+# reconnue partout (et sur le poste de contrôle, pour Ansible et le CLI Vault). Les hyperviseurs
+# aussi : Proxmox vérifie le certificat de Keycloak pour la connexion OpenID.
+- name: CA interne dans le magasin de confiance
+  hosts: identity:monitoring:swarm:pve
+  roles:
+    - internal_ca
+
+- name: Keycloak (SSO)
+  hosts: keycloak_servers
+  roles:
+    - keycloak
+
+- name: Vault (secrets)
+  hosts: vault_servers
+  roles:
+    - vault
+
+- name: Vaultwarden (mots de passe)
+  hosts: vaultwarden_servers
+  roles:
+    - vaultwarden
+
+# Connexion par Keycloak (clients OIDC créés par le rôle keycloak ci-dessus)
+- name: SSO Keycloak vers Grafana
+  hosts: monitoring_core
+  roles:
+    - grafana_oidc
+
+- name: SSO Keycloak vers Proxmox
+  hosts: pve
+  roles:
+    - pve_oidc

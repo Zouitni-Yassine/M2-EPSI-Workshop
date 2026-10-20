@@ -3,6 +3,11 @@ host_role: pve
 # node_exporter installé à la main sur les hyperviseurs (apt install prometheus-node-exporter)
 pve_node_exporter: true
 
-# Pour un éventuel accès Ansible (non utilisé par les playbooks actuels)
+# Accès Ansible (CA interne, SSO, envoi des logs)
 ansible_user: root
 ansible_ssh_private_key_file: /root/.ssh/id_ed25519_proxmox
+
+# Logs hors journald envoyés à Loki (rôle alloy). Ceph écrit ses journaux en 0600 et les recrée
+# ainsi à chaque rotation : non collectés, sa santé est suivie par les métriques (job ceph).
+alloy_log_files:
+  - { path: /var/log/pveproxy/access.log, job: pveproxy } # accès à l'interface web et à l'API

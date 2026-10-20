@@ -43,3 +43,23 @@ compactor:
 
 analytics:
   reporting_enabled: false
+
+# Règles d'alerte sur les logs (infra/monitoring/loki/rules, tenant "fake" : pas de multi-tenant).
+# Alertmanager exige une authentification Basic : identifiants dans un fichier secret séparé
+# (credentials_file, base64 de utilisateur:mot de passe), jamais dans cette configuration.
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /etc/loki/rules
+  rule_path: /var/lib/loki/ruler
+  evaluation_interval: 15s
+  poll_interval: 15s
+  alertmanager_url: http://127.0.0.1:9093
+  enable_alertmanager_v2: true
+  alertmanager_client:
+    type: Basic
+    credentials_file: /etc/loki/alertmanager.credentials
+  ring:
+    kvstore:
+      store: inmemory

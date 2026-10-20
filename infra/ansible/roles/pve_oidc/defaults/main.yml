@@ -1,0 +1,13 @@
+# Fournisseur OIDC : le premier serveur Keycloak de l'inventaire, realm des administrateurs
+oidc_keycloak_host: "{{ groups['keycloak_servers'][0] }}"
+oidc_keycloak_url: "https://{{ hostvars[oidc_keycloak_host].ansible_host }}"
+oidc_issuer: "{{ oidc_keycloak_url }}/realms/{{ hostvars[oidc_keycloak_host].keycloak_realm }}"
+
+pve_oidc_client_id: proxmox
+# Nom du realm côté Proxmox : les utilisateurs deviennent <identifiant>@keycloak
+pve_oidc_realm: keycloak
+# Groupe Keycloak -> rôle Proxmox sur tout le cluster ("/"). Proxmox suffixe les groupes du
+# claim par le nom du realm : infra-admins devient infra-admins-keycloak.
+pve_oidc_group_roles:
+  - { group: infra-admins, role: Administrator }
+  - { group: viewers, role: PVEAuditor }

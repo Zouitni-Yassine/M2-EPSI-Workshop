@@ -1,0 +1,11 @@
+# Fournisseur OIDC : le premier serveur Keycloak de l'inventaire, realm des administrateurs
+oidc_keycloak_host: "{{ groups['keycloak_servers'][0] }}"
+oidc_keycloak_url: "https://{{ hostvars[oidc_keycloak_host].ansible_host }}"
+oidc_issuer: "{{ oidc_keycloak_url }}/realms/{{ hostvars[oidc_keycloak_host].keycloak_realm }}"
+
+grafana_oidc_client_id: grafana
+grafana_url: "http://{{ ansible_host }}:3000"
+# Groupe Keycloak -> rôle Grafana. GrafanaAdmin = Admin de l'organisation + administrateur du
+# serveur. Sans l'un de ces groupes, la connexion est refusée (role_attribute_strict).
+grafana_oidc_role_path: >-
+  contains(groups[*], 'infra-admins') && 'GrafanaAdmin' || contains(groups[*], 'viewers') && 'Viewer'

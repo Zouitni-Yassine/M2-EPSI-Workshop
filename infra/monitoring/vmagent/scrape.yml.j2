@@ -49,9 +49,28 @@ scrape_configs:
   # --- Systèmes (node_exporter) ---
   - job_name: node
     static_configs:
-{% for h in groups['monitoring'] + groups['swarm'] + (groups['pve'] if hostvars[groups['pve'][0]].pve_node_exporter | default(false) else []) %}
+{% for h in groups['monitoring'] + groups['swarm'] + groups['identity'] + (groups['pve'] if hostvars[groups['pve'][0]].pve_node_exporter | default(false) else []) %}
       - targets: ["{{ hostvars[h].ansible_host }}:9100"]
         labels: { host: {{ h }}, role: {{ hostvars[h].host_role }}, pve_node: {{ hostvars[h].pve_node }} }
+{% endfor %}
+
+  # --- Identités et secrets (HTTPS, CA interne dans le magasin de confiance) ---
+  - job_name: keycloak
+    scheme: https
+    static_configs:
+{% for h in groups['keycloak_servers'] %}
+      - targets: ["{{ hostvars[h].ansible_host }}:9000"]
+        labels: { host: {{ h }} }
+{% endfor %}
+
+  - job_name: vault
+    scheme: https
+    metrics_path: /v1/sys/metrics
+    params: { format: [prometheus] }
+    static_configs:
+{% for h in groups['vault_servers'] %}
+      - targets: ["{{ hostvars[h].ansible_host }}:8200"]
+        labels: { host: {{ h }} }
 {% endfor %}
 
   # --- Proxmox VE ---

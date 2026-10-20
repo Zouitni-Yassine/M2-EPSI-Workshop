@@ -1,0 +1,7 @@
+fw_open_ports:
+  - 443  # Vaultwarden (HTTPS)
+  - 9100 # node_exporter
+
+# Accessibles aussi depuis le VPN d'administration (fw_admin_web_allowed)
+fw_admin_ports:
+  - 443  # Vaultwarden

@@ -1,4 +1,6 @@
 # {{ ansible_managed }}
+# Mots de passe : variables d'environnement de Grafana (/etc/grafana/secrets.env), interpolées
+# au chargement ; ce fichier n'en contient aucun.
 apiVersion: 1
 
 datasources:
@@ -11,7 +13,7 @@ datasources:
     basicAuth: true
     basicAuthUser: {{ monitoring_auth_user }}
     secureJsonData:
-      basicAuthPassword: {{ vm_auth_password }}
+      basicAuthPassword: ${VM_AUTH_PASSWORD}
     isDefault: true
     editable: false
     jsonData:
@@ -25,7 +27,7 @@ datasources:
     basicAuth: true
     basicAuthUser: {{ monitoring_auth_user }}
     secureJsonData:
-      basicAuthPassword: {{ loki_auth_password }}
+      basicAuthPassword: ${LOKI_AUTH_PASSWORD}
     editable: false
 
   - name: Alertmanager
@@ -36,7 +38,7 @@ datasources:
     basicAuth: true
     basicAuthUser: {{ monitoring_auth_user }}
     secureJsonData:
-      basicAuthPassword: {{ alertmanager_auth_password }}
+      basicAuthPassword: ${ALERTMANAGER_AUTH_PASSWORD}
     editable: false
     jsonData:
       implementation: prometheus

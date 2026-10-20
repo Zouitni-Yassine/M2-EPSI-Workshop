@@ -19,6 +19,3 @@ pve_monitor_token_id: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_ID') 
 pve_monitor_token_secret: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_SECRET') }}"
 alertmanager_auth_password: "{{ lookup('ansible.builtin.env', 'ALERTMANAGER_AUTH_PASSWORD') }}"
 
-# Réseaux autorisés sur les ports de supervision (firewall des LXC)
-fw_monitoring_allowed:
-  - 10.0.1.0/24

@@ -51,6 +51,22 @@
     validate: nft -c -f %s
   notify: Recharger nftables
 
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+# Garde-fou : le fichier peut être conforme sans que les règles soient chargées
+- name: Règles du firewall chargées
+  ansible.builtin.command: nft list table inet host_fw
+  register: lxc_base_fw
+  changed_when: false
+  failed_when: false
+
+- name: Charger les règles du firewall
+  ansible.builtin.systemd_service:
+    name: nftables
+    state: reloaded
+  when: lxc_base_fw.rc != 0
+
 - name: Services actifs
   ansible.builtin.systemd_service:
     name: "{{ item }}"

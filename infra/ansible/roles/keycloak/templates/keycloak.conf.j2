@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+db=postgres
+db-url=jdbc:postgresql://127.0.0.1:5432/keycloak
+db-username=keycloak
+# db-password : KC_DB_PASSWORD dans /etc/keycloak/db.env (0600 root, lu par systemd)
+
+# Adresse publique : l'émetteur (issuer) des jetons OIDC
+hostname=https://{{ ansible_host }}
+https-port=443
+http-enabled=false
+https-certificate-file=/etc/keycloak/tls.crt
+https-certificate-key-file=/etc/keycloak/tls.key
+
+# Santé et métriques sur l'interface de gestion (port 9000, HTTPS)
+health-enabled=true
+metrics-enabled=true
+http-management-port=9000
+
+log=console
+
+# Événements des realms (connexions réussies ou non, actions d'administration) dans le
+# journal du service, donc dans Loki : {host="iam01"} |= "org.keycloak.events"
+spi-events-listener--jboss-logging--success-level=info
+spi-events-listener--jboss-logging--error-level=warn

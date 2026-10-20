@@ -10,6 +10,53 @@
     owner: loki
     mode: "0750"
 
+# Envoi des alertes du ruler à Alertmanager : en-tête "Authorization: Basic <base64>" lu dans
+# ce fichier, lisible par Loki seul
+- name: Identifiants Alertmanager du ruler
+  ansible.builtin.copy:
+    dest: /etc/loki/alertmanager.credentials
+    content: "{{ (monitoring_auth_user ~ ':' ~ alertmanager_auth_password) | b64encode }}"
+    owner: loki
+    group: root
+    mode: "0400"
+  no_log: true
+  notify: Redémarrer Loki
+
+# Règles versionnées dans infra/monitoring/loki/rules (copiées sans template)
+- name: Répertoire des règles
+  ansible.builtin.file:
+    path: /etc/loki/rules/fake
+    state: directory
+    mode: "0755"
+
+- name: Règles d'alerte sur les logs
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/loki/rules/fake/
+    mode: "0644"
+  loop: "{{ query('ansible.builtin.fileglob', monitoring_config_dir ~ '/loki/rules/*.yml') }}"
+
+- name: Règles présentes sur le serveur
+  ansible.builtin.find:
+    paths: /etc/loki/rules/fake
+    patterns: "*.yml"
+  register: loki_rules_present
+
+- name: Supprimer les règles retirées du dépôt
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ loki_rules_present.files | map(attribute='path') | map('basename')
+            | reject('in', query('ansible.builtin.fileglob', monitoring_config_dir ~ '/loki/rules/*.yml') | map('basename') | list)
+            | map('regex_replace', '^', '/etc/loki/rules/fake/') | list }}"
+
+# Ancien emplacement des règles cyber (avant leur passage dans le dépôt, 20/10/2026)
+- name: Ancien répertoire de règles
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: [/etc/loki/rules-cyber, /var/lib/loki/ruler-cyber]
+
 - name: Configuration (single binary, stockage local)
   ansible.builtin.template:
     src: "{{ monitoring_config_dir }}/loki/config.yml.j2"

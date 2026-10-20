@@ -1,0 +1,18 @@
+host_role: identity
+
+# Versions (artefacts officiels, empreintes vérifiées)
+keycloak_version: 26.8.1
+vault_version: 2.2.0
+vaultwarden_version: 1.37.4
+# Vaultwarden n'est distribué qu'en image Docker : le binaire statique (variante alpine) est
+# extrait de l'image officielle, épinglée par son empreinte
+vaultwarden_image: docker.io/vaultwarden/server@sha256:19ea2b669945d842dadc3d500f2d6a795866a003330f59a47b9634658bae98bb
+
+# Secrets d'amorçage : fournis par l'environnement (source /root/.iam-env)
+keycloak_admin_password: "{{ lookup('ansible.builtin.env', 'KEYCLOAK_ADMIN_PASSWORD') }}"
+keycloak_db_password: "{{ lookup('ansible.builtin.env', 'KEYCLOAK_DB_PASSWORD') }}"
+vaultwarden_admin_token: "{{ lookup('ansible.builtin.env', 'VAULTWARDEN_ADMIN_TOKEN') }}"
+
+# Initialisation de Vault : clés de descellement et token root, sur le poste de contrôle
+# uniquement (à recopier dans Vaultwarden puis à retirer du disque)
+vault_init_file: /root/.vault/init.json

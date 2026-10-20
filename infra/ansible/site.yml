@@ -1,9 +1,13 @@
 # Déploiement complet
 #   cd /srv/M2-EPSI-Workshop/infra/ansible
-#   source /root/.monitoring-env && ansible-playbook site.yml
+#   vault-env ansible-playbook site.yml
+# Secrets lus dans Vault (secret/infra/*) par vault-env : voir docs/identites.md
 
 - name: Cluster Docker Swarm
   ansible.builtin.import_playbook: swarm.yml
 
 - name: Stack d'observabilité
   ansible.builtin.import_playbook: monitoring.yml
+
+- name: Identités et secrets
+  ansible.builtin.import_playbook: identity.yml

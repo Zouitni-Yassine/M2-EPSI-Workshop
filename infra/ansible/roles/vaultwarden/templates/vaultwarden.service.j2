@@ -1,0 +1,27 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Vaultwarden (serveur compatible Bitwarden)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=vaultwarden
+Group=vaultwarden
+EnvironmentFile=/etc/vaultwarden/vaultwarden.env
+WorkingDirectory=/var/lib/vaultwarden
+ExecStart=/opt/vaultwarden/current/vaultwarden
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/vaultwarden
+
+[Install]
+WantedBy=multi-user.target
