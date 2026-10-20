@@ -1,0 +1,46 @@
+# Secrets
+.env
+*.env
+.proxmox-env
+
+# Répertoire local des providers et modules (recréé par terraform init)
+.terraform/
+
+# State : contient des données sensibles, ne jamais versionner
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Plans sauvegardés (peuvent contenir des secrets)
+*.tfplan
+tfplan
+
+# Variables : souvent des secrets. Versionner plutôt un *.tfvars.example
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# Fichiers override locaux
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Config CLI et logs de crash
+.terraformrc
+terraform.rc
+crash.log
+crash.*.log
+
+# Packer
+packer_cache/
+*.pkrvars.hcl
+!*.pkrvars.hcl.example
+
+# Clés
+*.pem
+*.key
+id_*
+
+# Configuration du backend (bucket, endpoint)
+backend.hcl

@@ -1,0 +1,70 @@
+- name: Installer vmalert
+  ansible.builtin.include_role:
+    name: vm_install
+  vars:
+    vm_archive: vmutils
+    vm_binaries: [vmalert]
+
+- name: Utilisateur système vmalert
+  ansible.builtin.user:
+    name: vmalert
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Répertoire des règles
+  ansible.builtin.file:
+    path: /etc/vmalert/rules
+    state: directory
+    mode: "0755"
+
+# Tous les fichiers de infra/monitoring/vmalert/rules : ajouter un fichier suffit
+- name: Règles d'alerte
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/vmalert/rules/{{ item | basename }}"
+    mode: "0644"
+    validate: /usr/local/bin/vmalert -dryRun -rule=%s
+  loop: "{{ query('ansible.builtin.fileglob', monitoring_config_dir ~ '/vmalert/rules/*.yml') | sort }}"
+  loop_control:
+    label: "{{ item | basename }}"
+  notify: Recharger vmalert
+
+- name: Mots de passe de VictoriaMetrics et d'Alertmanager
+  ansible.builtin.copy:
+    dest: "/etc/vmalert/{{ item.name }}_password"
+    content: "{{ item.password }}"
+    owner: root
+    group: vmalert
+    mode: "0640"
+  loop:
+    - { name: vm, password: "{{ vm_auth_password }}" }
+    - { name: alertmanager, password: "{{ alertmanager_auth_password }}" }
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  notify: Redémarrer vmalert
+
+- name: Service systemd
+  ansible.builtin.template:
+    src: vmalert.service.j2
+    dest: /etc/systemd/system/vmalert.service
+    mode: "0644"
+  notify: Redémarrer vmalert
+
+- name: Redémarrer après une montée de version
+  ansible.builtin.debug:
+    msg: "Nouvelle version de vmalert : {{ vm_version }}"
+  when: vm_install_links is changed
+  changed_when: true
+  notify: Redémarrer vmalert
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: vmalert actif
+  ansible.builtin.systemd_service:
+    name: vmalert
+    enabled: true
+    state: started
+    daemon_reload: true

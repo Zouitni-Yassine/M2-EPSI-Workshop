@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+@theme {
+  --color-page: #f5f7fa;
+  --color-card: #ffffff;
+  --color-well: #f0f2f5;
+  --color-edge: #e3e6ea;
+  --color-text: #0b0f19;
+  --color-text-2: #667085;
+  --color-accent: #3b5bdb;
+  --color-accent-strong: #2f4bc0;
+  --color-good: #15803d;
+  --color-bad: #dc2626;
+  --color-note: #b45309;
+
+  --font-ui: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-panel: 12px;
+  --shadow-panel: 0 1px 2px rgb(16 24 40 / 0.04), 0 8px 24px -12px rgb(16 24 40 / 0.12);
+  --shadow-float: 0 24px 64px -24px rgb(16 24 40 / 0.35);
+}
+
+:root {
+  color-scheme: light;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "cv11" 1;
+}
+
+html, body { min-height: 100%; }
+#root { min-height: 100dvh; }
+
+body {
+  margin: 0;
+  background: var(--color-page);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* L'état du système pilote une seule variable. Tout le reste s'y accroche. */
+[data-state="nominal"]     { --state: var(--color-good); }
+[data-state="degraded"]    { --state: var(--color-bad); }
+[data-state="remediating"] { --state: var(--color-accent); }
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Les champs portent leur propre anneau de focus : voir .field-input. */
+.field-input:focus-visible { outline: none; }
+
+/* ---- Mouvement ---------------------------------------------------- */
+
+@keyframes pulse-band {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.78; }
+}
+.band-working { animation: pulse-band 1.6s ease-in-out infinite; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.rise { animation: rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+@keyframes fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.fade { animation: fade 240ms ease-out both; }
+
+@keyframes sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(400%); }
+}
+.sweep { animation: sweep 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+
+@keyframes ring {
+  0%   { box-shadow: 0 0 0 0 rgb(59 91 219 / 0.45); }
+  100% { box-shadow: 0 0 0 10px rgb(59 91 219 / 0); }
+}
+.ring { animation: ring 1.4s ease-out infinite; }
+
+@keyframes draw {
+  to { stroke-dashoffset: 0; }
+}
+.draw-circle {
+  stroke-dasharray: 166;
+  stroke-dashoffset: 166;
+  animation: draw 600ms cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+.draw-check {
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: draw 320ms cubic-bezier(0.65, 0, 0.45, 1) 520ms forwards;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spin { animation: spin 800ms linear infinite; }
+
+@keyframes shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-3px); }
+  40%, 60% { transform: translateX(3px); }
+}
+.shake { animation: shake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+
+/* La carte bancaire se retourne pour montrer le cryptogramme. */
+.card-scene { perspective: 1400px; }
+.card-body {
+  transform-style: preserve-3d;
+  transition: transform 640ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.card-body.is-flipped { transform: rotateY(180deg); }
+.card-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.card-face.back { transform: rotateY(180deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

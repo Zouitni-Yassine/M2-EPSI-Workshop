@@ -1,0 +1,33 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }}
+
+table inet host_fw
+delete table inet host_fw
+
+table inet host_fw {
+    set admin_nets {
+        type ipv4_addr
+        flags interval
+        elements = { {{ fw_ssh_allowed | join(', ') }} }
+    }
+
+    set monitoring_nets {
+        type ipv4_addr
+        flags interval
+        elements = { {{ fw_monitoring_allowed | join(', ') }} }
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        ct state established,related accept
+        ct state invalid drop
+        iif lo accept
+        meta l4proto { icmp, ipv6-icmp } accept
+
+        ip saddr @admin_nets tcp dport 22 accept comment "SSH admin"
+        ip saddr @monitoring_nets tcp dport { {{ fw_open_ports | join(', ') }} } accept comment "Supervision"
+
+        limit rate 10/minute log prefix "host_fw drop: " level info
+    }
+}

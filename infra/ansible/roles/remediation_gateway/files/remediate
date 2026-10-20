@@ -1,0 +1,186 @@
+#!/usr/bin/python3
+"""Passerelle de remédiation : seul point d'entrée du moteur de remédiation sur le Swarm.
+
+Appelée en root via sudo par la commande forcée SSH de l'utilisateur "remediation"
+(/usr/local/bin/remediate-ssh). N'exécute qu'une liste fermée d'actions, sur les seuls
+services des stacks autorisées, avec limitation de débit et interrupteur d'arrêt.
+
+  remediate list                       services autorisés et réplicas
+  remediate status   <service>         état du service et de ses tâches (lecture seule)
+  remediate restart  <service>         redémarrage progressif (docker service update --force)
+  remediate rollback <service>         retour à la version précédente du service
+  remediate scale    <service> <n>     nombre de réplicas, dans les bornes de la politique
+
+Sortie : un objet JSON sur stdout. Codes retour : 0 succès, 2 requête invalide,
+3 refusé par la politique, 4 limite de débit atteinte, 5 échec Docker.
+Chaque appel est journalisé (journald, identifiant "remediate"), donc envoyé dans Loki.
+"""
+import fcntl
+import json
+import os
+import re
+import subprocess
+import sys
+import syslog
+import time
+
+POLICY_FILE = "/etc/remediation/policy.json"
+KILL_SWITCH = "/etc/remediation/disabled"
+STATE_FILE = "/var/lib/remediation/state.json"
+
+SERVICE_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,62}$")
+MUTATING = {"restart", "rollback", "scale"}
+USAGE = "usage : remediate list | status <service> | restart <service> | rollback <service> | scale <service> <n>"
+
+caller = (os.environ.get("SSH_CLIENT") or "local").split()[0]
+syslog.openlog("remediate", 0, syslog.LOG_AUTH)
+
+
+def finish(code, **result):
+    result.setdefault("ok", code == 0)
+    line = json.dumps(result, ensure_ascii=False)
+    syslog.syslog(syslog.LOG_NOTICE if code == 0 else syslog.LOG_WARNING,
+                  f"caller={caller} code={code} {line}")
+    print(line)
+    sys.exit(code)
+
+
+def docker(*args, timeout=30):
+    try:
+        p = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 124, "", f"délai dépassé ({timeout} s)"
+    return p.returncode, p.stdout.strip(), p.stderr.strip()
+
+
+def load_policy():
+    with open(POLICY_FILE) as f:
+        return json.load(f)
+
+
+def stack_of(service):
+    """Stack d'un service, ou None s'il n'existe pas."""
+    rc, out, _ = docker("service", "inspect", "--format",
+                        '{{index .Spec.Labels "com.docker.stack.namespace"}}', service)
+    return out if rc == 0 else None
+
+
+def check_service(service, policy):
+    if not SERVICE_RE.match(service):
+        finish(2, error="nom de service invalide")
+    stack = stack_of(service)
+    if stack is None:
+        finish(2, error="service inconnu", service=service)
+    if stack not in policy["allowed_stacks"]:
+        finish(3, error="service hors des stacks autorisées", service=service, stack=stack)
+
+
+def rate_limit(service, policy):
+    """Limite globale (N actions par fenêtre) et délai minimal par service. Verrou exclusif."""
+    os.makedirs(os.path.dirname(STATE_FILE), mode=0o700, exist_ok=True)
+    fd = os.open(STATE_FILE, os.O_RDWR | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "r+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            state = json.load(f)
+        except ValueError:
+            state = {}
+        now = time.time()
+        recent = [t for t in state.get("actions", []) if now - t < policy["window_seconds"]]
+        last = state.get("last", {}).get(service, 0)
+        if len(recent) >= policy["max_actions"]:
+            finish(4, error="limite globale atteinte", max_actions=policy["max_actions"],
+                   window_seconds=policy["window_seconds"])
+        if now - last < policy["cooldown_seconds"]:
+            finish(4, error="délai minimal entre deux actions sur ce service",
+                   service=service, retry_in=int(policy["cooldown_seconds"] - (now - last)))
+        recent.append(now)
+        state["actions"] = recent
+        state.setdefault("last", {})[service] = now
+        f.seek(0)
+        f.truncate()
+        json.dump(state, f)
+
+
+def service_status(service):
+    rc, out, err = docker("service", "inspect", "--format",
+                          "{{json .Spec.Mode}}|{{json .UpdateStatus}}", service)
+    if rc != 0:
+        finish(5, error=err, service=service)
+    mode, update = out.split("|", 1)
+    rc, out, err = docker("service", "ps", service, "--no-trunc", "--format", "{{json .}}")
+    tasks = []
+    for line in out.splitlines():
+        t = json.loads(line)
+        tasks.append({k: t.get(k) for k in ("Name", "Node", "DesiredState", "CurrentState", "Error")})
+    running = sum(1 for t in tasks if t["DesiredState"] == "Running"
+                  and (t["CurrentState"] or "").startswith("Running"))
+    desired = json.loads(mode).get("Replicated", {}).get("Replicas")
+    return {"service": service, "replicas_desired": desired, "replicas_running": running,
+            "update_status": json.loads(update), "tasks": tasks}
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        finish(2, error=USAGE)
+    action, args = argv[0], argv[1:]
+    policy = load_policy()
+
+    if action == "list":
+        if args:
+            finish(2, error=USAGE)
+        services = []
+        for stack in policy["allowed_stacks"]:
+            rc, out, _ = docker("service", "ls", "--filter", f"label=com.docker.stack.namespace={stack}",
+                                "--format", "{{json .}}")
+            for line in out.splitlines():
+                s = json.loads(line)
+                services.append({"service": s["Name"], "stack": stack, "replicas": s["Replicas"]})
+        finish(0, action="list", services=services)
+
+    expected = {"status": 1, "restart": 1, "rollback": 1, "scale": 2}
+    if action not in expected or len(args) != expected[action]:
+        finish(2, error=USAGE)
+    service = args[0]
+    check_service(service, policy)
+
+    if action == "status":
+        finish(0, action="status", **service_status(service))
+
+    if os.path.exists(KILL_SWITCH):
+        finish(3, error="remédiation désactivée (interrupteur d'arrêt)", action=action, service=service)
+
+    if action == "scale":
+        if not re.fullmatch(r"\d{1,2}", args[1]):
+            finish(2, error="nombre de réplicas invalide")
+        replicas = int(args[1])
+        if not policy["scale_min"] <= replicas <= policy["scale_max"]:
+            finish(3, error="nombre de réplicas hors bornes", min=policy["scale_min"],
+                   max=policy["scale_max"])
+
+    rate_limit(service, policy)
+    timeout = policy["timeout_seconds"]
+    started = time.time()
+    if action == "restart":
+        rc, out, err = docker("service", "update", "--force", "--detach=false", "--quiet", service,
+                              timeout=timeout)
+    elif action == "rollback":
+        rc, out, err = docker("service", "rollback", "--detach=false", "--quiet", service,
+                              timeout=timeout)
+    else:
+        rc, out, err = docker("service", "scale", "--detach=false", f"{service}={replicas}",
+                              timeout=timeout)
+    duration = round(time.time() - started, 1)
+    if rc != 0:
+        finish(5, action=action, service=service, error=err or out, duration_s=duration)
+    finish(0, action=action, service=service, duration_s=duration, **{
+        k: v for k, v in service_status(service).items() if k != "service"})
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv[1:])
+    except SystemExit:
+        raise
+    except Exception as e:  # jamais de trace Python vers l'appelant
+        finish(5, error=f"erreur interne : {type(e).__name__}")

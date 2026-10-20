@@ -1,0 +1,73 @@
+- name: Installer vmagent
+  ansible.builtin.include_role:
+    name: vm_install
+  vars:
+    vm_archive: vmutils
+    vm_binaries: [vmagent]
+
+- name: Utilisateur système vmagent
+  ansible.builtin.user:
+    name: vmagent
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Répertoires
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    mode: "0755"
+  loop:
+    - { path: /etc/vmagent, owner: root }
+    - { path: /var/lib/vmagent, owner: vmagent }
+
+# Mots de passe : remote write et interface (VictoriaMetrics), scrape d'Alertmanager et de Loki
+- name: Mots de passe de la stack
+  ansible.builtin.copy:
+    dest: "/etc/vmagent/{{ item.name }}_password"
+    content: "{{ item.password }}"
+    owner: root
+    group: vmagent
+    mode: "0640"
+  loop:
+    - { name: vm, password: "{{ vm_auth_password }}" }
+    - { name: alertmanager, password: "{{ alertmanager_auth_password }}" }
+    - { name: loki, password: "{{ loki_auth_password }}" }
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  notify: Redémarrer vmagent
+
+# Configuration identique sur les 2 vmagents : mêmes séries, dédupliquées par VictoriaMetrics
+- name: Configuration de scrape
+  ansible.builtin.template:
+    src: "{{ monitoring_config_dir }}/vmagent/scrape.yml.j2"
+    dest: /etc/vmagent/scrape.yml
+    mode: "0644"
+    validate: /usr/local/bin/vmagent -promscrape.config=%s -dryRun
+  notify: Recharger vmagent
+
+- name: Service systemd
+  ansible.builtin.template:
+    src: vmagent.service.j2
+    dest: /etc/systemd/system/vmagent.service
+    mode: "0644"
+  notify: Redémarrer vmagent
+
+- name: Redémarrer après une montée de version
+  ansible.builtin.debug:
+    msg: "Nouvelle version de vmagent : {{ vm_version }}"
+  when: vm_install_links is changed
+  changed_when: true
+  notify: Redémarrer vmagent
+
+- name: Appliquer les changements
+  ansible.builtin.meta: flush_handlers
+
+- name: vmagent actif
+  ansible.builtin.systemd_service:
+    name: vmagent
+    enabled: true
+    state: started
+    daemon_reload: true

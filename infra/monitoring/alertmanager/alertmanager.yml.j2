@@ -1,0 +1,43 @@
+# {{ ansible_managed }}
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: {{ 'discord' if discord_webhook_url | length > 0 else 'default' }}
+  group_by: [alertname, job]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Heartbeat vers le watchdog externe, renvoyé chaque minute (jamais vers Discord)
+    - matchers: ['alertname="Watchdog"']
+      receiver: {{ 'healthchecks' if healthchecks_ping_url | length > 0 else 'blackhole' }}
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 1m
+
+receivers:
+  # À brancher plus tard : moteur de remédiation (webhook)
+  - name: default
+  - name: blackhole
+{% if healthchecks_ping_url | length > 0 %}
+  - name: healthchecks
+    webhook_configs:
+      - url_file: /etc/prometheus/healthchecks_url
+        send_resolved: false
+{% endif %}
+{% if discord_webhook_url | length > 0 %}
+  - name: discord
+    discord_configs:
+      - webhook_url_file: /etc/prometheus/discord_webhook_url
+        send_resolved: true
+{% raw %}
+        title: >-
+          {{ if eq .Status "firing" }}🔥 ALERTE{{ else }}✅ RÉSOLU{{ end }}
+          {{ .CommonLabels.alertname }}{{ if gt (len .Alerts.Firing) 1 }} ({{ len .Alerts.Firing }}){{ end }}
+        message: |-
+          {{ range .Alerts }}**[{{ .Labels.severity | toUpper }}]** {{ .Annotations.summary }}
+          {{ if .Labels.host }}hôte : `{{ .Labels.host }}` · {{ end }}depuis {{ .StartsAt.Local.Format "15:04:05" }}{{ if eq .Status "resolved" }}, résolue à {{ .EndsAt.Local.Format "15:04:05" }}{{ end }}
+          {{ end }}
+{% endraw %}
+{% endif %}

@@ -1,0 +1,3 @@
+# Copier en backend.hcl (non versionné) puis : terraform init -backend-config=backend.hcl
+bucket    = "<nom-du-bucket>"
+endpoints = { s3 = "https://<domaine-s3>" }

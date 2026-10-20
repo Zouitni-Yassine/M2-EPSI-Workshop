@@ -1,0 +1,127 @@
+# Passerelle de remédiation : le moteur (service Swarm sur les workers) agit sur le cluster
+# en SSH vers un manager, avec une clé limitée à une liste fermée d'actions. Il n'a jamais
+# accès au socket Docker (équivalent root sur tout le cluster).
+
+- name: Répertoire de la clé du moteur sur le poste de contrôle
+  ansible.builtin.file:
+    path: "{{ remediation_key_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Clé du moteur sur le poste de contrôle
+  ansible.builtin.command:
+    cmd: ssh-keygen -q -t ed25519 -N "" -C remediation-engine -f {{ remediation_key_dir }}/id_ed25519
+    creates: "{{ remediation_key_dir }}/id_ed25519"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Lire la clé publique
+  ansible.builtin.set_fact:
+    remediation_pubkey: "{{ lookup('ansible.builtin.file', remediation_key_dir ~ '/id_ed25519.pub') }}"
+
+- name: Utilisateur remediation (pas de mot de passe, connexion par clé uniquement)
+  ansible.builtin.user:
+    name: remediation
+    system: true
+    shell: /bin/sh
+    password: "*"
+    create_home: true
+    home: /home/remediation
+
+# Clé et répertoire appartenant à root : l'utilisateur ne peut pas modifier ses propres accès
+- name: Répertoire .ssh
+  ansible.builtin.file:
+    path: /home/remediation/.ssh
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Clé autorisée (commande forcée, sources limitées aux workers)
+  ansible.builtin.template:
+    src: authorized_keys.j2
+    dest: /home/remediation/.ssh/authorized_keys
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Scripts de la passerelle
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - { src: remediate, dest: /usr/local/sbin/remediate }
+    - { src: remediate-ssh, dest: /usr/local/bin/remediate-ssh }
+
+- name: Répertoires de configuration et d'état
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - /etc/remediation
+    - /var/lib/remediation
+
+- name: Politique (stacks autorisées, bornes, limites)
+  ansible.builtin.template:
+    src: policy.json.j2
+    dest: /etc/remediation/policy.json
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Droit sudo limité à la passerelle
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/remediation
+    content: |
+      # Géré par Ansible
+      Defaults!/usr/local/sbin/remediate env_keep += "SSH_CLIENT"
+      remediation ALL=(root) NOPASSWD: /usr/local/sbin/remediate
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+# Empreintes des managers : le moteur vérifie l'hôte (pas de confiance au premier contact)
+- name: Clé d'hôte SSH
+  ansible.builtin.slurp:
+    src: /etc/ssh/ssh_host_ed25519_key.pub
+  register: remediation_hostkey
+
+- name: Clé privée du moteur (secret Swarm)
+  community.docker.docker_secret:
+    name: remediation_ssh_key
+    data: "{{ lookup('ansible.builtin.file', remediation_key_dir ~ '/id_ed25519') }}\n"
+    labels:
+      com.epsi.usage: remediation
+  no_log: true
+  run_once: true
+
+- name: Mot de passe Alertmanager du moteur (secret Swarm)
+  community.docker.docker_secret:
+    name: remediation_alertmanager_password
+    data: "{{ remediation_am_password }}"
+    labels:
+      com.epsi.usage: remediation
+  no_log: true
+  run_once: true
+
+- name: Empreintes des managers (config Swarm)
+  community.docker.docker_config:
+    name: remediation_known_hosts
+    data: |
+      {% for h in ansible_play_hosts %}
+      {{ hostvars[h].ansible_host }} {{ (hostvars[h].remediation_hostkey.content | b64decode).split()[:2] | join(' ') }}
+      {% endfor %}
+    labels:
+      com.epsi.usage: remediation
+  run_once: true

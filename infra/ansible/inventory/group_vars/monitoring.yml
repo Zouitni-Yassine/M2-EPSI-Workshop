@@ -1,0 +1,24 @@
+host_role: monitoring
+
+# vm_version et scrape_interval : voir all.yml (partagés avec le vmagent du Swarm)
+vm_retention: 30d
+
+# Buffer disque des vmagents si monitoring01 est injoignable
+vmagent_buffer_max: 8GB
+
+loki_retention: 336h # 14 jours
+
+# Exporter Proxmox (PyPI, installé dans un venv sur chaque vmagent)
+pve_exporter_version: 3.10.1
+
+# Secrets : fournis par l'environnement (source /root/.monitoring-env)
+grafana_admin_password: "{{ lookup('ansible.builtin.env', 'GRAFANA_ADMIN_PASSWORD') }}"
+healthchecks_ping_url: "{{ lookup('ansible.builtin.env', 'HEALTHCHECKS_PING_URL') }}"
+discord_webhook_url: "{{ lookup('ansible.builtin.env', 'DISCORD_WEBHOOK_URL') }}"
+pve_monitor_token_id: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_ID') }}"
+pve_monitor_token_secret: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_SECRET') }}"
+alertmanager_auth_password: "{{ lookup('ansible.builtin.env', 'ALERTMANAGER_AUTH_PASSWORD') }}"
+
+# Réseaux autorisés sur les ports de supervision (firewall des LXC)
+fw_monitoring_allowed:
+  - 10.0.1.0/24

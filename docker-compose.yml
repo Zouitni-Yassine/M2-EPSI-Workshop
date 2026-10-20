@@ -1,0 +1,83 @@
+# Resilience Pay — démonstrateur complet.
+#
+#   docker compose up --build
+#
+# Frontend : http://localhost:5173 · API : :8000 · Détecteur : :8100 · Remédiation : :8200
+# Le proxy Docker n'est joignable que depuis le réseau interne, et n'accepte
+# que deux requêtes : lister les conteneurs, redémarrer payment-api.
+
+services:
+  payment-api:
+    build: ./backend
+    container_name: payment-api
+    env_file: ./backend/.env
+    environment:
+      CORS_ORIGINS: http://localhost:5173,http://localhost:4173
+    ports:
+      - "8000:8000"
+    networks: [resilience]
+    restart: "no" # La reprise doit venir du moteur de remédiation, pas de Docker.
+
+  detector:
+    build: ./detector
+    container_name: detector
+    env_file: ./detector/.env
+    environment:
+      API_URL: http://payment-api:8000/api
+      WARMUP_SECONDS: ${WARMUP_SECONDS:-60}
+    ports:
+      - "8100:8100"
+    networks: [resilience]
+    depends_on: [payment-api]
+
+  docker-socket-proxy:
+    # Pas de proxy générique : une liste blanche nginx de deux requêtes,
+    # lire la liste des conteneurs et redémarrer payment-api. Voir proxy/nginx.conf.
+    image: nginx:1.27-alpine
+    container_name: docker-socket-proxy
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [internal]
+
+  remediation:
+    build: ./remediation
+    container_name: remediation
+    environment:
+      DETECTOR_URL: http://detector:8100
+      API_URL: http://payment-api:8000/api
+      DOCKER_URL: http://docker-socket-proxy:2375
+      TARGETS: payment-api
+      COOLDOWN_SECONDS: 45
+      VERIFY_TIMEOUT: 40
+    ports:
+      - "8200:8200"
+    networks: [resilience, internal]
+    depends_on: [detector, docker-socket-proxy]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000/api
+        VITE_DETECTOR_URL: http://localhost:8100
+        VITE_REMEDIATION_URL: http://localhost:8200
+        VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
+        VITE_CARD_ENTRY: ${VITE_CARD_ENTRY:-own}
+        # Facultatif : sans lui, pas de bouton PayPal (le secret reste dans backend/.env).
+        VITE_PAYPAL_CLIENT_ID: ${VITE_PAYPAL_CLIENT_ID:-}
+        VITE_DATA_SOURCE: api
+    container_name: frontend
+    ports:
+      - "5173:80"
+    networks: [resilience]
+    depends_on: [payment-api]
+
+networks:
+  resilience:
+  internal:
+    internal: true
