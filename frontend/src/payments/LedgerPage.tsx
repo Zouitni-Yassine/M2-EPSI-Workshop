@@ -46,8 +46,8 @@ export function LedgerPage({ version, operator }: { version: number; operator: b
     <main className="mx-auto max-w-[1120px] px-6 py-10">
       <div className="flex items-end justify-between gap-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Transactions</h1>
-          <p className="mt-1 text-sm text-text-2">{operator ? 'Activité du compte marchand' : 'Vos paiements'}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{operator ? 'Transactions' : 'Mes commandes'}</h1>
+          <p className="mt-1 text-sm text-text-2">{operator ? 'Activité du compte marchand' : 'Vos paiements passés sur la boutique'}</p>
         </div>
       </div>
 
