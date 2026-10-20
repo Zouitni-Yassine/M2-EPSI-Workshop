@@ -5,7 +5,8 @@
 #   docker compose up --build -d
 #   docker compose down                # pour arrêter (pas « stop » : les services redémarreraient avec Docker)
 #
-# Frontend : http://localhost:5173 · API : :8000 · Détecteur : :8100 · Remédiation : :8200 · Auth : :8300
+# http://localhost:5173 (ou http://<ip-de-l'hôte>:5173 depuis une autre machine) : le seul port publié.
+# Le frontal nginx relaie /api, /auth et la supervision vers les services ; voir frontend/nginx.conf.
 #
 # Sur le Swarm, le même fichier (contrat : infra/docs/contrat-deploiement.md) :
 #   export REGISTRY=ghcr.io/<org>
@@ -53,7 +54,7 @@ services:
       restart_policy: { condition: any, delay: 5s }
 
   auth:
-    image: ${REGISTRY:-resilience}/auth:0.2.0
+    image: ${REGISTRY:-resilience}/auth:0.3.0
     build: ./auth
     env_file: ./auth/.env
     environment:
@@ -62,6 +63,9 @@ services:
       DB_PASSWORD_FILE: /run/secrets/auth_db_password
       # Partagée par toutes les réplicas : un jeton signé par l'une est vérifiable par toutes.
       JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      # Adresse du client lue dans X-Forwarded-For, que le relais écrase : sinon toutes les
+      # connexions viendraient du relais, et le freinage de la force brute bloquerait tout le monde.
+      FORWARDED_ALLOW_IPS: "*"
     secrets: [auth_db_password, jwt_private_key]
     # Sans état : comptes dans PostgreSQL, clé en secret. Rien ne s'écrit dans le conteneur.
     read_only: true
@@ -69,12 +73,11 @@ services:
       - { type: tmpfs, target: /tmp }
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    ports:
-      - "8300:8300"
+    # Aucun port publié : joignable seulement par le relais (/auth/) et par payment-api.
     networks: [resilience, data]
     deploy:
-      # 1 tant que le port 8300 est publié en direct : docker compose ne publie pas deux fois le
-      # même port. Sur le Swarm (maillage de routage), 2 réplicas fonctionnent telles quelles.
+      # 1 : le freinage de la force brute compte les échecs en mémoire. Avec deux réplicas,
+      # chacune n'en verrait que la moitié, et l'attaquant aurait deux fois plus d'essais.
       replicas: 1
       resources:
         limits: { cpus: "0.5", memory: 256M }
@@ -82,7 +85,7 @@ services:
       update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s }
 
   payment-api:
-    image: ${REGISTRY:-resilience}/payment-api:0.3.0
+    image: ${REGISTRY:-resilience}/payment-api:0.4.0
     build: ./backend
     # Local seulement : le proxy Docker n'autorise que le redémarrage du conteneur nommé payment-api.
     container_name: payment-api
@@ -92,14 +95,14 @@ services:
       AUTH_URL: http://auth:8300
       DATABASE_URL: postgresql+psycopg://payments@db:5432/payments
       DB_PASSWORD_FILE: /run/secrets/payments_db_password
+      FORWARDED_ALLOW_IPS: "*"  # adresse du client transmise par le relais, pour les journaux
     secrets: [payments_db_password]
     read_only: true
     volumes:
       - { type: tmpfs, target: /tmp }
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    ports:
-      - "8000:8000"
+    # Aucun port publié : joignable par le relais (/api/), le détecteur et la remédiation.
     networks: [resilience, data]
     deploy:
       replicas: 1
@@ -126,8 +129,6 @@ services:
       - { type: tmpfs, target: /tmp }
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    ports:
-      - "8100:8100"
     networks: [resilience]
     deploy:
       # Une seule réplica : le modèle vit en mémoire, deux réplicas apprendraient deux normales.
@@ -173,8 +174,6 @@ services:
       - { type: tmpfs, target: /tmp }
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    ports:
-      - "8200:8200"
     networks: [resilience, internal]
     deploy:
       # Une seule réplica : deux moteurs décideraient deux fois et redémarreraient deux fois.
@@ -184,14 +183,15 @@ services:
       restart_policy: { condition: any, delay: 5s, window: 30s }
 
   frontend:
-    image: ${REGISTRY:-resilience}/frontend:0.1.0
+    image: ${REGISTRY:-resilience}/frontend:0.2.0
     build:
       context: ./frontend
       args:
-        VITE_API_URL: http://localhost:8000/api
-        VITE_AUTH_URL: http://localhost:8300
-        VITE_DETECTOR_URL: http://localhost:8100
-        VITE_REMEDIATION_URL: http://localhost:8200
+        # Chemins relatifs : le navigateur appelle le relais, quelle que soit la machine.
+        VITE_API_URL: /api
+        VITE_AUTH_URL: ""
+        VITE_DETECTOR_URL: /detector
+        VITE_REMEDIATION_URL: /remediation
         VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
         VITE_CARD_ENTRY: ${VITE_CARD_ENTRY:-own}
         # Facultatif : sans lui, pas de bouton PayPal (le secret reste dans backend/.env).
@@ -207,6 +207,7 @@ services:
     # Écouter sur le port 80, puis passer les workers à l'utilisateur nginx.
     cap_add: [CHOWN, SETGID, SETUID, NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
+    # Le seul port publié de la plateforme.
     ports:
       - "5173:80"
     networks: [resilience]

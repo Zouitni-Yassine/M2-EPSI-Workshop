@@ -15,6 +15,9 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 `GET http://localhost:8000/api/health` doit répondre `{"ok": true, "stripe": true, "mode": "test"}`.
+Sous Docker, l'API ne publie aucun port : on la joint par le relais, `http://localhost:5173/api/...`
+(documentation : `/api/docs`). `/metrics` n'est pas relayé ; pour le lire en local :
+`docker compose exec payment-api python -c "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8000/metrics').read().decode())"`.
 
 ## Routes
 
@@ -32,8 +35,9 @@ uvicorn app.main:app --reload --port 8000
 | `GET /api/paypal/orders/:id` | propriétaire ou opérateur | Relit une commande PayPal |
 | `GET /api/paypal/orders` | connecté | Les 25 dernières commandes PayPal de ce conteneur, filtrées comme les paiements |
 
-**Accès.** Les routes protégées attendent `Authorization: Bearer <jeton>`, délivré par le
-service d'authentification (`auth/`, `POST /auth/login`). L'API vérifie le jeton elle-même avec
+**Accès.** Les routes protégées attendent la session : le cookie `rp_session` posé par
+`POST /auth/login` (navigateur), ou `Authorization: Bearer <jeton>` obtenu par `POST /auth/token`
+(scripts, services, Swagger). L'API vérifie le jeton elle-même avec
 la clé publique de `AUTH_URL/auth/jwks.json`, chargée une fois puis gardée en mémoire
 (`app/security.py`). Chaque paiement porte son propriétaire : en métadonnée chez Stripe, dans le
 `custom_id` chez PayPal. Un client qui demande le paiement d'un autre reçoit `404`, pas `403` :

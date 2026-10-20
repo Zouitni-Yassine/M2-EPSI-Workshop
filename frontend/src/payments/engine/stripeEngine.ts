@@ -1,5 +1,5 @@
 import type { StripeError } from '@stripe/stripe-js'
-import { authHeaders, checkSession } from '../../auth/session'
+import { checkSession } from '../../auth/session'
 import type { DeclineCode, PaymentEngine, PaymentIntent } from '../domain/types'
 
 const KNOWN: DeclineCode[] = [
@@ -30,7 +30,7 @@ export function createStripeEngine(baseUrl: string): PaymentEngine {
   const call = async <T>(path: string, init?: RequestInit): Promise<T> => {
     const res = await fetch(`${baseUrl}${path}`, {
       ...init,
-      headers: { 'Content-Type': 'application/json', ...authHeaders(), ...init?.headers },
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
     })
     if (!res.ok) {
       checkSession(res)

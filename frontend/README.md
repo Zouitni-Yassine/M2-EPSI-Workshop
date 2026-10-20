@@ -8,9 +8,15 @@ Trois vues dans une seule application React + Tailwind, derrière une page de co
 | **Transactions** | Le journal : ses propres paiements pour un client ; tout le compte marchand, solde et client de chaque paiement pour un opérateur | client, opérateur |
 | **Supervision** | Le dashboard que le jury regarde pendant l'attaque et la reprise | opérateur |
 
-La connexion passe par le service `auth/` (`VITE_AUTH_URL`). Le jeton est gardé dans le
-`sessionStorage` de l'onglet et joint à chaque appel de l'API (`src/auth/session.ts`) ; un
-`401` ou l'expiration ramène à la page de connexion avec le motif. Masquer un onglet ne protège
+La connexion passe par le service `auth/`. Le jeton vit dans un cookie `httpOnly` que le
+JavaScript ne voit jamais : le navigateur le joint seul à chaque appel, parce que tout est sur la
+même origine (`src/auth/session.ts`). Au chargement, `/auth/me` dit si le cookie ouvre encore
+une session ; un `401` ou l'expiration ramène à la page de connexion avec le motif.
+
+**Un seul port.** Sous Docker, le nginx de ce conteneur est le relais de toute la plateforme
+(`nginx.conf`) : `/auth/`, `/api/`, et la supervision réservée aux opérateurs. Les URL de
+l'application sont relatives, elle fonctionne donc depuis n'importe quelle machine du réseau.
+En `npm run dev`, Vite joue le même rôle (`vite.config.ts`). Masquer un onglet ne protège
 rien : c'est l'API qui refuse.
 
 ## Démarrer
@@ -97,8 +103,8 @@ Les composants ne savent pas quel moteur tourne. Le choix se fait une fois par s
 dans `engine/index.ts`.
 
 ```bash
-# .env
-VITE_API_URL=http://localhost:8000/api
+# .env — URL relatives : le relais (nginx sous Docker, Vite en dev) fait le reste
+VITE_API_URL=/api
 VITE_STRIPE_PUBLISHABLE_KEY=pk_test_xxx
 VITE_PAYPAL_CLIENT_ID=...      # client ID de l'app PayPal sandbox (facultatif)
 VITE_DATA_SOURCE=mock          # ou live, avec VITE_WS_URL

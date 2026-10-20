@@ -45,6 +45,11 @@ MAX_FAILURES = int(os.getenv("AUTH_MAX_FAILURES", "5"))
 MAX_FAILURES_PER_IP = int(os.getenv("AUTH_MAX_FAILURES_PER_IP", "20"))
 WINDOW_SECONDS = int(os.getenv("AUTH_LOCKOUT_SECONDS", "300"))
 
+# Cookie de session. Secure seulement derrière HTTPS : en HTTP (démo sur le point d'accès),
+# le navigateur refuserait de le renvoyer.
+COOKIE = "rp_session"
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+
 # ---------------------------------------------------------------- journal et métriques
 
 LOGINS = Counter("auth_login_total", "Tentatives de connexion, par issue", ["result"])
@@ -144,7 +149,14 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Resilience Pay — authentification", version="0.1.0", lifespan=lifespan)
+# Documentation sous /auth : c'est le seul préfixe que le relais nginx transmet à ce service.
+app = FastAPI(
+    title="Resilience Pay — authentification",
+    version="0.3.0",
+    lifespan=lifespan,
+    docs_url="/auth/docs",
+    openapi_url="/auth/openapi.json",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ORIGINS,
@@ -160,11 +172,13 @@ class Credentials(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
-def _claims(cred: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> dict[str, Any]:
-    if cred is None:
+def _claims(request: Request, cred: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> dict[str, Any]:
+    """Le jeton vient du cookie de session (navigateur) ou de l'en-tête Authorization (scripts, services)."""
+    token = cred.credentials if cred else request.cookies.get(COOKIE)
+    if not token:
         raise HTTPException(status_code=401, detail="Connexion requise", headers={"WWW-Authenticate": "Bearer"})
     try:
-        return state.signer.verify(cred.credentials)
+        return state.signer.verify(token)
     except jwt.InvalidTokenError as exc:
         raise HTTPException(status_code=401, detail="Jeton invalide ou expiré", headers={"WWW-Authenticate": "Bearer"}) from exc
 
@@ -188,8 +202,8 @@ def jwks(response: Response) -> dict[str, Any]:
     return {"keys": [state.signer.jwk]}
 
 
-@app.post("/auth/login")
-def login(body: Credentials, request: Request) -> dict[str, Any]:
+def _authenticate(body: Credentials, request: Request) -> users.User:
+    """Vérifie l'identifiant et le mot de passe, freine la force brute, journalise chaque tentative."""
     ip = request.client.host if request.client else "inconnue"
     username = body.username.strip().lower()
     pair = f"{ip}|{username}"
@@ -210,15 +224,37 @@ def login(body: Credentials, request: Request) -> dict[str, Any]:
 
     # Seul le couple est remis à zéro : un compte valable ne blanchit pas une adresse qui en essaie d'autres.
     throttle.clear(pair)
-    token, expires = state.signer.issue(user.username, user.role)
     LOGINS.labels("success").inc()
     audit("info", "connexion réussie", event="login", result="success", username=user.username, role=user.role, ip=ip)
+    return user
+
+
+@app.post("/auth/login")
+def login(body: Credentials, request: Request, response: Response) -> dict[str, Any]:
+    """
+    Pour le navigateur : le jeton part dans un cookie httpOnly, illisible par le JavaScript —
+    une faille XSS ne peut pas le voler. SameSite=Strict : aucun autre site ne peut s'en servir.
+    """
+    user = _authenticate(body, request)
+    token, expires = state.signer.issue(user.username, user.role)
+    response.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=COOKIE_SECURE, path="/")
+    return {"expiresAt": expires, "user": {"username": user.username, "role": user.role}}
+
+
+@app.post("/auth/token")
+def issue_token(body: Credentials, request: Request) -> dict[str, Any]:
+    """Pour les scripts et les services (transaction de contrôle, Swagger) : jeton à envoyer en Authorization: Bearer."""
+    user = _authenticate(body, request)
+    token, expires = state.signer.issue(user.username, user.role)
     return {"token": token, "expiresAt": expires, "user": {"username": user.username, "role": user.role}}
 
 
 @app.post("/auth/register", status_code=201)
-def register(body: Credentials, request: Request) -> dict[str, Any]:
-    """Création de compte en libre-service : toujours le rôle client, jamais opérateur."""
+def register(body: Credentials, request: Request, response: Response) -> dict[str, Any]:
+    """
+    Création de compte en libre-service : toujours le rôle client, jamais opérateur.
+    Le nouveau compte est connecté d'emblée, par le même cookie httpOnly que /auth/login.
+    """
     ip = request.client.host if request.client else "inconnue"
     username = body.username.strip().lower()
 
@@ -241,9 +277,27 @@ def register(body: Credentials, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="Cet identifiant est déjà utilisé.")
 
     token, expires = state.signer.issue(username, "client")
+    response.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=COOKIE_SECURE, path="/")
     SIGNUPS.labels("success").inc()
     audit("info", "compte créé", event="signup", result="success", username=username, ip=ip)
-    return {"token": token, "expiresAt": expires, "user": {"username": username, "role": "client"}}
+    return {"expiresAt": expires, "user": {"username": username, "role": "client"}}
+
+
+@app.post("/auth/logout", status_code=204)
+def logout(response: Response) -> None:
+    # Le JavaScript ne peut pas effacer un cookie httpOnly : c'est le serveur qui le fait.
+    response.delete_cookie(COOKIE, path="/", httponly=True, samesite="strict", secure=COOKIE_SECURE)
+
+
+@app.get("/auth/verify")
+def verify(role: str | None = None, claims: dict[str, Any] = Depends(_claims)) -> dict[str, Any]:
+    """
+    Pour le relais nginx (auth_request) : 200 si la session vaut pour ce rôle, 401 sans session
+    valable, 403 si le rôle manque. Sans base : appelé à chaque requête de supervision.
+    """
+    if role and claims["role"] != role:
+        raise HTTPException(status_code=403, detail="Rôle insuffisant")
+    return {}
 
 
 @app.get("/auth/me")

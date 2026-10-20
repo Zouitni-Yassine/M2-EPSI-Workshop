@@ -12,14 +12,19 @@ cp .env.example .env        # renseigner AUTH_PASSWORD_OPERATEUR et AUTH_PASSWOR
 uvicorn app.main:app --port 8300
 ```
 
-`GET http://localhost:8300/health` → `{"ok": true, "db": true}`.
+`GET http://localhost:8300/health` → `{"ok": true, "db": true}`. Sous Docker, le service ne publie
+aucun port : on le joint par le relais du frontal, `http://localhost:5173/auth/...`.
 
 ## Routes
 
 | Route | Usage |
 | --- | --- |
-| `POST /auth/login` | `{"username", "password"}` → `{"token", "expiresAt", "user": {"username", "role"}}` |
-| `GET /auth/me` | Relit l'utilisateur du jeton (`Authorization: Bearer …`), en vérifiant qu'il n'est pas désactivé |
+| `POST /auth/login` | Navigateur. `{"username", "password"}` → cookie `rp_session` (`HttpOnly`, `SameSite=Strict`) et `{"expiresAt", "user"}` : jamais de jeton lisible par le JavaScript |
+| `POST /auth/token` | Scripts et services (transaction de contrôle, Swagger). Mêmes entrées, même freinage → `{"token", "expiresAt", "user"}` à envoyer en `Authorization: Bearer` |
+| `POST /auth/logout` | Efface le cookie (le JavaScript ne le peut pas) |
+| `GET /auth/me` | Relit l'utilisateur de la session (cookie ou Bearer), en vérifiant qu'il n'est pas désactivé |
+| `GET /auth/verify?role=operator` | Pour le relais nginx (`auth_request`) : 200, 401 sans session, 403 si le rôle manque |
+| `GET /auth/docs` | Documentation OpenAPI, joignable par le relais |
 | `GET /auth/jwks.json` | Clé publique de signature, pour que les autres services vérifient les jetons eux-mêmes |
 | `GET /metrics` | `auth_login_total{result="success\|failure\|locked"}` au format Prometheus |
 | `GET /health` | Vérifie la base |

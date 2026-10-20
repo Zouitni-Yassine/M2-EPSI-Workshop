@@ -25,7 +25,8 @@ export function resolvePaymentEngine(): Promise<EngineChoice> {
 async function choose(): Promise<EngineChoice> {
   const pk = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
   const paypalClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID
-  const api = import.meta.env.VITE_API_URL
+  // Relatif par défaut : même origine que l'application, via le relais nginx.
+  const api = import.meta.env.VITE_API_URL ?? '/api'
 
   if (!api) {
     return {

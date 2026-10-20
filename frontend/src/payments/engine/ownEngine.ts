@@ -1,5 +1,5 @@
 import { loadStripe, type Stripe } from '@stripe/stripe-js'
-import { authHeaders, checkSession } from '../../auth/session'
+import { checkSession } from '../../auth/session'
 import type { PaymentEngine, PaymentIntent } from '../domain/types'
 
 /**
@@ -20,7 +20,7 @@ export function createOwnEngine(baseUrl: string, publishableKey: string): Paymen
   const call = async <T>(path: string, init?: RequestInit): Promise<T> => {
     const res = await fetch(`${baseUrl}${path}`, {
       ...init,
-      headers: { 'Content-Type': 'application/json', ...authHeaders(), ...init?.headers },
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
     })
     if (!res.ok) {
       checkSession(res)

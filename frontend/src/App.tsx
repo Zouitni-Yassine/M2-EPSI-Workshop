@@ -10,7 +10,7 @@ import { ShopPage } from './shop/ShopPage'
 type View = 'shop' | 'login' | AdminView
 
 export default function App() {
-  const { session, notice } = useAuth()
+  const { session, checking, notice } = useAuth()
   const [view, setView] = useState<View>('shop')
   // Incrémenté à chaque paiement abouti pour que le journal se recharge.
   const [version, setVersion] = useState(0)
@@ -22,6 +22,10 @@ export default function App() {
   useEffect(() => {
     setView('shop')
   }, [session])
+
+  // Le temps de demander au serveur si le cookie ouvre encore une session : pas de boutique
+  // affichée « déconnectée » une fraction de seconde à un client qui l'est.
+  if (checking) return null
 
   if (view === 'login' && !user) {
     return <LoginPage notice={notice} onBack={() => setView('shop')} />

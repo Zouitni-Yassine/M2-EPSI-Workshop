@@ -64,7 +64,14 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Resilience Pay API", version="0.1.0", lifespan=lifespan)
+# Documentation sous /api : c'est le seul préfixe que le relais nginx transmet à ce service.
+app = FastAPI(
+    title="Resilience Pay API",
+    version="0.4.0",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+)
 app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=["*"], allow_headers=["*"])
 api = APIRouter(prefix="/api")
 

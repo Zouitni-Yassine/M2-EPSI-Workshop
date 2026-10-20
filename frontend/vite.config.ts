@@ -6,8 +6,17 @@ import tailwindcss from '@tailwindcss/vite'
 // pendant la démonstration, chaque rechargement sert le dernier build.
 const noCache = { 'Cache-Control': 'no-store' }
 
+// En développement (npm run dev), Vite joue le rôle du relais nginx : mêmes chemins, même
+// origine, donc le cookie de session part avec chaque appel. Services lancés en local.
+const relay = {
+  '/api': 'http://localhost:8000',
+  '/auth': 'http://localhost:8300',
+  '/detector': { target: 'http://localhost:8100', rewrite: (p: string) => p.replace(/^\/detector/, '') },
+  '/remediation': { target: 'http://localhost:8200', rewrite: (p: string) => p.replace(/^\/remediation/, '') },
+}
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  server: { host: true, port: 5173, headers: noCache },
-  preview: { host: true, port: 4173, headers: noCache },
+  server: { host: true, port: 5173, headers: noCache, proxy: relay },
+  preview: { host: true, port: 4173, headers: noCache, proxy: relay },
 })

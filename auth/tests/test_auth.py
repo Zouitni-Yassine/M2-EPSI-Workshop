@@ -41,8 +41,12 @@ def login(client: TestClient, username: str, password: str):
     return client.post("/auth/login", json={"username": username, "password": password})
 
 
+def bearer(client: TestClient, username: str, password: str) -> str:
+    return client.post("/auth/token", json={"username": username, "password": password}).json()["token"]
+
+
 def test_connexion_et_jeton_verifiable_avec_la_cle_publique(client: TestClient) -> None:
-    res = login(client, *CLIENT)
+    res = client.post("/auth/token", json={"username": CLIENT[0], "password": CLIENT[1]})
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["user"] == {"username": "alice", "role": "client"}
@@ -100,7 +104,7 @@ def test_une_connexion_reussie_remet_le_compteur_du_couple_a_zero(client: TestCl
 
 
 def test_me(client: TestClient) -> None:
-    token = login(client, *OPERATOR).json()["token"]
+    token = bearer(client, *OPERATOR)
     res = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert res.json()["username"] == "operateur"
     assert res.json()["role"] == "operator"
@@ -128,7 +132,7 @@ def test_jeton_hs256_forge_refuse(client: TestClient) -> None:
 
 def test_cle_conservee_apres_redemarrage(env) -> None:
     with TestClient(main.app) as c:
-        token = login(c, *CLIENT).json()["token"]
+        token = bearer(c, *CLIENT)
         kid = c.get("/auth/jwks.json").json()["keys"][0]["kid"]
     with TestClient(main.app) as c:
         assert c.get("/auth/jwks.json").json()["keys"][0]["kid"] == kid
@@ -148,8 +152,13 @@ def test_inscription_cree_un_client_et_connecte(client: TestClient) -> None:
     assert r.status_code == 201
     body = r.json()
     assert body["user"] == {"username": "nadia", "role": "client"}
-    me = client.get("/auth/me", headers={"Authorization": f"Bearer {body['token']}"})
+    # Connecté d'emblée par le cookie httpOnly, comme après /auth/login : aucun jeton lisible.
+    assert "token" not in body
+    assert "httponly" in r.headers["set-cookie"].lower()
+    me = client.get("/auth/me")
     assert me.status_code == 200
+    assert me.json()["username"] == "nadia"
+    client.cookies.clear()
     # Et le compte fonctionne ensuite comme n'importe quel autre.
     assert client.post("/auth/login", json={"username": "nadia", "password": "nadia-secret-1"}).status_code == 200
 
@@ -164,3 +173,52 @@ def test_inscription_refuse_identifiant_deja_pris_sans_ecraser(client: TestClien
 def test_inscription_mot_de_passe_trop_court(client: TestClient) -> None:
     r = client.post("/auth/register", json={"username": "paul", "password": "court"})
     assert r.status_code == 422
+
+
+def test_connexion_navigateur_pose_un_cookie_httponly_sans_jeton_lisible(client: TestClient) -> None:
+    res = login(client, *CLIENT)
+    assert res.status_code == 200
+    assert "token" not in res.json()  # rien que le JavaScript puisse voler
+    cookie = res.headers["set-cookie"].lower()
+    assert cookie.startswith("rp_session=")
+    assert "httponly" in cookie
+    assert "samesite=strict" in cookie
+    assert "path=/" in cookie
+
+
+def test_session_par_cookie(client: TestClient) -> None:
+    login(client, *OPERATOR)  # le TestClient garde le cookie, comme un navigateur
+    assert client.get("/auth/me").json()["username"] == "operateur"
+
+
+def test_deconnexion_efface_le_cookie(client: TestClient) -> None:
+    login(client, *CLIENT)
+    res = client.post("/auth/logout")
+    assert res.status_code == 204
+    assert 'rp_session=""' in res.headers["set-cookie"] or "max-age=0" in res.headers["set-cookie"].lower()
+    client.cookies.clear()
+    assert client.get("/auth/me").status_code == 401
+
+
+def test_verify_pour_le_relais(client: TestClient) -> None:
+    assert client.get("/auth/verify", params={"role": "operator"}).status_code == 401
+
+    login(client, *CLIENT)
+    assert client.get("/auth/verify", params={"role": "operator"}).status_code == 403
+    assert client.get("/auth/verify").status_code == 200
+    client.cookies.clear()
+
+    token = bearer(client, *OPERATOR)
+    res = client.get("/auth/verify", params={"role": "operator"}, headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 200
+
+
+def test_jeton_pour_scripts_soumis_au_meme_freinage(client: TestClient) -> None:
+    for _ in range(main.MAX_FAILURES):
+        assert client.post("/auth/token", json={"username": "alice", "password": "mauvais"}).status_code == 401
+    assert login(client, *CLIENT).status_code == 429
+
+
+def test_documentation_sous_le_prefixe_auth(client: TestClient) -> None:
+    assert client.get("/auth/docs").status_code == 200
+    assert "/auth/login" in client.get("/auth/openapi.json").json()["paths"]
