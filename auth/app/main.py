@@ -52,8 +52,6 @@ SIGNUPS = Counter("auth_signup_total", "Créations de compte, par issue", ["resu
 RESETS = Counter("auth_reset_total", "Réinitialisations de mot de passe, par issue", ["result"])
 RESET_TTL_MINUTES = int(os.getenv("RESET_TTL_MINUTES", "15"))
 APP_URL = os.getenv("APP_URL", "http://localhost:5173")
-# Jetons de réinitialisation déjà consommés (jti -> expiration) : un lien ne sert qu'une fois.
-_used_resets: dict[str, int] = {}
 for _result in ("success", "failure", "locked"):
     LOGINS.labels(_result)
 
@@ -282,7 +280,7 @@ def forgot(body: Forgot, request: Request) -> dict[str, str]:
 
     user = state.store.get(email)
     if user is not None:
-        token = state.signer.issue_reset(email, RESET_TTL_MINUTES)
+        token = state.signer.issue_reset(email, RESET_TTL_MINUTES, state.store.password_stamp(email) or "")
         link = APP_URL.rstrip("/") + "/?reset=" + token
         try:
             mail.send_reset(email, user.first_name, link, RESET_TTL_MINUTES)
@@ -300,19 +298,18 @@ def forgot(body: Forgot, request: Request) -> dict[str, str]:
 @app.post("/auth/reset")
 def reset(body: Reset, request: Request) -> dict[str, Any]:
     ip = request.client.host if request.client else "inconnue"
-    now = int(time.time())
-    for jti, exp in list(_used_resets.items()):
-        if exp < now:
-            del _used_resets[jti]
     try:
         claims = state.signer.verify_reset(body.token)
     except jwt.InvalidTokenError as exc:
         RESETS.labels("invalid").inc()
         audit("warning", "réinitialisation refusée : jeton invalide", event="reset", result="invalid", ip=ip)
         raise HTTPException(status_code=401, detail="Lien invalide ou expiré. Redemandez un e-mail.") from exc
-    if claims["jti"] in _used_resets:
+    # Le lien est scellé sur l'empreinte du mot de passe au moment de la demande : dès que le mot
+    # de passe change, tous les liens émis avant deviennent inertes — rejeu impossible, même après
+    # un redémarrage du service ou avec plusieurs répliques.
+    if claims.get("fp") != state.store.password_stamp(claims["sub"]):
         RESETS.labels("replayed").inc()
-        audit("warning", "réinitialisation refusée : lien déjà utilisé", event="reset", result="replayed", username=claims["sub"], ip=ip)
+        audit("warning", "réinitialisation refusée : lien déjà utilisé ou périmé", event="reset", result="replayed", username=claims["sub"], ip=ip)
         raise HTTPException(status_code=401, detail="Ce lien a déjà servi. Redemandez un e-mail.")
     if len(body.password) < users.MIN_PASSWORD:
         raise HTTPException(status_code=422, detail=f"Mot de passe trop court (au moins {users.MIN_PASSWORD} caractères).")
@@ -320,7 +317,6 @@ def reset(body: Reset, request: Request) -> dict[str, Any]:
     if not state.store.set_password(claims["sub"], body.password):
         RESETS.labels("gone").inc()
         raise HTTPException(status_code=401, detail="Compte introuvable ou désactivé.")
-    _used_resets[claims["jti"]] = claims["exp"]
 
     user = state.store.get(claims["sub"])
     token, expires = state.signer.issue(claims["sub"], user.role if user else "client")

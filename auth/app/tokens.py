@@ -76,7 +76,7 @@ class Signer:
         }
         return jwt.encode(claims, self.key, algorithm=ALGORITHM, headers={"kid": self.kid}), expires
 
-    def issue_reset(self, username: str, minutes: int) -> str:
+    def issue_reset(self, username: str, minutes: int, stamp: str = "") -> str:
         """Jeton à usage unique pour la réinitialisation : courte durée, marqué `purpose`."""
         now = int(time.time())
         claims = {
@@ -84,6 +84,7 @@ class Signer:
             "aud": AUDIENCE,
             "sub": username,
             "purpose": "reset",
+            "fp": stamp,
             "iat": now,
             "exp": now + minutes * 60,
             "jti": secrets.token_hex(8),

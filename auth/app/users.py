@@ -167,6 +167,16 @@ class Store:
             ))
             return True
 
+    def password_stamp(self, username: str) -> str | None:
+        """Empreinte du hachage courant : change dès que le mot de passe change."""
+        import hashlib
+
+        with self.engine.connect() as c:
+            row = c.execute(select(users.c.password_hash).where(users.c.username == username, users.c.disabled == False)).first()  # noqa: E712
+        if row is None:
+            return None
+        return hashlib.sha256(row.password_hash.encode()).hexdigest()[:16]
+
     def set_password(self, username: str, password: str) -> bool:
         """Change le mot de passe d'un compte actif. False si le compte n'existe pas."""
         with self.engine.begin() as c:

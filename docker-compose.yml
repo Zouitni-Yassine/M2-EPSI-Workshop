@@ -57,7 +57,9 @@ services:
   mailpit:
     image: axllent/mailpit:v1.20
     ports:
-      - "8025:8025"
+      # Boucle locale uniquement : le PC attaquant partage le réseau de démo, il ne doit pas
+      # pouvoir lire les liens de réinitialisation. mode host = l'adresse est respectée aussi en Swarm.
+      - { target: 8025, published: 8025, host_ip: 127.0.0.1, mode: host }
     networks: [resilience]
     deploy:
       replicas: 1
