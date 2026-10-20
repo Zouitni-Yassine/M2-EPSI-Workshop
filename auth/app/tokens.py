@@ -76,6 +76,35 @@ class Signer:
         }
         return jwt.encode(claims, self.key, algorithm=ALGORITHM, headers={"kid": self.kid}), expires
 
+    def issue_reset(self, username: str, minutes: int, stamp: str = "") -> str:
+        """Jeton à usage unique pour la réinitialisation : courte durée, marqué `purpose`."""
+        now = int(time.time())
+        claims = {
+            "iss": ISSUER,
+            "aud": AUDIENCE,
+            "sub": username,
+            "purpose": "reset",
+            "fp": stamp,
+            "iat": now,
+            "exp": now + minutes * 60,
+            "jti": secrets.token_hex(8),
+        }
+        return jwt.encode(claims, self.key, algorithm=ALGORITHM, headers={"kid": self.kid})
+
+    def verify_reset(self, token: str) -> dict[str, Any]:
+        claims = jwt.decode(
+            token,
+            self.key.public_key(),
+            algorithms=[ALGORITHM],
+            audience=AUDIENCE,
+            issuer=ISSUER,
+            options={"require": ["exp", "iat", "sub", "jti"]},
+        )
+        if claims.get("purpose") != "reset":
+            # Un jeton de session ne doit jamais permettre de changer un mot de passe.
+            raise jwt.InvalidTokenError("purpose")
+        return claims
+
     def verify(self, token: str) -> dict[str, Any]:
         # Algorithme figé : un jeton « alg: none » ou HS256 signé avec la clé publique est refusé.
         return jwt.decode(

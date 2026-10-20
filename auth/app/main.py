@@ -33,7 +33,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import OperationalError
 
-from . import tokens, users
+from . import mail, tokens, users
 
 load_dotenv()
 
@@ -54,6 +54,9 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
 LOGINS = Counter("auth_login_total", "Tentatives de connexion, par issue", ["result"])
 SIGNUPS = Counter("auth_signup_total", "Créations de compte, par issue", ["result"])
+RESETS = Counter("auth_reset_total", "Réinitialisations de mot de passe, par issue", ["result"])
+RESET_TTL_MINUTES = int(os.getenv("RESET_TTL_MINUTES", "15"))
+APP_URL = os.getenv("APP_URL", "http://localhost:5173")
 for _result in ("success", "failure", "locked"):
     LOGINS.labels(_result)
 
@@ -166,6 +169,22 @@ app.add_middleware(
 _bearer = HTTPBearer(auto_error=False)
 
 
+class Register(BaseModel):
+    email: str = Field(min_length=3, max_length=64)
+    firstName: str = Field(min_length=1, max_length=64)
+    lastName: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class Forgot(BaseModel):
+    email: str = Field(min_length=1, max_length=64)
+
+
+class Reset(BaseModel):
+    token: str = Field(min_length=1, max_length=2048)
+    password: str = Field(min_length=1, max_length=256)
+
+
 class Credentials(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     # Plafonné : un mot de passe de plusieurs mégaoctets ne doit pas occuper le CPU.
@@ -229,16 +248,21 @@ def _authenticate(body: Credentials, request: Request) -> users.User:
     return user
 
 
+def _open_session(response: Response, username: str, role: str) -> int:
+    """
+    Pose la session du navigateur : le jeton part dans un cookie httpOnly, illisible par le
+    JavaScript — une faille XSS ne peut pas le voler. SameSite=Strict : aucun autre site ne
+    peut s'en servir. Renvoie l'expiration.
+    """
+    token, expires = state.signer.issue(username, role)
+    response.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=COOKIE_SECURE, path="/")
+    return expires
+
+
 @app.post("/auth/login")
 def login(body: Credentials, request: Request, response: Response) -> dict[str, Any]:
-    """
-    Pour le navigateur : le jeton part dans un cookie httpOnly, illisible par le JavaScript —
-    une faille XSS ne peut pas le voler. SameSite=Strict : aucun autre site ne peut s'en servir.
-    """
     user = _authenticate(body, request)
-    token, expires = state.signer.issue(user.username, user.role)
-    response.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=COOKIE_SECURE, path="/")
-    return {"expiresAt": expires, "user": {"username": user.username, "role": user.role}}
+    return {"expiresAt": _open_session(response, user.username, user.role), "user": user.payload()}
 
 
 @app.post("/auth/token")
@@ -246,17 +270,18 @@ def issue_token(body: Credentials, request: Request) -> dict[str, Any]:
     """Pour les scripts et les services (transaction de contrôle, Swagger) : jeton à envoyer en Authorization: Bearer."""
     user = _authenticate(body, request)
     token, expires = state.signer.issue(user.username, user.role)
-    return {"token": token, "expiresAt": expires, "user": {"username": user.username, "role": user.role}}
+    return {"token": token, "expiresAt": expires, "user": user.payload()}
 
 
 @app.post("/auth/register", status_code=201)
-def register(body: Credentials, request: Request, response: Response) -> dict[str, Any]:
+def register(body: Register, request: Request, response: Response) -> dict[str, Any]:
     """
     Création de compte en libre-service : toujours le rôle client, jamais opérateur.
     Le nouveau compte est connecté d'emblée, par le même cookie httpOnly que /auth/login.
     """
     ip = request.client.host if request.client else "inconnue"
-    username = body.username.strip().lower()
+    email = body.email.strip().lower()
+    first, last = body.firstName.strip(), body.lastName.strip()
 
     # Même frein que la connexion : une adresse qui enchaîne les créations attend.
     wait = throttle.wait(ip, MAX_FAILURES_PER_IP)
@@ -265,22 +290,21 @@ def register(body: Credentials, request: Request, response: Response) -> dict[st
         audit("warning", "inscription refusée : trop de tentatives", event="signup", result="locked", ip=ip, retry_after=wait)
         raise HTTPException(status_code=429, detail=f"Trop de tentatives. Réessayez dans {wait} s.", headers={"Retry-After": str(wait)})
 
-    problem = users.check(username, "client", body.password)
+    problem = users.check_signup(email, first, last, body.password)
     if problem:
         SIGNUPS.labels("invalid").inc()
         raise HTTPException(status_code=422, detail=problem.capitalize())
 
-    if not state.store.create(username, body.password, "client"):
+    if not state.store.create(email, body.password, "client", first, last):
         throttle.fail(ip)
         SIGNUPS.labels("exists").inc()
-        audit("warning", "inscription refusée : identifiant pris", event="signup", result="exists", username=username, ip=ip)
-        raise HTTPException(status_code=409, detail="Cet identifiant est déjà utilisé.")
+        audit("warning", "inscription refusée : adresse prise", event="signup", result="exists", username=email, ip=ip)
+        raise HTTPException(status_code=409, detail="Un compte existe déjà avec cette adresse.")
 
-    token, expires = state.signer.issue(username, "client")
-    response.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=COOKIE_SECURE, path="/")
+    expires = _open_session(response, email, "client")
     SIGNUPS.labels("success").inc()
-    audit("info", "compte créé", event="signup", result="success", username=username, ip=ip)
-    return {"expiresAt": expires, "user": {"username": username, "role": "client"}}
+    audit("info", "compte créé", event="signup", result="success", username=email, ip=ip)
+    return {"expiresAt": expires, "user": {"username": email, "role": "client", "firstName": first, "lastName": last}}
 
 
 @app.post("/auth/logout", status_code=204)
@@ -300,10 +324,70 @@ def verify(role: str | None = None, claims: dict[str, Any] = Depends(_claims)) -
     return {}
 
 
+@app.post("/auth/forgot")
+def forgot(body: Forgot, request: Request) -> dict[str, str]:
+    """Toujours la même réponse : la route ne révèle pas quels comptes existent."""
+    ip = request.client.host if request.client else "inconnue"
+    email = body.email.strip().lower()
+
+    wait = throttle.wait(ip, MAX_FAILURES_PER_IP)
+    if wait:
+        RESETS.labels("locked").inc()
+        raise HTTPException(status_code=429, detail=f"Trop de tentatives. Réessayez dans {wait} s.", headers={"Retry-After": str(wait)})
+    throttle.fail(ip)  # Chaque demande compte : impossible d'inonder la boîte d'un tiers.
+
+    user = state.store.get(email)
+    if user is not None:
+        token = state.signer.issue_reset(email, RESET_TTL_MINUTES, state.store.password_stamp(email) or "")
+        link = APP_URL.rstrip("/") + "/?reset=" + token
+        try:
+            mail.send_reset(email, user.first_name, link, RESET_TTL_MINUTES)
+            RESETS.labels("sent").inc()
+            audit("info", "e-mail de réinitialisation envoyé", event="reset", result="sent", username=email, ip=ip)
+        except OSError as exc:  # smtplib.SMTPException dérive d'OSError.
+            RESETS.labels("smtp_error").inc()
+            audit("warning", "envoi du mail de réinitialisation impossible", event="reset", result="smtp_error", username=email, error=str(exc)[:200])
+    else:
+        RESETS.labels("unknown").inc()
+        audit("info", "réinitialisation demandée pour une adresse inconnue", event="reset", result="unknown", ip=ip)
+    return {"detail": "Si un compte existe avec cette adresse, un e-mail vient de partir."}
+
+
+@app.post("/auth/reset")
+def reset(body: Reset, request: Request, response: Response) -> dict[str, Any]:
+    ip = request.client.host if request.client else "inconnue"
+    try:
+        claims = state.signer.verify_reset(body.token)
+    except jwt.InvalidTokenError as exc:
+        RESETS.labels("invalid").inc()
+        audit("warning", "réinitialisation refusée : jeton invalide", event="reset", result="invalid", ip=ip)
+        raise HTTPException(status_code=401, detail="Lien invalide ou expiré. Redemandez un e-mail.") from exc
+    # Le lien est scellé sur l'empreinte du mot de passe au moment de la demande : dès que le mot
+    # de passe change, tous les liens émis avant deviennent inertes — rejeu impossible, même après
+    # un redémarrage du service ou avec plusieurs répliques.
+    if claims.get("fp") != state.store.password_stamp(claims["sub"]):
+        RESETS.labels("replayed").inc()
+        audit("warning", "réinitialisation refusée : lien déjà utilisé ou périmé", event="reset", result="replayed", username=claims["sub"], ip=ip)
+        raise HTTPException(status_code=401, detail="Ce lien a déjà servi. Redemandez un e-mail.")
+    if len(body.password) < users.MIN_PASSWORD:
+        raise HTTPException(status_code=422, detail=f"Mot de passe trop court (au moins {users.MIN_PASSWORD} caractères).")
+
+    if not state.store.set_password(claims["sub"], body.password):
+        RESETS.labels("gone").inc()
+        raise HTTPException(status_code=401, detail="Compte introuvable ou désactivé.")
+
+    user = state.store.get(claims["sub"])
+    # Connecté d'emblée avec le nouveau mot de passe, par le cookie de session.
+    expires = _open_session(response, claims["sub"], user.role if user else "client")
+    RESETS.labels("success").inc()
+    audit("info", "mot de passe réinitialisé", event="reset", result="success", username=claims["sub"], ip=ip)
+    return {"expiresAt": expires, "user": user.payload() if user else {"username": claims["sub"], "role": "client"}}
+
+
 @app.get("/auth/me")
 def me(claims: dict[str, Any] = Depends(_claims)) -> dict[str, Any]:
     # Relu en base : un compte désactivé perd l'accès même avec un jeton encore valide ici.
     user = state.store.get(claims["sub"])
     if user is None:
         raise HTTPException(status_code=401, detail="Compte désactivé ou supprimé", headers={"WWW-Authenticate": "Bearer"})
-    return {"username": user.username, "role": user.role, "expiresAt": claims["exp"]}
+    return {**user.payload(), "expiresAt": claims["exp"]}

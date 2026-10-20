@@ -49,7 +49,7 @@ def test_connexion_et_jeton_verifiable_avec_la_cle_publique(client: TestClient) 
     res = client.post("/auth/token", json={"username": CLIENT[0], "password": CLIENT[1]})
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["user"] == {"username": "alice", "role": "client"}
+    assert body["user"] == {"username": "alice", "role": "client", "firstName": "", "lastName": ""}
 
     # Ce que fera payment-api : vérifier avec la seule clé publique publiée.
     jwk = client.get("/auth/jwks.json").json()["keys"][0]
@@ -147,32 +147,30 @@ def test_metriques_et_sante(client: TestClient) -> None:
     assert client.get("/health").json() == {"ok": True, "db": True}
 
 
+NADIA = {"email": "Nadia@Exemple.fr", "firstName": "Nadia", "lastName": "Benali", "password": "nadia-secret-1"}
+
+
 def test_inscription_cree_un_client_et_connecte(client: TestClient) -> None:
-    r = client.post("/auth/register", json={"username": "Nadia", "password": "nadia-secret-1"})
+    r = client.post("/auth/register", json=NADIA)
     assert r.status_code == 201
     body = r.json()
-    assert body["user"] == {"username": "nadia", "role": "client"}
+    assert body["user"] == {"username": "nadia@exemple.fr", "role": "client", "firstName": "Nadia", "lastName": "Benali"}
     # Connecté d'emblée par le cookie httpOnly, comme après /auth/login : aucun jeton lisible.
     assert "token" not in body
     assert "httponly" in r.headers["set-cookie"].lower()
     me = client.get("/auth/me")
     assert me.status_code == 200
-    assert me.json()["username"] == "nadia"
+    assert me.json()["firstName"] == "Nadia"
     client.cookies.clear()
     # Et le compte fonctionne ensuite comme n'importe quel autre.
-    assert client.post("/auth/login", json={"username": "nadia", "password": "nadia-secret-1"}).status_code == 200
+    assert client.post("/auth/login", json={"username": "nadia@exemple.fr", "password": NADIA["password"]}).status_code == 200
 
 
-def test_inscription_refuse_identifiant_deja_pris_sans_ecraser(client: TestClient) -> None:
-    r = client.post("/auth/register", json={"username": "alice", "password": "autre-secret-9"})
+def test_inscription_refuse_adresse_deja_prise_sans_ecraser(client: TestClient) -> None:
+    assert client.post("/auth/register", json=NADIA).status_code == 201
+    r = client.post("/auth/register", json={**NADIA, "password": "autre-secret-9"})
     assert r.status_code == 409
-    # Le mot de passe d'origine n'a pas bougé.
-    assert client.post("/auth/login", json={"username": "alice", "password": CLIENT[1]}).status_code == 200
-
-
-def test_inscription_mot_de_passe_trop_court(client: TestClient) -> None:
-    r = client.post("/auth/register", json={"username": "paul", "password": "court"})
-    assert r.status_code == 422
+    assert client.post("/auth/login", json={"username": "nadia@exemple.fr", "password": NADIA["password"]}).status_code == 200
 
 
 def test_connexion_navigateur_pose_un_cookie_httponly_sans_jeton_lisible(client: TestClient) -> None:
@@ -222,3 +220,86 @@ def test_jeton_pour_scripts_soumis_au_meme_freinage(client: TestClient) -> None:
 def test_documentation_sous_le_prefixe_auth(client: TestClient) -> None:
     assert client.get("/auth/docs").status_code == 200
     assert "/auth/login" in client.get("/auth/openapi.json").json()["paths"]
+
+
+def test_inscription_adresse_ou_mot_de_passe_invalide(client: TestClient) -> None:
+    assert client.post("/auth/register", json={**NADIA, "email": "pas-un-mail"}).status_code == 422
+    assert client.post("/auth/register", json={**NADIA, "password": "court"}).status_code == 422
+
+
+class _FakeSMTP:
+    """Capture le dernier message envoyé, sans réseau."""
+
+    sent: list = []
+
+    def __init__(self, host, port, timeout=None):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def send_message(self, msg):
+        _FakeSMTP.sent.append(msg)
+
+
+def _reset_link(msg) -> str:
+    body = msg.get_content()
+    for word in body.split():
+        if "?reset=" in word:
+            return word.split("?reset=", 1)[1]
+    raise AssertionError("pas de lien de réinitialisation dans le mail : " + body)
+
+
+def test_mot_de_passe_oublie_envoie_un_mail_et_le_lien_change_le_mot_de_passe(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import smtplib
+
+    _FakeSMTP.sent = []
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    client.post("/auth/register", json=NADIA)
+
+    r = client.post("/auth/forgot", json={"email": "nadia@exemple.fr"})
+    assert r.status_code == 200
+    assert len(_FakeSMTP.sent) == 1
+    assert _FakeSMTP.sent[0]["To"] == "nadia@exemple.fr"
+    token = _reset_link(_FakeSMTP.sent[0])
+
+    r = client.post("/auth/reset", json={"token": token, "password": "nouveau-secret-2"})
+    assert r.status_code == 200
+    # L'ancien mot de passe ne vaut plus rien, le nouveau si.
+    assert client.post("/auth/login", json={"username": "nadia@exemple.fr", "password": NADIA["password"]}).status_code == 401
+    assert client.post("/auth/login", json={"username": "nadia@exemple.fr", "password": "nouveau-secret-2"}).status_code == 200
+    # Et le lien ne sert qu'une fois.
+    assert client.post("/auth/reset", json={"token": token, "password": "encore-un-3"}).status_code == 401
+
+
+def test_adresse_inconnue_meme_reponse_et_aucun_mail(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import smtplib
+
+    _FakeSMTP.sent = []
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    r = client.post("/auth/forgot", json={"email": "inconnue@exemple.fr"})
+    assert r.status_code == 200
+    assert _FakeSMTP.sent == []
+
+
+def test_un_jeton_de_session_ne_reinitialise_pas(client: TestClient) -> None:
+    session = bearer(client, *CLIENT)
+    r = client.post("/auth/reset", json={"token": session, "password": "piratage-refuse-1"})
+    assert r.status_code == 401
+
+
+def test_reinitialisation_reconnecte_par_cookie(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import smtplib
+
+    _FakeSMTP.sent = []
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    client.post("/auth/register", json=NADIA)
+    client.cookies.clear()
+    client.post("/auth/forgot", json={"email": "nadia@exemple.fr"})
+    r = client.post("/auth/reset", json={"token": _reset_link(_FakeSMTP.sent[0]), "password": "nouveau-secret-2"})
+    assert r.status_code == 200
+    assert "token" not in r.json()
+    assert client.get("/auth/me").json()["username"] == "nadia@exemple.fr"

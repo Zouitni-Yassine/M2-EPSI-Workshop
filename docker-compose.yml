@@ -53,12 +53,32 @@ services:
         limits: { cpus: "1", memory: 512M }
       restart_policy: { condition: any, delay: 5s }
 
+  # Boîte mail de démonstration : l'e-mail de réinitialisation part en vrai SMTP et se lit
+  # sur http://localhost:8025, sans Internet. Image publique, compatible Swarm telle quelle.
+  mailpit:
+    image: axllent/mailpit:v1.20
+    ports:
+      # Boucle locale uniquement : le PC attaquant partage le réseau de démo, il ne doit pas
+      # pouvoir lire les liens de réinitialisation. Forme courte : Swarm refuse host_ip en forme
+      # longue ; il accepte celle-ci mais ignore l'adresse (publication sur tous les nœuds) — sur
+      # le cluster, ne pas publier Mailpit ou le fermer au pare-feu.
+      - "127.0.0.1:8025:8025"
+    networks: [resilience]
+    deploy:
+      replicas: 1
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+      restart_policy: { condition: any, delay: 5s }
+
   auth:
     image: ${REGISTRY:-resilience}/auth:0.3.0
     build: ./auth
     env_file: ./auth/.env
     environment:
       CORS_ORIGINS: http://localhost:5173,http://localhost:4173
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      APP_URL: http://localhost:5173
       DATABASE_URL: postgresql+psycopg://auth@db:5432/auth
       DB_PASSWORD_FILE: /run/secrets/auth_db_password
       # Partagée par toutes les réplicas : un jeton signé par l'une est vérifiable par toutes.
