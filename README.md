@@ -35,12 +35,39 @@ echo "VITE_STRIPE_PUBLISHABLE_KEY=pk_test_..." > .env
 echo "VITE_PAYPAL_CLIENT_ID=..." >> .env     # facultatif : même client ID que dans backend/.env
 
 # 2. Tout monter
-docker compose up --build
+docker compose up --build -d
+
+# 3. Tout arrêter : « down », pas « stop » — les services redémarreraient au prochain lancement de Docker
+docker compose down
 ```
 
 Puis http://localhost:5173, connexion avec `operateur` (accès à la supervision) ou `client`
 (paiement et ses propres transactions). Le détecteur apprend la normale pendant `WARMUP_SECONDS`
 (60 par défaut, réglable dans `.env`) avant de scorer.
+
+## Déployer sur le Swarm
+
+Le même `docker-compose.yml` sert au Swarm et suit le
+[contrat de déploiement](infra/docs/contrat-deploiement.md) : image à tag figé pour chaque
+service, secrets et configs Docker, conteneurs en lecture seule avec `tmpfs`, section `deploy`
+(ressources, politique de redémarrage, retour arrière), aucun `depends_on`.
+
+```bash
+export REGISTRY=ghcr.io/<org>                 # registre joignable par tous les nœuds
+docker compose build
+docker compose push auth payment-api detector remediation frontend
+PAYMENT_API_RESTART=on-failure DOCKER_SOCKET_PROXY_REPLICAS=0 \
+  docker stack deploy -c docker-compose.yml paiement
+```
+
+| Variable | Local (défaut) | Swarm | Pourquoi |
+| --- | --- | --- | --- |
+| `PAYMENT_API_RESTART` | `none` | `on-failure` | En local, seule la remédiation relance l'API : c'est la démo. Sur le Swarm, un crash est relancé, un arrêt volontaire reste à la remédiation. |
+| `DOCKER_SOCKET_PROXY_REPLICAS` | `1` | `0` | Le contrat interdit de monter `docker.sock` ; sur le Swarm, le moteur passe par la passerelle SSH (`infra/docs/remediation.md`). |
+
+Reste à faire pour une démo sur le Swarm : brancher le moteur de remédiation sur la passerelle
+SSH, épingler la base sur un nœud, et ne publier que le frontal (relais nginx) — les URL de
+l'API sont encore figées sur `localhost` dans le build du frontend.
 
 ## Rejouer la séquence de résilience
 
