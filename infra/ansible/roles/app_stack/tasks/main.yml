@@ -1,0 +1,114 @@
+# Stack applicative "Resilience Pay" sur le Swarm (sur swarm_managers[0]).
+# Secrets et configs Swarm immuables : le nom porte une empreinte salée et tronquée du contenu,
+# une rotation dans Vault crée un nouveau secret et met à jour les services qui l'utilisent ;
+# les anciens sont supprimés en fin de rôle (au passage suivant s'ils sont encore utilisés).
+
+- name: Module docker_stack (dépendance Python)
+  ansible.builtin.apt:
+    name: python3-jsondiff
+    state: present
+
+- name: Répertoire de la stack
+  ansible.builtin.file:
+    path: "{{ app_stack_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Noms versionnés des secrets
+  ansible.builtin.set_fact:
+    app_swarm_secrets: >-
+      {{ app_swarm_secrets | default({}) | combine({item.key: app_stack_name ~ '_' ~ item.key ~ '_'
+         ~ (('app-stack-secret:' ~ app_stack_name ~ ':' ~ item.key ~ ':' ~ item.value) | hash('sha256'))[:12]}) }}
+  loop: "{{ app_secret_values | dict2items | rejectattr('value', 'equalto', '') | list }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+
+- name: Secrets de l'application (secrets Swarm)
+  community.docker.docker_secret:
+    name: "{{ item.value }}"
+    data: "{{ app_secret_values[item.key] }}"
+    labels:
+      com.epsi.usage: "{{ app_stack_name }}"
+  loop: "{{ app_swarm_secrets | dict2items }}"
+  no_log: true
+
+# Script versionné dans le dépôt (db/init/01-roles.sh). Dépôt en sparse checkout (seul infra/
+# extrait) : lu dans le commit courant.
+- name: Script d'initialisation de la base
+  ansible.builtin.set_fact:
+    app_db_init: >-
+      {{ lookup('ansible.builtin.file', app_repo_dir ~ '/db/init/01-roles.sh')
+         if (app_repo_dir ~ '/db/init/01-roles.sh') is exists
+         else lookup('ansible.builtin.pipe', 'git -C ' ~ (app_repo_dir | quote) ~ ' show HEAD:db/init/01-roles.sh') }}
+
+- name: Nom versionné de la config d'initialisation
+  ansible.builtin.set_fact:
+    app_db_init_config_name: "{{ app_stack_name }}_db_init_{{ (app_db_init | hash('sha1'))[:12] }}"
+
+- name: Initialisation de la base (config Swarm)
+  community.docker.docker_config:
+    name: "{{ app_db_init_config_name }}"
+    data: "{{ app_db_init }}\n"
+    labels:
+      com.epsi.usage: "{{ app_stack_name }}"
+
+# Identifiants stockés dans /root/.docker/config.json du manager : transmis aux workers par
+# with_registry_auth pour qu'ils tirent les images du registre privé
+- name: Connexion au registre privé
+  community.docker.docker_login:
+    registry_url: "{{ app_registry }}"
+    username: "{{ app_registry_username }}"
+    password: "{{ app_registry_password }}"
+  no_log: true
+
+# Config des empreintes des managers, créée par le rôle remediation_gateway (nom versionné)
+- name: Config d'empreintes de la passerelle de remédiation
+  ansible.builtin.shell: >-
+    docker config ls --filter label=com.epsi.remediation=known_hosts
+    --format '{{ '{{' }}.CreatedAt{{ '}}' }} {{ '{{' }}.Name{{ '}}' }}' | sort | tail -n 1 | awk '{print $NF}'
+  register: app_known_hosts_config
+  changed_when: false
+  failed_when: app_known_hosts_config.stdout | length == 0
+
+- name: Fichier de stack
+  ansible.builtin.template:
+    src: "{{ app_stack_template }}"
+    dest: "{{ app_stack_dir }}/stack.yml"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Stack {{ app_stack_name }}
+  community.docker.docker_stack:
+    name: "{{ app_stack_name }}"
+    compose:
+      - "{{ app_stack_dir }}/stack.yml"
+    with_registry_auth: true
+    state: present
+
+- name: Secrets présents
+  ansible.builtin.command: docker secret ls --filter label=com.epsi.usage={{ app_stack_name }} --format "{{ '{{' }}.Name{{ '}}' }}"
+  register: app_secrets_present
+  changed_when: false
+
+- name: Supprimer les anciens secrets
+  community.docker.docker_secret:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ app_secrets_present.stdout_lines | reject('in', app_swarm_secrets.values() | list) | list }}"
+  failed_when: false
+
+- name: Configs présentes
+  ansible.builtin.command: docker config ls --filter label=com.epsi.usage={{ app_stack_name }} --format "{{ '{{' }}.Name{{ '}}' }}"
+  register: app_configs_present
+  changed_when: false
+
+- name: Supprimer les anciennes configs
+  community.docker.docker_config:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ app_configs_present.stdout_lines | reject('equalto', app_db_init_config_name) | list }}"
+  failed_when: false

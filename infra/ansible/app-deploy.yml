@@ -1,0 +1,144 @@
+# Déploiement de l'application "Resilience Pay" (stack Swarm "paiement")
+#   cd /srv/M2-EPSI-Workshop/infra/ansible
+#   python3 ../app/init-secrets-vault.py          # une fois : secrets générés dans Vault
+#   vault-env ansible-playbook app-build.yml      # images dans le registre privé
+#   vault-env ansible-playbook app-deploy.yml
+# Sans clé Stripe dans Vault (paiement en simulation) : -e app_require_stripe=false
+# Détails : docs/application-stack.md
+
+- name: Stack applicative paiement
+  hosts: swarm_managers[0]
+  vars_files:
+    # Adresse du registre privé (app_registry), build args du frontend (app_build_arg_values)
+    - roles/app_registry/defaults/main.yml
+    - roles/app_build/defaults/main.yml
+  pre_tasks:
+    # Même calcul que le rôle app_build (tasks/main.yml, "Plan de construction") : nom et
+    # version tirés de "image:" du docker-compose.yml de la révision, empreinte des build args
+    - name: docker-compose.yml de la révision déployée
+      ansible.builtin.set_fact:
+        app_compose: "{{ lookup('ansible.builtin.pipe', 'git -C ' ~ (app_repo_dir | quote) ~ ' show ' ~ app_git_ref ~ ':docker-compose.yml') | from_yaml }}"
+      when: app_image_tags is not defined
+      delegate_to: localhost
+      run_once: true
+
+    - name: Tags attendus des images
+      ansible.builtin.set_fact:
+        app_image_tags: >-
+          {{ app_image_tags | default({}) | combine({_ref.split(':')[0]: _ref.split(':')[1] ~ '-' ~ app_git_ref[:7]
+             ~ (('-' ~ (_args | to_json(sort_keys=true) | hash('sha256'))[:8]) if _args else '')}) }}
+      vars:
+        _ref: "{{ app_compose.services[item].image | regex_replace('^.*/', '') }}"
+        _build: "{{ app_compose.services[item].build }}"
+        _raw_args: "{{ (_build.args | default({})) if _build is mapping else {} }}"
+        _args: >-
+          {{ _raw_args | combine(app_build_arg_values | dict2items
+                                 | selectattr('key', 'in', _raw_args.keys() | list) | items2dict) }}
+      loop: "{{ app_images }}"
+      when: app_compose is defined
+      no_log: true # build args du frontend (clé Stripe publiable)
+
+    - name: Images déployées
+      ansible.builtin.debug:
+        msg: "{{ app_registry }}/{{ item.key }}:{{ item.value }}"
+      loop: "{{ app_image_tags | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Secrets générés présents (secret/infra/paiement-app)
+      ansible.builtin.assert:
+        that:
+          - app_secret_values[item] | length >= 16
+        fail_msg: >-
+          Secret {{ item }} absent : lancer le playbook par vault-env et créer les secrets
+          générés (python3 ../app/init-secrets-vault.py)
+        quiet: true
+      loop:
+        - postgres_password
+        - auth_db_password
+        - payments_db_password
+        - detector_admin_token
+        - auth_password_operateur
+        - auth_password_client
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Clé de signature des jetons (PEM Ed25519)
+      ansible.builtin.assert:
+        that:
+          - "'-----BEGIN PRIVATE KEY-----' in app_secret_values.jwt_private_key"
+        fail_msg: "PAIEMENT_JWT_PRIVATE_KEY absente ou invalide dans secret/infra/paiement-app"
+        quiet: true
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Un secret par compte semé
+      ansible.builtin.assert:
+        that:
+          - ('auth_password_' ~ item.username) in app_secret_values
+        fail_msg: "Compte {{ item.username }} : ajouter auth_password_{{ item.username }} à app_secret_values"
+        quiet: true
+      loop: "{{ app_seed_users }}"
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Clé Stripe présente (secret/infra/paiement)
+      ansible.builtin.assert:
+        that:
+          - app_secret_values.stripe_secret_key is match('^(sk|rk)_(test|live)_')
+        fail_msg: >-
+          STRIPE_SECRET_KEY absente de Vault : la ranger dans secret/infra/paiement (clés
+          STRIPE_SECRET_KEY et VITE_STRIPE_PUBLISHABLE_KEY), ou déployer sans paiement réel
+          avec -e app_require_stripe=false
+        quiet: true
+      when: app_require_stripe | bool
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Identifiants du registre (secret/infra/registry)
+      ansible.builtin.assert:
+        that:
+          - app_registry_username | length > 0
+          - app_registry_password | length > 0
+        fail_msg: "REGISTRY_USERNAME / REGISTRY_PASSWORD absents : lancer par vault-env, après app-build.yml"
+        quiet: true
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Tags disponibles dans le registre
+      ansible.builtin.uri:
+        url: "https://{{ app_registry }}/v2/{{ item }}/tags/list"
+        url_username: "{{ app_registry_username }}"
+        url_password: "{{ app_registry_password }}"
+        force_basic_auth: true
+        status_code: [200, 404]
+      loop: "{{ app_image_tags.keys() | list }}"
+      register: app_registry_tags
+      no_log: true
+
+    - name: Images absentes du registre
+      ansible.builtin.set_fact:
+        app_missing_images: >-
+          {{ app_missing_images | default([]) + ([item.item ~ ':' ~ app_image_tags[item.item]]
+             if item.status != 200 or app_image_tags[item.item] not in (item.json.tags | default([]) or [])
+             else []) }}
+      loop: "{{ app_registry_tags.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Images construites et poussées
+      ansible.builtin.assert:
+        that:
+          - app_missing_images | length == 0
+        fail_msg: >-
+          Absentes de {{ app_registry }} : {{ app_missing_images | join(', ') }}. Lancer
+          app-build.yml (même révision : app_git_ref), ou corriger app_image_tags
+        quiet: true
+
+  roles:
+    - app_stack

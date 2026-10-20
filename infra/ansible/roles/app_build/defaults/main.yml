@@ -1,0 +1,32 @@
+# Construction des images de Resilience Pay et envoi au registre du Swarm (docs/application.md)
+#
+# Le code vient du dépôt public, à une révision figée : par défaut le commit courant de la
+# branche INFRA sur le poste de contrôle (il doit avoir été poussé sur GitHub).
+#   vault-env ansible-playbook app-build.yml -e app_git_ref=<sha complet>
+app_build_repo: https://github.com/Zouitni-Yassine/M2-EPSI-Workshop.git
+app_git_ref: "{{ lookup('ansible.builtin.pipe', 'git -C /srv/M2-EPSI-Workshop rev-parse HEAD') }}"
+
+# Dossier de travail sur le manager qui construit (clone du dépôt dans src/)
+app_build_dir: /var/lib/app-build
+
+# Services du docker-compose.yml de la racine à construire. Reconstruire une seule image :
+#   vault-env ansible-playbook app-build.yml -e '{"app_build_images": ["remediation"]}'
+app_build_images: [auth, payment-api, detector, remediation, frontend]
+
+# true : reconstruire et repousser même si le tag existe déjà dans le registre
+app_build_force: false
+
+# Valeurs des build args variables du compose (${VAR} : frontend). Clés Stripe et PayPal lues
+# dans Vault (secret/infra/paiement) par vault-env. Sans clé Stripe, le frontend fonctionne en
+# paiement par carte simulé localement (VITE_CARD_ENTRY=own, bannière à l'écran).
+app_build_arg_values:
+  VITE_STRIPE_PUBLISHABLE_KEY: "{{ lookup('ansible.builtin.env', 'VITE_STRIPE_PUBLISHABLE_KEY') }}"
+  VITE_PAYPAL_CLIENT_ID: "{{ lookup('ansible.builtin.env', 'PAYPAL_CLIENT_ID') }}"
+  VITE_CARD_ENTRY: own
+
+# Types de manifestes acceptés pour lire le digest d'un tag (images simples et multi-plateformes)
+app_build_manifest_types: >-
+  application/vnd.oci.image.index.v1+json,
+  application/vnd.oci.image.manifest.v1+json,
+  application/vnd.docker.distribution.manifest.list.v2+json,
+  application/vnd.docker.distribution.manifest.v2+json

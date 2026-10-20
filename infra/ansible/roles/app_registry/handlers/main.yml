@@ -1,0 +1,6 @@
+# Nouveau certificat : le registre ne relit pas ses fichiers TLS, la tâche est recréée
+- name: Redémarrer le registre
+  ansible.builtin.command: docker service update --force --quiet {{ app_registry_stack }}_registry
+  delegate_to: "{{ groups['swarm_managers'][0] }}"
+  run_once: true
+  changed_when: true

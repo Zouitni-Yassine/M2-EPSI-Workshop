@@ -115,13 +115,47 @@
   no_log: true
   run_once: true
 
-- name: Empreintes des managers (config Swarm)
-  community.docker.docker_config:
-    name: remediation_known_hosts
-    data: |
-      {% for h in ansible_play_hosts %}
+# Empreintes de TOUS les managers (pas seulement ceux du passage : un --limit produisait une
+# config incomplète, constaté le 20/10). Config immuable : nom = empreinte du contenu, les
+# consommateurs (stack paiement, test-passerelle.sh) la retrouvent par le label
+# com.epsi.remediation=known_hosts.
+- name: Empreintes de tous les managers disponibles
+  ansible.builtin.assert:
+    that: groups['swarm_managers'] | difference(ansible_play_hosts) | length == 0
+    fail_msg: "Lancer ce rôle sur tous les managers (pas de --limit partiel) : les empreintes seraient incomplètes"
+    quiet: true
+  run_once: true
+
+- name: Contenu des empreintes
+  ansible.builtin.set_fact:
+    remediation_known_hosts_data: |
+      {% for h in groups['swarm_managers'] %}
       {{ hostvars[h].ansible_host }} {{ (hostvars[h].remediation_hostkey.content | b64decode).split()[:2] | join(' ') }}
       {% endfor %}
+  run_once: true
+
+- name: Empreintes des managers (config Swarm)
+  community.docker.docker_config:
+    name: "remediation_known_hosts_{{ remediation_known_hosts_data | hash('sha256') | truncate(12, true, '') }}"
+    data: "{{ remediation_known_hosts_data }}"
     labels:
       com.epsi.usage: remediation
+      com.epsi.remediation: known_hosts
+  run_once: true
+
+- name: Configs d'empreintes présentes
+  ansible.builtin.command: docker config ls --filter label=com.epsi.usage=remediation --format "{{ '{{' }}.Name{{ '}}' }}"
+  register: remediation_kh_configs
+  changed_when: false
+  run_once: true
+
+# Une config encore utilisée par un service ne peut pas être supprimée : elle le sera au passage
+# suivant (après redéploiement de la stack qui l'utilise). Inclut l'ancien nom fixe.
+- name: Supprimer les anciennes configs d'empreintes
+  community.docker.docker_config:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ remediation_kh_configs.stdout_lines | select('match', '^remediation_known_hosts')
+            | reject('equalto', 'remediation_known_hosts_' ~ (remediation_known_hosts_data | hash('sha256') | truncate(12, true, ''))) | list }}"
+  failed_when: false
   run_once: true

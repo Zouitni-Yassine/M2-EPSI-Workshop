@@ -1,0 +1,70 @@
+# {{ ansible_managed }}
+# Stack "{{ app_registry_stack }}" : registre d'images privé du Swarm, déployé par le rôle app_registry.
+# Adresse : {{ app_registry }} (TLS, CA interne ; authentification Basic). Voir docs/application.md.
+services:
+  registry:
+    image: {{ app_registry_image }}
+    environment:
+      REGISTRY_HTTP_ADDR: ":5000"
+      REGISTRY_HTTP_TLS_CERTIFICATE: /certs/tls.crt
+      REGISTRY_HTTP_TLS_KEY: /certs/tls.key
+      REGISTRY_AUTH: htpasswd
+      REGISTRY_AUTH_HTPASSWD_REALM: RESILIENCE-ALPHA
+      REGISTRY_AUTH_HTPASSWD_PATH: /run/secrets/htpasswd
+      # Suppression de manifestes autorisée (ménage : API DELETE puis garbage-collect)
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+      # Port de debug, non publié : santé (healthcheck) et métriques Prometheus (/metrics),
+      # joignables par le vmagent du Swarm sur le réseau "monitoring"
+      REGISTRY_HTTP_DEBUG_ADDR: ":5001"
+      REGISTRY_HTTP_DEBUG_PROMETHEUS_ENABLED: "true"
+    secrets:
+      - source: htpasswd
+        target: htpasswd
+    volumes:
+      # Données : volume local du nœud épinglé (voir placement)
+      - registry-data:/var/lib/registry
+      # Certificat émis par la CA interne, installé sur le nœud par Ansible (rôle internal_ca)
+      - type: bind
+        source: {{ app_registry_tls_dir }}
+        target: /certs
+        read_only: true
+    ports:
+      # Mode host : le port n'est ouvert que sur le nœud du registre, à son adresse (celle du
+      # certificat). Il passe par FORWARD, pas par le firewall de l'hôte : l'accès est limité
+      # par la passerelle UniFi (RA-APP et MANAGEMENT seulement).
+      - target: 5000
+        published: {{ app_registry_port }}
+        protocol: tcp
+        mode: host
+    networks:
+      - monitoring
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5001/debug/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy:
+      replicas: 1
+      placement:
+        # Volume local : le registre ne doit jamais changer de nœud
+        constraints: [node.hostname == {{ app_registry_node }}]
+      resources:
+        limits: { cpus: "1", memory: 512M }
+      restart_policy: { condition: any, delay: 5s }
+      # stop-first : le port en mode host ne peut pas être tenu par deux tâches à la fois
+      update_config: { order: stop-first, failure_action: rollback }
+      labels:
+        com.epsi.role: registry
+
+networks:
+  monitoring:
+    external: true
+
+secrets:
+  htpasswd:
+    name: {{ app_registry_htpasswd_secret }}
+    external: true
+
+volumes:
+  registry-data:

@@ -1,0 +1,126 @@
+# Alertes de l'application « Resilience Pay » (stack Swarm "paiement").
+# Métriques scrapées par le vmagent du Swarm (swarm_scrape_targets) : labels service et stack.
+#
+# Labels du contrat (docs/contrat-deploiement.md, section 8) :
+#   remediation  auto = lue par le moteur de remédiation (API Alertmanager), manual = pour les humains
+#   service      service Swarm visé par l'action (paiement_payment-api, paiement_auth, paiement_db)
+#   stack        paiement
+#   action       restart, rollback, scale : suggestion, le moteur reste libre de décider
+#
+# Les sondes /api/status et /api/health (détecteur, moteur, canary : une par seconde chacun)
+# sont exclues des taux d'erreur et de la latence : elles répondent 200 tant que le processus
+# vit et noieraient les vraies requêtes. Les seuils de trafic évitent les alertes sur 1 erreur
+# isolée quand personne ne paie.
+groups:
+  - name: paiement
+    rules:
+      # Plus aucune réplica ne répond. Swarm retire du DNS une tâche arrêtée : quand toutes
+      # sont tombées, tasks.<service> est vide et il n'y a plus de série "up" du tout (d'où
+      # absent). Condition "vue dans l'heure" : pas d'alerte avant le premier déploiement.
+      # Un "docker stack rm" volontaire déclenche l'alerte pendant au plus une heure.
+      - alert: PaiementApiDown
+        expr: |
+          absent(up{service="paiement_payment-api"} == 1)
+            and on() count(present_over_time(up{service="paiement_payment-api"}[1h])) > 0
+        for: 1m
+        labels:
+          severity: critical
+          remediation: auto
+          service: paiement_payment-api
+          stack: paiement
+          action: restart
+        annotations:
+          summary: "payment-api ne répond plus sur aucune réplica (/metrics injoignable) : paiements interrompus"
+
+      - alert: PaiementAuthDown
+        expr: |
+          absent(up{service="paiement_auth"} == 1)
+            and on() count(present_over_time(up{service="paiement_auth"}[1h])) > 0
+        for: 1m
+        labels:
+          severity: critical
+          remediation: auto
+          service: paiement_auth
+          stack: paiement
+          action: restart
+        annotations:
+          summary: "Le service d'authentification ne répond plus sur aucune réplica : connexions impossibles"
+
+      # 5xx de payment-api hors sondes. 502 exclu : payment-api le renvoie quand Stripe échoue,
+      # un redémarrage n'y changerait rien (voir PaiementProviderDown). Pas d'alerte non plus si
+      # la base est en panne : c'est PaiementDatabaseDown qui porte l'incident.
+      - alert: PaiementApiHighErrorRate
+        expr: |
+          (
+            sum by (service, stack) (rate(http_requests_total{service="paiement_payment-api", route!~"/api/(status|health)", code=~"5..", code!="502"}[2m]))
+              / sum by (service, stack) (rate(http_requests_total{service="paiement_payment-api", route!~"/api/(status|health)"}[2m]))
+          ) > 0.05
+            and on (service, stack) sum by (service, stack) (rate(http_requests_total{service="paiement_payment-api", route!~"/api/(status|health)", code=~"5..", code!="502"}[2m])) > 0.02
+            unless on (service, stack) max by (service, stack) (payment_api_dependency_up{service="paiement_payment-api", dependency="db"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+          remediation: auto
+          action: restart
+        annotations:
+          summary: "payment-api : {{ $value | humanizePercentage }} de réponses 5xx sur 2 min (hors sondes et erreurs Stripe)"
+
+      # p95 hors sondes, avec un minimum de trafic (3 requêtes par minute).
+      - alert: PaiementApiHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, service, stack) (rate(http_request_duration_seconds_bucket{service="paiement_payment-api", route!~"/api/(status|health)|unmatched"}[2m]))
+          ) > 2
+            and on (service, stack) sum by (service, stack) (rate(http_requests_total{service="paiement_payment-api", route!~"/api/(status|health)|unmatched"}[2m])) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          remediation: auto
+          action: scale
+        annotations:
+          summary: "payment-api lent : p95 à {{ $value | humanizeDuration }} sur 2 min (seuil 2 s)"
+
+      # Base vue en panne par toutes les réplicas (sondée en tâche de fond toutes les 2 s).
+      # Remédiation manuelle : Swarm relance déjà une base dont le healthcheck échoue, la base est
+      # épinglée sur un seul nœud (volume local, pas de bascule) et la redémarrer coupe toutes
+      # les transactions en cours. Si elle répond à son healthcheck mais pas à l'API, la cause
+      # est ailleurs (réseau, connexions saturées) : décision humaine.
+      - alert: PaiementDatabaseDown
+        expr: max by (service, stack) (payment_api_dependency_up{service="paiement_payment-api", dependency="db"}) == 0
+        for: 1m
+        labels:
+          severity: critical
+          remediation: manual
+          service: paiement_db
+          action: restart
+        annotations:
+          summary: "payment-api ne joint plus sa base de données (paiement_db) depuis 1 min"
+
+      # Prestataire externe (Stripe, PayPal) en échec. La sonde n'est rafraîchie que par
+      # /api/status : seules les réplicas sondées dans les 2 dernières minutes comptent (une
+      # réplica jamais sondée garde sa valeur initiale, 0). Rien à réparer chez nous : manuel.
+      - alert: PaiementProviderDown
+        expr: |
+          max by (service, stack, dependency) (
+            payment_api_dependency_up{service="paiement_payment-api", dependency=~"stripe|paypal"}
+              and on (instance) sum by (instance) (rate(http_requests_total{service="paiement_payment-api", route="/api/status"}[2m])) > 0
+          ) == 0
+        for: 3m
+        labels:
+          severity: warning
+          remediation: manual
+          action: none
+        annotations:
+          summary: "Prestataire {{ $labels.dependency }} injoignable depuis payment-api depuis 3 min (paiements {{ $labels.dependency }} impossibles)"
+
+      # Échecs de connexion en rafale (identifiants faux ou adresse déjà freinée) : force brute
+      # ou bourrage d'identifiants. Pour l'équipe cyber (WAF, SIEM), pas pour le moteur.
+      - alert: PaiementAuthBruteForce
+        expr: sum by (service, stack) (rate(auth_login_total{service="paiement_auth", result=~"failure|locked"}[2m])) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          remediation: manual
+          action: none
+        annotations:
+          summary: "{{ $value | humanize }} échecs de connexion par seconde sur le service d'authentification : force brute ?"

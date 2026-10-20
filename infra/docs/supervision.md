@@ -162,6 +162,43 @@ Les cibles sont déclarées dans `swarm_scrape_targets` (`inventory/group_vars/s
 service devient un `job`, avec les labels `service` et `stack`. Règles côté développeurs :
 [contrat-deploiement.md](contrat-deploiement.md#4-métriques).
 
+### Métriques de l'application (stack `paiement`)
+
+| Job (= `service`) | Découverte | Métriques |
+|---|---|---|
+| `paiement_payment-api` | `tasks.paiement_payment-api:8000/metrics` | `payments_total{provider, status}` (stripe/paypal × ok/refused/error), `http_requests_total{method, route, code}`, `http_request_duration_seconds{method, route}` (histogramme), `payment_api_dependency_up{dependency}` (stripe, paypal, db) |
+| `paiement_auth` | `tasks.paiement_auth:8300/metrics` | `auth_login_total{result}` (success, failure, locked), `auth_signup_total{result}`, `auth_reset_total{result}` |
+
+- `route` est le **modèle** de route FastAPI (`/api/payment_intents/{intent_id}`), jamais l'URL
+  brute ; une URL inconnue (scan) compte sous `route="unmatched"`. `/metrics` n'est pas compté.
+- Les sondes `/api/status` et `/api/health` (détecteur, moteur, canary : une par seconde chacun)
+  **sont comptées** dans `http_requests_total` : les requêtes métier s'obtiennent avec
+  `route!~"/api/(status|health)"`.
+- `payment_api_dependency_up{dependency="db"}` est rafraîchi en tâche de fond (2 s).
+  `stripe` et `paypal` ne le sont que par un appel à `/api/status` : une réplica que personne
+  ne sonde garde sa dernière valeur (0 au démarrage).
+- Le frontal (`paiement_frontend`, nginx) n'expose pas de métriques : sa disponibilité se lit
+  dans cAdvisor et ses logs dans Loki.
+
+Requêtes utiles (vmui, Grafana) :
+
+```promql
+# Paiements par minute, par issue
+sum by (status) (rate(payments_total[5m])) * 60
+# Taux de 5xx de payment-api, hors sondes
+sum(rate(http_requests_total{service="paiement_payment-api", route!~"/api/(status|health)", code=~"5.."}[5m]))
+  / sum(rate(http_requests_total{service="paiement_payment-api", route!~"/api/(status|health)"}[5m]))
+# Latence p95 par route
+histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket{service="paiement_payment-api"}[5m])))
+# Échecs de connexion par seconde
+sum by (result) (rate(auth_login_total[5m]))
+```
+
+Déploiement de la collecte : `vault-env ansible-playbook swarm.yml --limit 'swarm_managers[0]'`
+(rôle `swarm_monitoring` : nouvelle config Swarm nommée par empreinte, vmagent redéployé).
+Vérification sans accès au conteneur : `vm_promscrape_config_last_reload_successful{service="monitoring_vmagent"}`
+doit valoir 1, puis `up{stack="paiement"}` doit valoir 1 pour chaque réplica.
+
 ## 6. Logs
 
 ### Collecte
@@ -282,6 +319,44 @@ est réécrit dans VictoriaMetrics et survit à un redémarrage de vmalert.
 | `SwarmNodeNotReady` | un nœud Swarm n'est pas `ready` | 2 min | critical |
 | `SwarmNoLeader` | aucun manager leader (quorum perdu) | 1 min | critical |
 | `VaultSealed` | Vault joignable mais pas descellé : `up{job="vault"} == 1 unless on(instance) vault_core_unsealed == 1`. Descellement : `vault-unseal` | 1 min | critical |
+
+### Règles de l'application (`rules/paiement.yml`)
+
+Labels du contrat ([contrat-deploiement.md](contrat-deploiement.md#8-intégration-du-moteur-de-remédiation)) :
+`remediation="auto"` est lu par le moteur de remédiation dans l'API d'Alertmanager,
+`remediation="manual"` est pour les humains (Discord). Toutes portent `service`, `stack="paiement"`
+et `action` (suggestion : le moteur reste libre de décider).
+
+| Alerte | Condition | Durée | Sévérité | `remediation` / `service` / `action` |
+|---|---|---|---|---|
+| `PaiementApiDown` | aucune réplica de payment-api ne répond (`absent(up == 1)`), service vu dans l'heure | 1 min | critical | auto / `paiement_payment-api` / restart |
+| `PaiementAuthDown` | idem pour le service d'authentification | 1 min | critical | auto / `paiement_auth` / restart |
+| `PaiementApiHighErrorRate` | plus de 5 % de 5xx (hors sondes, hors 502 = erreur Stripe) **et** plus de 0,02 erreur/s, sauf si la base est en panne | 2 min | critical | auto / `paiement_payment-api` / restart |
+| `PaiementApiHighLatency` | p95 hors sondes au-dessus de 2 s, avec au moins 3 requêtes/min | 3 min | warning | auto / `paiement_payment-api` / scale |
+| `PaiementDatabaseDown` | `payment_api_dependency_up{dependency="db"} == 0` sur toutes les réplicas | 1 min | critical | manual / `paiement_db` / restart |
+| `PaiementProviderDown` | Stripe ou PayPal en échec, sur les réplicas sondées dans les 2 dernières minutes | 3 min | warning | manual / `paiement_payment-api` / none |
+| `PaiementAuthBruteForce` | plus de 0,5 échec de connexion/s (`failure` + `locked`) | 2 min | warning | manual / `paiement_auth` / none |
+
+Choix et limites :
+
+- **Service tombé = absence de cible.** Swarm retire du DNS une tâche arrêtée : quand toutes les
+  réplicas sont tombées, `tasks.<service>` est vide et il n'existe plus aucune série `up`, donc
+  `TargetDown` ne se déclenche pas. D'où `absent(up{service=...} == 1)`, limité aux services vus
+  dans l'heure (pas d'alerte avant le premier déploiement). Un `docker stack rm` volontaire
+  déclenche l'alerte pendant au plus une heure : poser un silence. `TargetDown` reste utile pour
+  une réplica qui ne répond plus sans être retirée.
+- **Base : remédiation manuelle.** Swarm relance déjà une base dont le healthcheck échoue ; la
+  base est épinglée sur un nœud (volume local) et la redémarrer coupe toutes les transactions.
+  Les 5xx causés par une panne de base ne déclenchent pas en plus un redémarrage de l'API.
+- **Prestataires externes : manuel.** Redémarrer payment-api ne répare pas Stripe.
+- **Délais de détection** : scrape toutes les 30 s et rafraîchissement DNS toutes les 30 s,
+  plus la durée `for`, plus 30 s de regroupement Alertmanager ; le moteur interroge Alertmanager
+  toutes les 5 s. Compter 2 à 3 minutes entre la panne et l'action pour `PaiementApiDown`. Le
+  détecteur de l'application (sondes à la seconde) reste le chemin rapide ; ces règles en sont
+  le filet de sécurité, indépendant de l'application.
+- Validées le 20/10/2026 : `vmalert -dryRun`, puis chargées par vmalert (`/api/v1/rules` :
+  7 règles, `health: ok`) ; l'expression d'absence a été testée sur le vmagent du Swarm (panne
+  simulée : 1 résultat ; service sain : aucun ; service jamais déployé : aucun).
 
 **`VaultSealed`, corrigée le 20/10/2026.** La première version testait `vault_core_unsealed == 0`.
 Or un Vault scellé n'expose plus cette métrique (page de métriques vide, mais `up = 1`) :
