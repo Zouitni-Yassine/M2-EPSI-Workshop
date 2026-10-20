@@ -1,10 +1,7 @@
-export function Wordmark() {
+export function Wordmark({ light = false }: { light?: boolean }) {
   return (
-    <span className="flex items-center gap-2">
-      <span className="grid size-7 place-items-center rounded-md bg-logo font-logo text-[15px] font-bold text-paper">
-        Y
-      </span>
-      <span className="font-logo text-[18px] font-bold tracking-tight text-logo">YAZNOW</span>
+    <span className={`font-logo text-2xl font-bold tracking-tight ${light ? 'text-white' : 'text-logo'}`}>
+      YAZNOW
     </span>
   )
 }

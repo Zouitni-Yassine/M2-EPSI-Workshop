@@ -89,6 +89,25 @@ export async function login(username: string, password: string): Promise<void> {
   set({ session: { token: body.token, expiresAt: body.expiresAt, user: body.user } })
 }
 
+export async function register(username: string, password: string): Promise<void> {
+  let res: Response
+  try {
+    res = await fetch(`${AUTH_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+      signal: AbortSignal.timeout(5000),
+    })
+  } catch {
+    throw new Error('Service d’authentification injoignable. Réessayez dans un instant.')
+  }
+  const body = (await res.json().catch(() => ({}))) as Partial<Session> & { detail?: unknown }
+  if (!res.ok || !body.token || !body.user || !body.expiresAt) {
+    throw new Error(typeof body.detail === 'string' ? body.detail : `Création impossible (${res.status}).`)
+  }
+  set({ session: { token: body.token, expiresAt: body.expiresAt, user: body.user } })
+}
+
 export function logout(): void {
   set({ session: null })
 }
