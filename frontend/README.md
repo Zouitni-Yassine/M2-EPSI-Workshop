@@ -1,12 +1,17 @@
 # Resilience Pay — frontend
 
-Trois vues dans une seule application React + Tailwind :
+Trois vues dans une seule application React + Tailwind, derrière une page de connexion :
 
-| Vue | Rôle |
-| --- | --- |
-| **Paiement** | Le tunnel de paiement par carte, branché sur Stripe en mode test |
-| **Transactions** | Le journal du compte marchand : solde, paiements, détail de chaque machine à états |
-| **Supervision** | Le dashboard que le jury regarde pendant l'attaque et la reprise |
+| Vue | Rôle | Accès |
+| --- | --- | --- |
+| **Paiement** | Le tunnel de paiement par carte, branché sur Stripe en mode test | client, opérateur |
+| **Transactions** | Le journal : ses propres paiements pour un client ; tout le compte marchand, solde et client de chaque paiement pour un opérateur | client, opérateur |
+| **Supervision** | Le dashboard que le jury regarde pendant l'attaque et la reprise | opérateur |
+
+La connexion passe par le service `auth/` (`VITE_AUTH_URL`). Le jeton est gardé dans le
+`sessionStorage` de l'onglet et joint à chaque appel de l'API (`src/auth/session.ts`) ; un
+`401` ou l'expiration ramène à la page de connexion avec le motif. Masquer un onglet ne protège
+rien : c'est l'API qui refuse.
 
 ## Démarrer
 
@@ -17,6 +22,7 @@ cp .env.example .env        # renseigner VITE_STRIPE_PUBLISHABLE_KEY
 npm run dev                 # http://localhost:5173
 ```
 
+Le service d'authentification doit tourner pour se connecter (voir `auth/README.md`).
 Le backend doit tourner à côté (voir `backend/README.md`), sinon le tunnel bascule en
 **simulation locale** et l'affiche clairement dans une bannière.
 

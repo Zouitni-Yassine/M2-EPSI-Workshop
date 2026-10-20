@@ -19,11 +19,12 @@ from typing import Any
 
 import stripe
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from . import paypal
+from .security import User, current_user, require_operator
 
 load_dotenv()
 
@@ -246,6 +247,7 @@ def to_intent(pi: Any) -> dict[str, Any]:
         "card": _card(pi, charge),
         "createdAt": _iso(pi.created),
         "reference": _meta(pi, "reference"),
+        "owner": _meta(pi, "owner"),
         "rail": _rail(status, three_ds, error),
         "history": _history(pi, charge, status, three_ds, error),
     }
@@ -261,7 +263,18 @@ def _stripe(call, *args, **kwargs):
         raise HTTPException(status_code=502, detail=f"Stripe : {exc.user_message or exc}") from exc
 
 
+def _owned(intent_id: str, user: User) -> Any:
+    """Relit l'intention et vérifie qu'elle appartient au client. Sinon 404 : on ne confirme même pas qu'elle existe."""
+    pi = _stripe(stripe.PaymentIntent.retrieve, intent_id, expand=["latest_charge"])
+    if not user.is_operator and _meta(pi, "owner") != user.username:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+    return pi
+
+
 # ---------------------------------------------------------------- routes
+#
+# /health et /status restent ouverts : le détecteur, le moteur de remédiation et
+# le canary les sondent chaque seconde. Tout le reste exige un jeton.
 
 
 @api.get("/health")
@@ -299,7 +312,7 @@ def status() -> dict[str, Any]:
 
 
 @api.post("/payment_intents", status_code=201)
-def create_intent(body: CreateIntent) -> dict[str, Any]:
+def create_intent(body: CreateIntent, user: User = Depends(current_user)) -> dict[str, Any]:
     if not stripe.api_key:
         raise HTTPException(status_code=503, detail="STRIPE_SECRET_KEY absente côté serveur")
     key = f"idem_{secrets.token_hex(6)}"
@@ -310,15 +323,17 @@ def create_intent(body: CreateIntent) -> dict[str, Any]:
         # Carte uniquement, sans redirection : confirmCardPayment reste dans la page.
         automatic_payment_methods={"enabled": True, "allow_redirects": "never"},
         description="Resilience Pay — commande",
-        metadata={"reference": _reference(), "holder": body.holder, "idempotency_key": key},
+        metadata={"reference": _reference(), "holder": body.holder, "idempotency_key": key, "owner": user.username},
         idempotency_key=key,
     )
     return {**to_intent(pi), "clientSecret": pi.client_secret}
 
 
 @api.post("/payment_intents/{intent_id}/confirm")
-def confirm_intent(intent_id: str, body: ConfirmIntent) -> dict[str, Any]:
+def confirm_intent(intent_id: str, body: ConfirmIntent, user: User = Depends(current_user)) -> dict[str, Any]:
     """Confirme avec le jeton de test correspondant au numéro saisi. Le numéro ne quitte pas ce serveur."""
+    if not user.is_operator:
+        _owned(intent_id, user)
     token = TEST_TOKENS.get(re.sub(r"\D", "", body.number))
     if not token:
         raise HTTPException(
@@ -336,18 +351,19 @@ def confirm_intent(intent_id: str, body: ConfirmIntent) -> dict[str, Any]:
 
 
 @api.get("/payment_intents")
-def list_intents() -> list[dict[str, Any]]:
-    page = _stripe(stripe.PaymentIntent.list, limit=25, expand=["data.latest_charge"])
-    return [to_intent(pi) for pi in page.data]
+def list_intents(user: User = Depends(current_user)) -> list[dict[str, Any]]:
+    # Un client ne voit que ses paiements : on lit plus large pour en garder 25 après filtrage.
+    page = _stripe(stripe.PaymentIntent.list, limit=25 if user.is_operator else 100, expand=["data.latest_charge"])
+    mine = [pi for pi in page.data if user.is_operator or _meta(pi, "owner") == user.username]
+    return [to_intent(pi) for pi in mine[:25]]
 
 
 @api.get("/payment_intents/{intent_id}")
-def get_intent(intent_id: str) -> dict[str, Any]:
-    pi = _stripe(stripe.PaymentIntent.retrieve, intent_id, expand=["latest_charge"])
-    return to_intent(pi)
+def get_intent(intent_id: str, user: User = Depends(current_user)) -> dict[str, Any]:
+    return to_intent(_owned(intent_id, user))
 
 
-@api.get("/balance")
+@api.get("/balance", dependencies=[Depends(require_operator)])
 def balance() -> dict[str, Any]:
     bal = _stripe(stripe.Balance.retrieve)
 

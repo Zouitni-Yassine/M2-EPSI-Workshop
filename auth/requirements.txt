@@ -1,0 +1,7 @@
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+pyjwt[crypto]>=2.8,<3
+argon2-cffi>=23.1,<26
+sqlalchemy>=2.0,<3
+prometheus-client>=0.20,<1
+python-dotenv>=1.0,<2

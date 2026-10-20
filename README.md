@@ -4,6 +4,9 @@ Démonstrateur de cyber-résilience : une plateforme de paiement qui détecte un
 anomalie et se répare seule, sans intervention humaine.
 
 ```
+                    auth (jetons Ed25519) ◄── connexion
+                         │ clé publique
+                         ▼
 navigateur ──► frontend (React + Tailwind) ──► payment-api (FastAPI) ──► Stripe (mode test)
                     │                               ▲
                     │ supervision                   │ redémarrage, via proxy Docker à droits réduits
@@ -13,8 +16,9 @@ navigateur ──► frontend (React + Tailwind) ──► payment-api (FastAPI)
 
 | Dossier | Rôle | Doc |
 | --- | --- | --- |
-| `frontend/` | Tunnel de paiement, journal des transactions, dashboard de supervision | [README](frontend/README.md) |
-| `backend/` | API de paiement, porte la clé Stripe, expose métriques et sonde | [README](backend/README.md) |
+| `frontend/` | Connexion, tunnel de paiement, journal des transactions, dashboard de supervision | [README](frontend/README.md) |
+| `auth/` | Comptes, rôles client / opérateur, jetons signés, freinage de la force brute | [README](auth/README.md) |
+| `backend/` | API de paiement, porte la clé Stripe, vérifie les jetons, expose métriques et sonde | [README](backend/README.md) |
 | `detector/` | Score d'anomalie chaque seconde, appris sur le trafic normal | [README](detector/README.md) |
 | `remediation/` | Écoute le verdict, redémarre la cible, vérifie la reprise | [README](remediation/README.md) |
 
@@ -23,6 +27,7 @@ navigateur ──► frontend (React + Tailwind) ──► payment-api (FastAPI)
 ```bash
 # 1. Secrets, jamais commités
 cp backend/.env.example backend/.env         # STRIPE_SECRET_KEY, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET
+cp auth/.env.example auth/.env               # AUTH_PASSWORD_OPERATEUR, AUTH_PASSWORD_CLIENT (8 caractères min.)
 cp detector/.env.example detector/.env       # DETECTOR_ADMIN_TOKEN
 echo "VITE_STRIPE_PUBLISHABLE_KEY=pk_test_..." > .env
 echo "VITE_PAYPAL_CLIENT_ID=..." >> .env     # facultatif : même client ID que dans backend/.env
@@ -31,7 +36,8 @@ echo "VITE_PAYPAL_CLIENT_ID=..." >> .env     # facultatif : même client ID que 
 docker compose up --build
 ```
 
-Puis http://localhost:5173. Le détecteur apprend la normale pendant `WARMUP_SECONDS`
+Puis http://localhost:5173, connexion avec `operateur` (accès à la supervision) ou `client`
+(paiement et ses propres transactions). Le détecteur apprend la normale pendant `WARMUP_SECONDS`
 (60 par défaut, réglable dans `.env`) avant de scorer.
 
 ## Rejouer la séquence de résilience
@@ -83,12 +89,19 @@ Depuis le conteneur du moteur de remédiation, vers le proxy Docker :
 - Un détecteur injoignable **dégrade** l'état (« Surveillance interrompue ») au lieu de laisser
   le bandeau vert.
 - Les clés Stripe ne sont lues que depuis l'environnement ; aucun `.env` n'est commité.
+- Paiements et transactions exigent un jeton délivré par `auth/` ; un client ne voit et ne
+  confirme que ses paiements, le solde marchand est réservé aux opérateurs. Jetons Ed25519
+  vérifiés localement par l'API (algorithme figé), mots de passe en argon2id, `429` après
+  5 échecs depuis une adresse. Détail dans [auth/README.md](auth/README.md).
+- Pas encore protégés : `/api/status`, `/score` du détecteur et `/state` du moteur, sondés sans
+  jeton par les services internes. Ils seront fermés à l'extérieur quand seul le frontal sera
+  publié (relais nginx).
 
 ## État par pilier
 
 | Pilier | Fait | Reste à faire |
 | --- | --- | --- |
-| **DEV** | Tunnel Stripe test, journal, dashboard, moteur de remédiation | Playbooks supplémentaires (bannir une IP, restaurer la base) |
+| **DEV** | Tunnel Stripe test, journal, dashboard, moteur de remédiation, service d'authentification et rôles | Playbooks supplémentaires (bannir une IP, restaurer la base), PostgreSQL |
 | **IA** | Détecteur IsolationForest + distance robuste, verdict qui déclenche l'action | Assistant RAG Ollama + LangChain, réapprentissage continu, variables CPU/RAM |
 | **INFRA** | `docker compose` complet, proxy Docker à liste blanche | Ansible, Prometheus, Grafana, Loki, PostgreSQL |
 | **CYBER** | Droits du moteur réduits, `/reset` protégé, état dégradé si aveugle | WAF, SIEM/SOC, Vault ou SOPS, scénario d'attaque depuis le PC attaquant |

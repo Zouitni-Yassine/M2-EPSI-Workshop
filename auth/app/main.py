@@ -1,0 +1,214 @@
+"""
+Service d'authentification — Resilience Pay.
+
+Vérifie un identifiant et un mot de passe, puis délivre un jeton signé qui dit
+qui est l'utilisateur et ce qu'il a le droit de faire : `client` (payer, voir
+ses paiements) ou `operator` (tout voir, superviser). Les autres services
+vérifient ce jeton eux-mêmes avec la clé publique : une panne de ce service
+n'interrompt pas les sessions déjà ouvertes.
+
+Chaque tentative est comptée (/metrics) et journalisée en JSON. Après quelques
+échecs depuis une même adresse, on refuse sans même vérifier le mot de passe :
+la force brute devient lente, et elle se voit.
+"""
+
+from __future__ import annotations
+
+import collections
+import json
+import logging
+import os
+import threading
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Any
+
+import jwt
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
+from pydantic import BaseModel, Field
+
+from . import tokens, users
+
+load_dotenv()
+
+ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+# Échecs tolérés sur une fenêtre glissante : par couple adresse + identifiant, puis par adresse
+# quel que soit l'identifiant visé. On ne bloque jamais un compte pour tout le monde : sinon
+# l'attaquant n'aurait qu'à se tromper cinq fois pour enfermer l'opérateur dehors.
+MAX_FAILURES = int(os.getenv("AUTH_MAX_FAILURES", "5"))
+MAX_FAILURES_PER_IP = int(os.getenv("AUTH_MAX_FAILURES_PER_IP", "20"))
+WINDOW_SECONDS = int(os.getenv("AUTH_LOCKOUT_SECONDS", "300"))
+
+# ---------------------------------------------------------------- journal et métriques
+
+LOGINS = Counter("auth_login_total", "Tentatives de connexion, par issue", ["result"])
+for _result in ("success", "failure", "locked"):
+    LOGINS.labels(_result)
+
+
+class _Json(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        line = {
+            "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname.lower(),
+            "service": "auth",
+            "msg": record.getMessage(),
+            **getattr(record, "fields", {}),
+        }
+        return json.dumps(line, ensure_ascii=False)
+
+
+_log = logging.getLogger("auth")
+_handler = logging.StreamHandler()
+_handler.setFormatter(_Json())
+_log.addHandler(_handler)
+_log.setLevel(logging.INFO)
+_log.propagate = False
+
+
+def audit(level: str, msg: str, **fields: Any) -> None:
+    """Une ligne JSON par événement, lue par Loki et le SIEM. Jamais de mot de passe ni de jeton."""
+    _log.log(getattr(logging, level.upper()), msg, extra={"fields": fields})
+
+
+# ---------------------------------------------------------------- freinage de la force brute
+
+
+class Throttle:
+    def __init__(self) -> None:
+        self._fails: dict[str, collections.deque[float]] = {}
+        self._lock = threading.Lock()
+
+    def wait(self, key: str, limit: int) -> int:
+        """Secondes avant de pouvoir réessayer, 0 si la tentative est permise."""
+        with self._lock:
+            q = self._fails.get(key)
+            if not q:
+                return 0
+            now = time.monotonic()
+            while q and now - q[0] > WINDOW_SECONDS:
+                q.popleft()
+            if len(q) < limit:
+                return 0
+            return int(WINDOW_SECONDS - (now - q[-limit])) + 1
+
+    def fail(self, key: str) -> None:
+        with self._lock:
+            if len(self._fails) > 10_000:
+                # Des milliers d'identifiants inventés ne font pas grossir la mémoire sans fin.
+                now = time.monotonic()
+                self._fails = {k: q for k, q in self._fails.items() if q and now - q[-1] <= WINDOW_SECONDS}
+            self._fails.setdefault(key, collections.deque(maxlen=100)).append(time.monotonic())
+
+    def clear(self, key: str) -> None:
+        with self._lock:
+            self._fails.pop(key, None)
+
+
+throttle = Throttle()
+
+# ---------------------------------------------------------------- application
+
+
+class _State:
+    store: users.Store
+    signer: tokens.Signer
+
+
+state = _State()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    data_dir = os.getenv("AUTH_DATA_DIR", "./data")
+    state.store = users.Store(os.getenv("DATABASE_URL") or f"sqlite:///{data_dir}/auth.db")
+    state.signer = tokens.Signer(tokens.load_key(data_dir), ttl_seconds=int(os.getenv("TOKEN_TTL_MINUTES", "120")) * 60)
+    users.seed_from_env(state.store, audit)
+    audit("info", "service d'authentification prêt", event="start", kid=state.signer.kid)
+    yield
+
+
+app = FastAPI(title="Resilience Pay — authentification", version="0.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+_bearer = HTTPBearer(auto_error=False)
+
+
+class Credentials(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    # Plafonné : un mot de passe de plusieurs mégaoctets ne doit pas occuper le CPU.
+    password: str = Field(min_length=1, max_length=256)
+
+
+def _claims(cred: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> dict[str, Any]:
+    if cred is None:
+        raise HTTPException(status_code=401, detail="Connexion requise", headers={"WWW-Authenticate": "Bearer"})
+    try:
+        return state.signer.verify(cred.credentials)
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail="Jeton invalide ou expiré", headers={"WWW-Authenticate": "Bearer"}) from exc
+
+
+@app.get("/health")
+def health(response: Response) -> dict[str, Any]:
+    db = state.store.ping()
+    if not db:
+        response.status_code = 503
+    return {"ok": db, "db": db}
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get("/auth/jwks.json")
+def jwks(response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return {"keys": [state.signer.jwk]}
+
+
+@app.post("/auth/login")
+def login(body: Credentials, request: Request) -> dict[str, Any]:
+    ip = request.client.host if request.client else "inconnue"
+    username = body.username.strip().lower()
+    pair = f"{ip}|{username}"
+
+    wait = max(throttle.wait(pair, MAX_FAILURES), throttle.wait(ip, MAX_FAILURES_PER_IP))
+    if wait:
+        LOGINS.labels("locked").inc()
+        audit("warning", "connexion refusée : trop d'échecs", event="login", result="locked", username=username, ip=ip, retry_after=wait)
+        raise HTTPException(status_code=429, detail=f"Trop de tentatives. Réessayez dans {wait} s.", headers={"Retry-After": str(wait)})
+
+    user = state.store.authenticate(username, body.password)
+    if user is None:
+        throttle.fail(pair)
+        throttle.fail(ip)
+        LOGINS.labels("failure").inc()
+        audit("warning", "échec de connexion", event="login", result="failure", username=username, ip=ip)
+        raise HTTPException(status_code=401, detail="Identifiant ou mot de passe incorrect.")
+
+    # Seul le couple est remis à zéro : un compte valable ne blanchit pas une adresse qui en essaie d'autres.
+    throttle.clear(pair)
+    token, expires = state.signer.issue(user.username, user.role)
+    LOGINS.labels("success").inc()
+    audit("info", "connexion réussie", event="login", result="success", username=user.username, role=user.role, ip=ip)
+    return {"token": token, "expiresAt": expires, "user": {"username": user.username, "role": user.role}}
+
+
+@app.get("/auth/me")
+def me(claims: dict[str, Any] = Depends(_claims)) -> dict[str, Any]:
+    # Relu en base : un compte désactivé perd l'accès même avec un jeton encore valide ici.
+    user = state.store.get(claims["sub"])
+    if user is None:
+        raise HTTPException(status_code=401, detail="Compte désactivé ou supprimé", headers={"WWW-Authenticate": "Bearer"})
+    return {"username": user.username, "role": user.role, "expiresAt": claims["exp"]}

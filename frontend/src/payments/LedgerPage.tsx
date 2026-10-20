@@ -20,7 +20,8 @@ const STATUS_CHIP: Record<IntentStatus, string> = {
   canceled: 'bg-bad/10 text-bad',
 }
 
-export function LedgerPage({ version }: { version: number }) {
+/** Un client ne voit que ses paiements (filtrés par l'API) ; l'opérateur voit tout, avec le solde marchand. */
+export function LedgerPage({ version, operator }: { version: number; operator: boolean }) {
   const choice = usePaymentEngine()
   const [rows, setRows] = useState<PaymentIntent[]>([])
   const [balance, setBalance] = useState<Balance | null>(null)
@@ -33,34 +34,42 @@ export function LedgerPage({ version }: { version: number }) {
     void Promise.all([choice.engine.list(), paypal]).then(([cards, wallets]) =>
       setRows([...cards, ...wallets].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))),
     )
-    void choice.engine.balance().then(setBalance)
-  }, [choice, version])
+    if (operator) void choice.engine.balance().then(setBalance)
+  }, [choice, version, operator])
 
   const accepted = rows.filter((r) => r.status === 'succeeded')
   const volume = accepted.reduce((s, r) => s + r.amount, 0)
+  const refused = rows.filter((r) => r.status === 'canceled').length
 
   return (
     <main className="mx-auto max-w-[1120px] px-6 py-10">
       <div className="flex items-end justify-between gap-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Transactions</h1>
-          <p className="mt-1 text-sm text-text-2">Activité du compte marchand</p>
+          <p className="mt-1 text-sm text-text-2">{operator ? 'Activité du compte marchand' : 'Vos paiements'}</p>
         </div>
       </div>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
-        <Tile label="Solde disponible" value={balance ? euros(balance.available) : '—'} />
-        <Tile label="Encaissé aujourd’hui" value={euros(volume)} note={`${accepted.length} paiement${accepted.length > 1 ? 's' : ''}`} />
-        <Tile
-          label="Prochain versement"
-          value={
-            balance
-              ? new Date(balance.nextPayoutAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
-              : '—'
-          }
-          note="Vers FR76 •••• 0189"
-        />
-      </div>
+      {operator ? (
+        <div className="mt-8 grid gap-4 sm:grid-cols-3">
+          <Tile label="Solde disponible" value={balance ? euros(balance.available) : '—'} />
+          <Tile label="Encaissé aujourd’hui" value={euros(volume)} note={`${accepted.length} paiement${accepted.length > 1 ? 's' : ''}`} />
+          <Tile
+            label="Prochain versement"
+            value={
+              balance
+                ? new Date(balance.nextPayoutAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
+                : '—'
+            }
+            note="Vers FR76 •••• 0189"
+          />
+        </div>
+      ) : (
+        <div className="mt-8 grid gap-4 sm:grid-cols-2">
+          <Tile label="Payé aujourd’hui" value={euros(volume)} note={`${accepted.length} paiement${accepted.length > 1 ? 's' : ''} accepté${accepted.length > 1 ? 's' : ''}`} />
+          <Tile label="Paiements" value={String(rows.length)} note={`${refused} refusé${refused > 1 ? 's' : ''}`} />
+        </div>
+      )}
 
       <section className="mt-8 overflow-hidden rounded-panel border border-edge bg-card shadow-panel">
         {rows.length === 0 ? (
@@ -76,6 +85,7 @@ export function LedgerPage({ version }: { version: number }) {
                 <th className="px-6 py-3">État</th>
                 <th className="px-6 py-3">Moyen</th>
                 <th className="px-6 py-3">Référence</th>
+                {operator ? <th className="px-6 py-3">Client</th> : null}
                 <th className="px-6 py-3 text-right">Date</th>
               </tr>
             </thead>
@@ -113,6 +123,7 @@ export function LedgerPage({ version }: { version: number }) {
                     )}
                   </td>
                   <td className="px-6 py-3.5 text-text-2">{r.reference}</td>
+                  {operator ? <td className="px-6 py-3.5 text-text-2">{r.owner || '—'}</td> : null}
                   <td className="px-6 py-3.5 text-right text-text-2">
                     {new Date(r.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                   </td>
@@ -123,7 +134,7 @@ export function LedgerPage({ version }: { version: number }) {
         )}
       </section>
 
-      {open ? <Drawer intent={open} onClose={() => setOpen(null)} /> : null}
+      {open ? <Drawer intent={open} operator={operator} onClose={() => setOpen(null)} /> : null}
     </main>
   )
 }
@@ -138,7 +149,7 @@ function Tile({ label, value, note }: { label: string; value: string; note?: str
   )
 }
 
-function Drawer({ intent, onClose }: { intent: PaymentIntent; onClose: () => void }) {
+function Drawer({ intent, operator, onClose }: { intent: PaymentIntent; operator: boolean; onClose: () => void }) {
   return (
     <div className="fade fixed inset-0 z-50 flex justify-end bg-text/40 backdrop-blur-sm" onClick={onClose}>
       <aside
@@ -178,6 +189,7 @@ function Drawer({ intent, onClose }: { intent: PaymentIntent; onClose: () => voi
                   ['Carte', `${intent.card.brand} •••• ${intent.card.last4}`],
                   ['Titulaire', intent.card.holder],
                 ]),
+            ...(operator ? [['Client', intent.owner || '—']] : []),
             ['Identifiant', intent.id],
             ['Clé d’idempotence', intent.idempotencyKey],
             ...(intent.error ? [['Motif du refus', intent.error.code]] : []),

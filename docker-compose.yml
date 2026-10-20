@@ -2,20 +2,39 @@
 #
 #   docker compose up --build
 #
-# Frontend : http://localhost:5173 · API : :8000 · Détecteur : :8100 · Remédiation : :8200
+# Frontend : http://localhost:5173 · API : :8000 · Détecteur : :8100 · Remédiation : :8200 · Auth : :8300
 # Le proxy Docker n'est joignable que depuis le réseau interne, et n'accepte
 # que deux requêtes : lister les conteneurs, redémarrer payment-api.
 
 services:
+  auth:
+    build: ./auth
+    container_name: auth
+    env_file: ./auth/.env
+    environment:
+      CORS_ORIGINS: http://localhost:5173,http://localhost:4173
+    # Comptes et clé de signature : conservés d'un redémarrage à l'autre, sessions comprises.
+    volumes:
+      - auth-data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "8300:8300"
+    networks: [resilience]
+
   payment-api:
     build: ./backend
     container_name: payment-api
     env_file: ./backend/.env
     environment:
       CORS_ORIGINS: http://localhost:5173,http://localhost:4173
+      AUTH_URL: http://auth:8300
     ports:
       - "8000:8000"
     networks: [resilience]
+    depends_on: [auth]
     restart: "no" # La reprise doit venir du moteur de remédiation, pas de Docker.
 
   detector:
@@ -64,6 +83,7 @@ services:
       context: ./frontend
       args:
         VITE_API_URL: http://localhost:8000/api
+        VITE_AUTH_URL: http://localhost:8300
         VITE_DETECTOR_URL: http://localhost:8100
         VITE_REMEDIATION_URL: http://localhost:8200
         VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
@@ -75,7 +95,10 @@ services:
     ports:
       - "5173:80"
     networks: [resilience]
-    depends_on: [payment-api]
+    depends_on: [payment-api, auth]
+
+volumes:
+  auth-data:
 
 networks:
   resilience:

@@ -4,6 +4,7 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 ARG VITE_API_URL=http://localhost:8000/api
+ARG VITE_AUTH_URL=http://localhost:8300
 ARG VITE_DETECTOR_URL=http://localhost:8100
 ARG VITE_REMEDIATION_URL=http://localhost:8200
 ARG VITE_STRIPE_PUBLISHABLE_KEY
