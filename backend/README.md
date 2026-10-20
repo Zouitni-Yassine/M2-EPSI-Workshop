@@ -22,6 +22,7 @@ uvicorn app.main:app --reload --port 8000
 | --- | --- | --- |
 | `GET /api/health` | ouvert | Le frontend l'appelle au démarrage pour choisir Stripe ou la simulation locale |
 | `GET /api/status` | ouvert | Sonde lue chaque seconde par le détecteur, le moteur de remédiation et le canary |
+| `GET /metrics` | ouvert | Métriques Prometheus, collectées par l'infra (à la racine, hors `/api`) |
 | `POST /api/payment_intents` | connecté | Crée un `PaymentIntent` chez Stripe au nom de l'utilisateur, renvoie le `clientSecret` |
 | `GET /api/payment_intents/:id` | propriétaire ou opérateur | Relit le paiement après confirmation : statut, réseau, 4 derniers chiffres, refus |
 | `GET /api/payment_intents` | connecté | Les 25 derniers paiements : les siens pour un client, tous pour un opérateur |
@@ -94,6 +95,30 @@ tombe : redémarrer l'API ne la réparerait pas.
 
 `DATABASE_URL` choisit la base (SQLite `./data/payments.db` par défaut hors Docker), le mot de
 passe vient de `DB_PASSWORD` ou du fichier `DB_PASSWORD_FILE`, jamais de l'URL.
+
+## Métriques et journal
+
+`GET /metrics` (format Prometheus, `app/metrics.py`) :
+
+| Série | Ce qu'elle mesure |
+| --- | --- |
+| `payments_total{provider, status}` | Issue de chaque paiement, comptée une seule fois : `ok`, `refused` ; `error` quand Stripe ou PayPal échoue |
+| `http_requests_total{method, route, code}` | Requêtes reçues, par modèle de route (`/api/payment_intents/{intent_id}`) ; une URL inconnue, comme un scan, compte sous `route="unmatched"` |
+| `http_request_duration_seconds{method, route}` | Latence (histogramme) |
+| `payment_api_dependency_up{dependency}` | `stripe`, `paypal`, `db` : 1 si la dépendance répond, lu dans les sondes existantes sans en déclencher |
+
+Chaque paiement écrit aussi une ligne JSON sur stdout (Loki, SIEM) : création, puis issue,
+avec `payment_id`, `reference`, `owner`, `amount`, `status` et le `decline_code` d'un refus.
+Jamais de numéro de carte ni de nom de porteur.
+
+**Pour la collecte sur le Swarm** (côté infra) : attacher `payment-api` (et `auth`) au réseau
+externe `monitoring`, puis déclarer les cibles dans `infra/ansible/inventory/group_vars/swarm.yml` :
+
+```yaml
+swarm_scrape_targets:
+  - { service: paiement_payment-api, port: 8000, path: /metrics }
+  - { service: paiement_auth, port: 8300, path: /metrics }
+```
 
 ## Tests
 

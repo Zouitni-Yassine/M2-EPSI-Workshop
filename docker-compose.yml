@@ -82,7 +82,7 @@ services:
       update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s }
 
   payment-api:
-    image: ${REGISTRY:-resilience}/payment-api:0.2.0
+    image: ${REGISTRY:-resilience}/payment-api:0.3.0
     build: ./backend
     # Local seulement : le proxy Docker n'autorise que le redémarrage du conteneur nommé payment-api.
     container_name: payment-api

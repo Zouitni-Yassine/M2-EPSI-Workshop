@@ -22,11 +22,11 @@ from typing import Any
 
 import stripe
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from . import paypal, store
+from . import metrics, paypal, store
 from .security import User, current_user, require_operator
 
 load_dotenv()
@@ -88,8 +88,10 @@ async def observe(request: Request, call_next):
         status = response.status_code
         return response
     finally:
+        elapsed = time.perf_counter() - started
+        metrics.observe_http(request, status, elapsed)
         if request.url.path not in _PROBE_PATHS:
-            _requests.append((time.time(), (time.perf_counter() - started) * 1000, status))
+            _requests.append((time.time(), elapsed * 1000, status))
 
 
 def probe_stripe() -> dict[str, Any]:
@@ -293,6 +295,7 @@ def _stripe(call, *args, **kwargs):
     try:
         return call(*args, **kwargs)
     except stripe.StripeError as exc:  # pragma: no cover - dépend du réseau
+        metrics.provider_error("stripe", str(exc))
         raise HTTPException(status_code=502, detail=f"Stripe : {exc.user_message or exc}") from exc
 
 
@@ -383,7 +386,8 @@ def create_intent(body: CreateIntent, user: User = Depends(current_user)) -> dic
         metadata={"reference": _reference(), "holder": body.holder, "idempotency_key": key, "owner": user.username},
         idempotency_key=key,
     )
-    return {**store.record(to_intent(pi), "stripe"), "clientSecret": pi.client_secret}
+    intent = metrics.created(to_intent(pi), "stripe")
+    return {**store.record(intent, "stripe"), "clientSecret": pi.client_secret}
 
 
 @api.post("/payment_intents/{intent_id}/confirm")
@@ -403,8 +407,10 @@ def confirm_intent(intent_id: str, body: ConfirmIntent, user: User = Depends(cur
         # Refus émetteur : l'intention porte le motif, on la relit telle quelle.
         pi = _stripe(stripe.PaymentIntent.retrieve, intent_id, expand=["latest_charge"])
     except stripe.StripeError as exc:
+        metrics.provider_error("stripe", str(exc))
         raise HTTPException(status_code=502, detail=f"Stripe : {exc.user_message or exc}") from exc
-    return {**store.record(to_intent(pi), "stripe"), "clientSecret": pi.client_secret}
+    intent = metrics.payment(to_intent(pi), "stripe")
+    return {**store.record(intent, "stripe"), "clientSecret": pi.client_secret}
 
 
 @api.get("/payment_intents")
@@ -422,7 +428,7 @@ def list_intents(user: User = Depends(current_user)) -> list[dict[str, Any]]:
 @api.get("/payment_intents/{intent_id}")
 def get_intent(intent_id: str, user: User = Depends(current_user)) -> dict[str, Any]:
     # Relu chez Stripe (après 3-D Secure, l'état a changé hors de nos routes) puis mis à jour en base.
-    return store.record(to_intent(_owned(intent_id, user)), "stripe")
+    return store.record(metrics.payment(to_intent(_owned(intent_id, user)), "stripe"), "stripe")
 
 
 @api.get("/balance", dependencies=[Depends(require_operator)])
@@ -437,6 +443,16 @@ def balance() -> dict[str, Any]:
 
     tomorrow = (datetime.now() + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
     return {"available": eur(bal.available), "pending": eur(bal.pending), "nextPayoutAt": tomorrow.isoformat()}
+
+
+@app.get("/metrics", include_in_schema=False)
+def prometheus() -> Response:
+    """Format Prometheus, à la racine comme le veut le contrat de déploiement. Ne déclenche aucune sonde."""
+    deps = {"stripe": bool(_stripe_probe["up"]), "db": bool(store.up())}
+    if paypal.configured():
+        deps["paypal"] = bool(paypal._probe["up"])
+    body, content_type = metrics.render(deps)
+    return Response(body, media_type=content_type)
 
 
 api.include_router(paypal.router)

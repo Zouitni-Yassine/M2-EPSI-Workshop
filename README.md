@@ -132,7 +132,7 @@ Depuis le conteneur du moteur de remédiation, vers le proxy Docker :
 
 | Pilier | Fait | Reste à faire |
 | --- | --- | --- |
-| **DEV** | Tunnel Stripe test, journal en PostgreSQL, dashboard, moteur de remédiation, service d'authentification et rôles | Playbooks supplémentaires (bannir une IP, restaurer la base) |
+| **DEV** | Tunnel Stripe test, journal en PostgreSQL, dashboard, moteur de remédiation, service d’authentification et rôles, métriques Prometheus et logs JSON | Playbooks supplémentaires (bannir une IP, restaurer la base) |
 | **IA** | Détecteur IsolationForest + distance robuste, verdict qui déclenche l'action | Assistant RAG Ollama + LangChain, réapprentissage continu, variables CPU/RAM |
 | **INFRA** | `docker compose` complet (db, auth, payment-api compatibles Swarm), proxy Docker à liste blanche | Ansible, Prometheus, Grafana, Loki |
 | **CYBER** | Droits du moteur réduits, `/reset` protégé, état dégradé si aveugle | WAF, SIEM/SOC, Vault ou SOPS, scénario d'attaque depuis le PC attaquant |
