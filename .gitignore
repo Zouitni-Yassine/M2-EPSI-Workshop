@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.local
+.playwright-mcp/
+*.log
+*.tsbuildinfo
+__pycache__/
+.venv/
+auth/data/
+secrets/
+backend/data/
