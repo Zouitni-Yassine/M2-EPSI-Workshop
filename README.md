@@ -19,6 +19,7 @@ navigateur ──► frontend : nginx, relais ──/auth/──► auth (jetons
 | `backend/` | API de paiement, porte la clé Stripe, vérifie les jetons, journal en base, expose métriques et sonde | [README](backend/README.md) |
 | `db/` | PostgreSQL : une base et un rôle par service, secrets Docker | [README](db/README.md) |
 | `detector/` | Score d'anomalie chaque seconde, appris sur le trafic normal | [README](detector/README.md) |
+| Mailpit | Boîte mail de démonstration (réinitialisation de mot de passe), UI sur `http://localhost:8025` | — |
 | `remediation/` | Écoute le verdict, redémarre la cible, vérifie la reprise | [README](remediation/README.md) |
 
 ## Lancer le démonstrateur
