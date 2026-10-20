@@ -2,12 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { LoginPage } from './auth/LoginPage'
 import { useAuth } from './auth/session'
 import { LedgerPage } from './payments/LedgerPage'
-import { PayPage } from './payments/PayPage'
 import { OpsPage } from './ops/OpsPage'
 import { ShopHeader, type AdminView } from './shop/ShopHeader'
 import { ShopPage } from './shop/ShopPage'
 
-type View = 'shop' | 'login' | AdminView
+type View = 'shop' | 'login' | 'orders' | AdminView
 
 // Lien du mail de réinitialisation : /?reset=<jeton>. Lu au chargement, puis l'URL est
 // nettoyée tout de suite : un rechargement ou un retour au login ne rejoue pas le formulaire.
@@ -43,7 +42,7 @@ export default function App() {
     return <LoginPage notice={notice} onBack={() => setView('shop')} resetToken={resetToken} onClearReset={() => setResetToken(undefined)} />
   }
 
-  const adminView: AdminView | null = operator && (view === 'pay' || view === 'ledger' || view === 'ops') ? view : null
+  const adminView: AdminView | null = operator && (view === 'ledger' || view === 'ops') ? view : null
 
   return (
     <div className="min-h-full">
@@ -53,14 +52,15 @@ export default function App() {
         onShop={() => setView('shop')}
         onAdmin={(v) => setView(v)}
         onLogin={() => setView('login')}
+        onOrders={() => setView('orders')}
       />
 
       {adminView === 'ops' ? (
         <OpsPage />
       ) : adminView === 'ledger' ? (
         <LedgerPage version={version} operator />
-      ) : adminView === 'pay' ? (
-        <PayPage onPaid={() => setVersion((v) => v + 1)} />
+      ) : view === 'orders' && user ? (
+        <LedgerPage version={version} operator={false} />
       ) : (
         <ShopPage
           key={user?.username ?? 'invite'}

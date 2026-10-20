@@ -4,10 +4,9 @@ import { useCart } from './cart'
 import { SECTIONS } from './catalog'
 import { openCart, setCategory, setQuery, useShopUI } from './ui'
 
-export type AdminView = 'pay' | 'ledger' | 'ops'
+export type AdminView = 'ledger' | 'ops'
 
 const ADMIN_TABS: { id: AdminView; label: string }[] = [
-  { id: 'pay', label: 'Paiement' },
   { id: 'ledger', label: 'Transactions' },
   { id: 'ops', label: 'Supervision' },
 ]
@@ -18,9 +17,10 @@ interface Props {
   onShop: () => void
   onAdmin: (view: AdminView) => void
   onLogin: () => void
+  onOrders: () => void
 }
 
-export function ShopHeader({ user, adminView, onShop, onAdmin, onLogin }: Props) {
+export function ShopHeader({ user, adminView, onShop, onAdmin, onLogin, onOrders }: Props) {
   const { count } = useCart()
   const { query, category } = useShopUI()
   const operator = user?.role === 'operator'
@@ -123,9 +123,19 @@ export function ShopHeader({ user, adminView, onShop, onAdmin, onLogin }: Props)
                     type="button"
                     onClick={() => {
                       setAccountOpen(false)
-                      logout()
+                      onOrders()
                     }}
                     className="block w-full px-4 py-2.5 text-left text-sm font-medium transition-colors hover:bg-well"
+                  >
+                    Mes commandes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountOpen(false)
+                      logout()
+                    }}
+                    className="block w-full px-4 py-2.5 text-left text-sm font-medium text-text-2 transition-colors hover:bg-well hover:text-text"
                   >
                     Déconnexion
                   </button>
