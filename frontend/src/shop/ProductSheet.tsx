@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { euros } from '../payments/domain/money'
-import { ProductArt } from './art'
 import { addToCart } from './cart'
 import type { Product } from './catalog'
 
@@ -28,20 +27,28 @@ export function ProductSheet({ product, onClose }: { product: Product; onClose: 
         type="button"
         aria-label="Fermer la fiche produit"
         onClick={onClose}
-        className="absolute inset-0 cursor-default bg-inkwarm/40 backdrop-blur-[2px]"
+        className="absolute inset-0 cursor-default bg-black/45 backdrop-blur-[2px]"
       />
-      <div className="rise relative w-full max-w-[760px] overflow-hidden rounded-panel bg-card shadow-float">
-        <div className="grid sm:grid-cols-[320px_1fr]">
-          <div className="grid place-items-center p-8" style={{ background: product.plinth }}>
-            <ProductArt id={product.id} className="w-full max-w-[260px]" />
-          </div>
+      <div className="rise relative w-full max-w-[860px] overflow-hidden rounded-panel bg-card shadow-float">
+        <div className="grid sm:grid-cols-[1fr_1fr]">
+          <img src={product.image} alt={product.name} className="h-full max-h-[520px] w-full object-cover" />
           <div className="flex flex-col gap-4 p-8">
             <div>
-              <h2 className="font-display text-3xl text-inkwarm">{product.name}</h2>
+              <p className="text-[11.5px] font-semibold uppercase tracking-[0.1em] text-text-2">{product.maker}</p>
+              <h2 className="mt-1 font-head text-3xl font-bold tracking-tight">{product.name}</h2>
               <p className="mt-1 text-sm text-text-2">{product.detail}</p>
             </div>
-            <p className="text-[15px] leading-relaxed text-text">{product.story}</p>
-            <p className="font-display text-2xl text-inkwarm">{euros(product.price)}</p>
+            <p className="text-[15px] leading-relaxed">{product.story}</p>
+            <p className="text-2xl font-semibold">
+              {product.compareAt ? (
+                <>
+                  <span className="mr-2 text-base text-text-2 line-through">{euros(product.compareAt)}</span>
+                  <span className="text-bad">{euros(product.price)}</span>
+                </>
+              ) : (
+                euros(product.price)
+              )}
+            </p>
 
             <div className="mt-auto flex items-center gap-3 pt-2">
               <div className="flex items-center rounded-lg border border-edge">
@@ -72,13 +79,14 @@ export function ProductSheet({ product, onClose }: { product: Product; onClose: 
                 {added ? 'Ajouté ✓' : 'Ajouter au panier'}
               </button>
             </div>
+            <p className="text-xs text-text-2">Livraison offerte dès 150 € · Retours sous 30 jours</p>
           </div>
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Fermer"
-          className="absolute right-4 top-4 grid size-8 place-items-center rounded-full bg-card/80 text-text-2 transition-colors hover:text-text"
+          className="absolute right-4 top-4 grid size-8 place-items-center rounded-full bg-white/85 text-text-2 transition-colors hover:text-text"
         >
           ✕
         </button>

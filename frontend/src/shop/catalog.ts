@@ -1,23 +1,28 @@
 import type { Cents } from '../payments/domain/types'
 
-export type Category = 'salon' | 'luminaires' | 'deco' | 'rangement'
+export type Category = 'salon' | 'chambre' | 'luminaires'
 
-export const CATEGORIES: { id: Category; label: string }[] = [
-  { id: 'salon', label: 'Salon' },
-  { id: 'luminaires', label: 'Luminaires' },
-  { id: 'deco', label: 'Décoration' },
-  { id: 'rangement', label: 'Rangement' },
+export const CATEGORIES: { id: Category; label: string; image: string }[] = [
+  { id: 'salon', label: 'Salon', image: '/img/dept-salon.jpg' },
+  { id: 'chambre', label: 'Chambre', image: '/img/dept-chambre.jpg' },
+  { id: 'luminaires', label: 'Luminaires', image: '/img/dept-luminaires.jpg' },
 ]
 
 export interface Product {
   id: string
   name: string
+  /** Éditeur fictif, affiché au-dessus du nom comme chez les revendeurs. */
+  maker: string
   category: Category
   /** Matière et dimension, affichées sous le nom. */
   detail: string
   price: Cents
-  /** Teinte du socle sur lequel le produit est dessiné. */
-  plinth: string
+  /** Prix barré : la différence s'affiche comme une remise. */
+  compareAt?: Cents
+  badge?: 'Nouveau' | 'Tendance' | 'Promo'
+  image: string
+  /** Cadrage du recadrage 4:5 (object-position CSS), quand le sujet n'est pas centré. */
+  pos?: string
   /** Une phrase pour la fiche produit. */
   story: string
 }
@@ -26,92 +31,123 @@ export const PRODUCTS: Product[] = [
   {
     id: 'canape-aalto',
     name: 'Canapé Aalto',
+    maker: 'Atelier Nord',
     category: 'salon',
-    detail: 'Lin lavé, 3 places · L 228 cm',
+    detail: 'Cuir fauve pleine fleur · L 228 cm',
     price: 129_900,
-    plinth: '#E7DECF',
-    story: 'Une assise profonde en lin lavé, dessinée pour les fins de journée qui durent.',
+    badge: 'Tendance',
+    image: '/img/p-aalto.jpg',
+    story: 'Un cuir fauve qui se patine avec les années, tendu sur une assise ferme et profonde.',
   },
   {
-    id: 'fauteuil-ryo',
-    name: 'Fauteuil Ryo',
+    id: 'canape-monceau',
+    name: 'Canapé Monceau',
+    maker: 'Maison Loir',
     category: 'salon',
-    detail: 'Bouclette écrue, pivotant · L 82 cm',
+    detail: 'Velours sapin, 3 places · L 214 cm',
+    price: 114_900,
+    image: '/img/p-monceau.jpg',
+    story: 'Le velours profond et les pieds compas : une silhouette des années 50, remise à l’échelle d’aujourd’hui.',
+  },
+  {
+    id: 'fauteuil-soleil',
+    name: 'Fauteuil Soleil',
+    maker: 'Maison Loir',
+    category: 'salon',
+    detail: 'Velours ocre, dossier haut · L 78 cm',
     price: 64_900,
-    plinth: '#E3E0D5',
-    story: 'La bouclette enveloppe une coque pivotante : le coin lecture devient un point de vue.',
-  },
-  {
-    id: 'table-noma',
-    name: 'Table basse Noma',
-    category: 'salon',
-    detail: 'Chêne massif huilé · Ø 90 cm',
-    price: 37_900,
-    plinth: '#EADFCE',
-    story: 'Un plateau de chêne épais posé sur trois pieds fuselés, huilé pour vieillir avec vous.',
+    compareAt: 74_900,
+    badge: 'Promo',
+    image: '/img/p-soleil.jpg',
+    story: 'Une touche d’ocre qui réchauffe la pièce entière, à côté d’un lampadaire en laiton.',
   },
   {
     id: 'chaise-brume',
     name: 'Chaise Brume',
+    maker: 'Atelier Nord',
     category: 'salon',
-    detail: 'Hêtre cintré, assise paillée · H 79 cm',
+    detail: 'Laine grise, piètement hêtre · H 92 cm',
     price: 18_900,
-    plinth: '#E6E2D8',
-    story: 'Le hêtre cintré à la vapeur, la paille tressée main : une silhouette qui ne se démode pas.',
+    image: '/img/p-brume.jpg',
+    story: 'Un dossier galbé qui tient le dos, une laine chinée qui pardonne tout.',
+  },
+  {
+    id: 'chaise-ore',
+    pos: 'center 72%',
+    name: 'Chaise Öre',
+    maker: 'Studio Öre',
+    category: 'salon',
+    detail: 'Coque noire, assise cuir · H 81 cm',
+    price: 14_900,
+    badge: 'Nouveau',
+    image: '/img/p-ore.jpg',
+    story: 'La coque nordique classique, posée sur un chêne clair : simple, stable, infatigable.',
+  },
+  {
+    id: 'table-carbone',
+    pos: 'center 62%',
+    name: 'Table Carbone',
+    maker: 'Studio Öre',
+    category: 'salon',
+    detail: 'Chêne teinté noir · L 220 cm',
+    price: 79_900,
+    image: '/img/p-carbone.jpg',
+    story: 'Huit couverts sur un plateau noir mat qui absorbe la lumière et met la table en scène.',
+  },
+  {
+    id: 'lit-velours',
+    pos: 'center 28%',
+    name: 'Lit Velours',
+    maker: 'Maison Loir',
+    category: 'chambre',
+    detail: 'Tête capitonnée, 160 × 200 cm',
+    price: 89_900,
+    badge: 'Tendance',
+    image: '/img/p-velours.jpg',
+    story: 'Une tête de lit matelassée du sol au plafond, pour les chambres qui assument le soir.',
+  },
+  {
+    id: 'parure-brume',
+    name: 'Parure Brume',
+    maker: 'Atelier Nord',
+    category: 'chambre',
+    detail: 'Lin lavé, housse + 2 taies · 240 × 220 cm',
+    price: 8_900,
+    image: '/img/p-parure.jpg',
+    story: 'Un lin lavé qui se froisse juste ce qu’il faut, et s’adoucit à chaque lavage.',
   },
   {
     id: 'lampadaire-orne',
+    pos: '32% 45%',
     name: 'Lampadaire Orne',
+    maker: 'Studio Öre',
     category: 'luminaires',
-    detail: 'Laiton brossé, abat-jour lin · H 148 cm',
+    detail: 'Acier noir, bras orientable · H 168 cm',
     price: 25_900,
-    plinth: '#E8E0CC',
-    story: 'Un arc de laiton brossé qui penche la lumière exactement là où on lit.',
+    image: '/img/p-orne.jpg',
+    story: 'Un grand bras articulé qui penche la lumière exactement là où on lit.',
   },
   {
-    id: 'suspension-halo',
-    name: 'Suspension Halo',
+    id: 'suspension-laiton',
+    name: 'Suspension Laiton',
+    maker: 'Maison Loir',
     category: 'luminaires',
-    detail: 'Verre soufflé opalin · Ø 38 cm',
-    price: 14_900,
-    plinth: '#E2DFD6',
-    story: 'Le verre opalin diffuse une lumière de fin d’après-midi, à n’importe quelle heure.',
+    detail: 'Laiton brossé, 6 branches · Ø 92 cm',
+    price: 22_900,
+    compareAt: 26_900,
+    badge: 'Promo',
+    image: '/img/p-laiton.jpg',
+    story: 'Six branches de laiton qui dessinent un lustre contemporain, sans un gramme de nostalgie.',
   },
   {
-    id: 'vase-terra',
-    name: 'Vase Terra',
-    category: 'deco',
-    detail: 'Grès émaillé main · H 32 cm',
-    price: 5_900,
-    plinth: '#EBDFD2',
-    story: 'Tourné puis émaillé à la main : aucun exemplaire n’a exactement la même robe.',
-  },
-  {
-    id: 'miroir-lune',
-    name: 'Miroir Lune',
-    category: 'deco',
-    detail: 'Cadre frêne teinté · Ø 75 cm',
-    price: 21_900,
-    plinth: '#E4E1DA',
-    story: 'Un plein cercle de frêne qui agrandit la pièce et adoucit la lumière du matin.',
-  },
-  {
-    id: 'tapis-dune',
-    name: 'Tapis Dune',
-    category: 'deco',
-    detail: 'Laine tuftée main · 200 × 300 cm',
-    price: 42_900,
-    plinth: '#E9E2D0',
-    story: 'Des lignes de dune tuftées dans une laine dense, douce sous les pieds nus.',
-  },
-  {
-    id: 'etagere-fjord',
-    name: 'Étagère Fjord',
-    category: 'rangement',
-    detail: 'Chêne et acier thermolaqué · H 190 cm',
-    price: 53_900,
-    plinth: '#E5DFD3',
-    story: 'Cinq niveaux de chêne portés par un trait d’acier : le rangement qui se fait oublier.',
+    id: 'lampe-arche',
+    name: 'Lampe Arche',
+    maker: 'Atelier Nord',
+    category: 'luminaires',
+    detail: 'Arc acier blanc, socle marbre · H 196 cm',
+    price: 19_900,
+    image: '/img/p-arche.jpg',
+    story: 'L’arc classique en blanc cassé : elle enjambe le canapé et éclaire sans encombrer.',
   },
 ]
 
