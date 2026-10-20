@@ -123,6 +123,15 @@ class Store:
             self._set_hash(username, _hasher.hash(password))
         return User(row.username, row.role)
 
+    def create(self, username: str, password: str, role: str) -> bool:
+        """Crée le compte ; False s'il existe déjà (jamais d'écrasement, contrairement au seed)."""
+        with self.engine.begin() as c:
+            row = c.execute(select(users.c.id).where(users.c.username == username)).first()
+            if row is not None:
+                return False
+            c.execute(users.insert().values(username=username, password_hash=_hasher.hash(password), role=role))
+            return True
+
     def upsert(self, username: str, password: str, role: str) -> str:
         """Crée le compte, ou aligne son mot de passe et son rôle. Renvoie ce qui a été fait."""
         with self.engine.begin() as c:

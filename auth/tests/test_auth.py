@@ -141,3 +141,26 @@ def test_metriques_et_sante(client: TestClient) -> None:
     assert 'auth_login_total{result="failure"}' in text
     assert 'auth_login_total{result="locked"}' in text
     assert client.get("/health").json() == {"ok": True, "db": True}
+
+
+def test_inscription_cree_un_client_et_connecte(client: TestClient) -> None:
+    r = client.post("/auth/register", json={"username": "Nadia", "password": "nadia-secret-1"})
+    assert r.status_code == 201
+    body = r.json()
+    assert body["user"] == {"username": "nadia", "role": "client"}
+    me = client.get("/auth/me", headers={"Authorization": f"Bearer {body['token']}"})
+    assert me.status_code == 200
+    # Et le compte fonctionne ensuite comme n'importe quel autre.
+    assert client.post("/auth/login", json={"username": "nadia", "password": "nadia-secret-1"}).status_code == 200
+
+
+def test_inscription_refuse_identifiant_deja_pris_sans_ecraser(client: TestClient) -> None:
+    r = client.post("/auth/register", json={"username": "alice", "password": "autre-secret-9"})
+    assert r.status_code == 409
+    # Le mot de passe d'origine n'a pas bougé.
+    assert client.post("/auth/login", json={"username": "alice", "password": CLIENT[1]}).status_code == 200
+
+
+def test_inscription_mot_de_passe_trop_court(client: TestClient) -> None:
+    r = client.post("/auth/register", json={"username": "paul", "password": "court"})
+    assert r.status_code == 422

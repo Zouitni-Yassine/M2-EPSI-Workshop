@@ -48,6 +48,7 @@ WINDOW_SECONDS = int(os.getenv("AUTH_LOCKOUT_SECONDS", "300"))
 # ---------------------------------------------------------------- journal et métriques
 
 LOGINS = Counter("auth_login_total", "Tentatives de connexion, par issue", ["result"])
+SIGNUPS = Counter("auth_signup_total", "Créations de compte, par issue", ["result"])
 for _result in ("success", "failure", "locked"):
     LOGINS.labels(_result)
 
@@ -213,6 +214,36 @@ def login(body: Credentials, request: Request) -> dict[str, Any]:
     LOGINS.labels("success").inc()
     audit("info", "connexion réussie", event="login", result="success", username=user.username, role=user.role, ip=ip)
     return {"token": token, "expiresAt": expires, "user": {"username": user.username, "role": user.role}}
+
+
+@app.post("/auth/register", status_code=201)
+def register(body: Credentials, request: Request) -> dict[str, Any]:
+    """Création de compte en libre-service : toujours le rôle client, jamais opérateur."""
+    ip = request.client.host if request.client else "inconnue"
+    username = body.username.strip().lower()
+
+    # Même frein que la connexion : une adresse qui enchaîne les créations attend.
+    wait = throttle.wait(ip, MAX_FAILURES_PER_IP)
+    if wait:
+        SIGNUPS.labels("locked").inc()
+        audit("warning", "inscription refusée : trop de tentatives", event="signup", result="locked", ip=ip, retry_after=wait)
+        raise HTTPException(status_code=429, detail=f"Trop de tentatives. Réessayez dans {wait} s.", headers={"Retry-After": str(wait)})
+
+    problem = users.check(username, "client", body.password)
+    if problem:
+        SIGNUPS.labels("invalid").inc()
+        raise HTTPException(status_code=422, detail=problem.capitalize())
+
+    if not state.store.create(username, body.password, "client"):
+        throttle.fail(ip)
+        SIGNUPS.labels("exists").inc()
+        audit("warning", "inscription refusée : identifiant pris", event="signup", result="exists", username=username, ip=ip)
+        raise HTTPException(status_code=409, detail="Cet identifiant est déjà utilisé.")
+
+    token, expires = state.signer.issue(username, "client")
+    SIGNUPS.labels("success").inc()
+    audit("info", "compte créé", event="signup", result="success", username=username, ip=ip)
+    return {"token": token, "expiresAt": expires, "user": {"username": username, "role": "client"}}
 
 
 @app.get("/auth/me")
