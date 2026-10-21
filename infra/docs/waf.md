@@ -59,7 +59,8 @@ recréation :
   règles `home-*` de [`ha.tf`](../terraform/ha.tf) aurait modifié les règles du socle.
 
 Le contenu du WAF (`/opt/resilience-waf`) reste à l'équipe cyber ; Ansible n'y applique que le
-rôle `alloy` (groupe `waf`, adresse mise à jour dans l'inventaire).
+rôle `alloy` (groupe `waf`, adresse mise à jour dans l'inventaire) et les ajouts du
+bannissement automatique (`waf-ban.yml`, section 5).
 
 ## 3. Retour arrière
 
@@ -92,3 +93,152 @@ Depuis le poste de contrôle (.110) :
 | `monitoring.yml --limit waf01` (rôle alloy) | `changed=0` | `changed=0` |
 
 Logs : `{host="waf01",container="resilience-waf"} | json | status="403"` pour les blocages.
+
+## 5. Bannissement automatique
+
+Réponse à l'attaque : la remédiation existante rétablit la disponibilité (redémarrage de
+payment-api) mais ne bloque pas la source. Le bannissement contient l'attaquant au WAF, sans
+intervention humaine, pour 15 minutes. Mis en place le 21/10/2026 avec l'accord de l'équipe
+cyber.
+
+```text
+waf01 (nginx, journal JSON : source_ip = IP réelle derrière NPM)
+  ── Alloy ──> Loki (monitoring01) : règles waf-ban.yml, évaluées toutes les 15 s
+  ── alerte action="ban", source_ip ──> Alertmanager (group_wait 5 s)
+        ├─> Discord (humains prévenus)
+        └─> POST http://10.30.2.251:9095/alertmanager (jeton Bearer)
+              waf-ban.service : contrôles, ajout à banned.conf, nginx -t, nginx -s reload
+              ──> nginx : geo $waf_banned -> 403 pour cette IP (sauf /healthz), 15 min
+```
+
+### Règles et seuils (`monitoring/loki/rules/waf-ban.yml`)
+
+| Alerte | Condition, par IP source | Pourquoi ce seuil |
+|---|---|---|
+| `WafSourceFlood` | plus de 1200 requêtes en 1 min (20/s en moyenne), hors `/healthz` | une page complète du site fait ~25 requêtes |
+| `WafSourceBruteForce` | au moins 10 POST `/auth/login` ou `/auth/token` en 401 ou 429 en 2 min | l'application freine déjà (429) au bout de 5 échecs |
+| `WafSourceAttacks` | au moins 10 réponses 403 en 2 min | blocages ModSecurity répétés (un refus applicatif compte aussi) |
+
+Pas de `for` : l'alerte part à la première évaluation (15 s au plus). Les requêtes refusées
+pour bannissement sont journalisées avec `event_type="waf_banned"` : elles ne comptent dans
+aucune règle (ni dans `WAFRepeatedBlocks` de l'équipe cyber), l'alerte se résout donc une
+fois l'IP bannie.
+
+### Côté WAF
+
+| Élément | Emplacement |
+|---|---|
+| Récepteur (Python standard, sans dépendance) | `/usr/local/sbin/waf-ban` ← [`waf/waf-ban.py`](../waf/waf-ban.py) |
+| Service | `waf-ban.service` ← [`waf/waf-ban.service.j2`](../waf/waf-ban.service.j2), utilisateur `waf-ban` |
+| Extraits nginx | `/opt/resilience-waf/waf-ban/{http,server}.conf` ← [`waf/nginx/`](../waf/nginx/), montés en lecture seule dans le conteneur (`/etc/nginx/waf-ban`) |
+| Liste des IP bannies | `/opt/resilience-waf/waf-ban/banned/banned.conf` (format `geo`, une ligne `<ip> 1; # expire=… raison=…`), seul fichier écrit par le service |
+| Jeton, liste blanche | `/etc/waf-ban/token`, `/etc/waf-ban/allowlist` (0640 root:waf-ban) |
+| Ajouts aux fichiers de l'équipe cyber | `default.conf.template` : `include` du niveau http en tête et `include …/server.conf;` dans les serveurs 8080 et 8443 ; `compose.yml` : volume `./waf-ban` ; `waf-firewall.nft` et `/etc/waf-firewall.nft` : `ip saddr 10.0.1.233/32 tcp dport 9095 accept`. Copies d'origine `*.bak-20261021-ban` |
+
+Déploiement idempotent (second passage `changed=0`) :
+
+```bash
+cd /srv/M2-EPSI-Workshop/infra/ansible
+vault-env ansible-playbook waf-ban.yml                          # waf01
+vault-env ansible-playbook monitoring.yml --limit monitoring01  # règles, route, jeton
+```
+
+Un changement de `default.conf.template` ou de `compose.yml` recrée le conteneur (templates
+rendus au démarrage, ~15 s sans WAF) ; un changement des extraits ne fait qu'un `nginx -s
+reload`.
+
+**IP réelle** : `geo` lit l'adresse du client après réécriture par `realip`
+(`set_real_ip_from 172.16.1.10`), donc l'IP du client et non celle de NPM. NPM ajoute l'adresse
+qu'il voit en dernier dans `X-Forwarded-For` et nginx ne prend que celle-là : un attaquant ne
+peut pas faire bannir une autre adresse en forgeant cet en-tête. Le bannissement est fait dans
+nginx et non dans nftables, qui ne voit que NPM comme source du trafic public.
+
+### Garde-fous
+
+- **Authentification** : jeton Bearer de 43 caractères (Vault `secret/infra/waf-ban`,
+  `WAF_BAN_TOKEN`), comparaison à temps constant ; sans jeton valide : 401 et ligne
+  `refus_auth`. Le port 9095 n'est ouvert qu'à 10.0.1.233 (nftables), et le service lui-même
+  n'accepte que cette adresse et l'hôte (`IPAddressAllow`).
+- **Jamais bannies** : bouclage, adresses spéciales, NPM 172.16.1.10, supervision 10.0.1.233 et
+  réseaux RA-* 10.30.0.0/16 (dans le code) ; liste blanche `waf_ban_allowlist` de
+  `waf-ban.yml` (poste de contrôle 10.0.1.110), relue à chaque alerte. Les VPN d'administration
+  ne sont volontairement pas protégés (scénario du « PC admin compromis »).
+- **Plafonds** : 20 IP bannies au plus, 5 nouveaux bannissements par minute au plus ; au-delà,
+  refus journalisé (`cause=plafond_…`).
+- **Expiration** : 15 min, vérifiée toutes les 10 s par le service, suivie d'un rechargement.
+- **Sûreté** : IP validée par `ipaddress` avant toute écriture ; fichier remplacé de façon
+  atomique ; `nginx -t` avant chaque rechargement, retour à la liste précédente en cas
+  d'échec ; aucune commande reçue n'est exécutée (seuls `nginx -t` et `nginx -s reload`, en
+  dur). Service sans capacité, système en lecture seule sauf la liste
+  (`systemd-analyze security` : 1.5 « OK »). Le groupe `docker`, nécessaire au rechargement,
+  équivaut à root sur l'hôte : c'est la limite de ce durcissement.
+- **Journal** (identifiant `waf-ban`, donc dans Loki) : une ligne par décision.
+
+```text
+ban ip=10.0.1.110 raison=WafSourceBruteForce duree_s=900 expire=10:50:20 actifs=1
+refus ip=172.16.1.10 cause=adresse_protegee raison=TestManuel
+expiration ip=203.0.113.7 raison=TestManuel actifs=0
+deban ip=10.0.1.110 par=manuel actifs=0
+```
+
+Dashboard « Démo / Remédiation » : annotation **IP bannie au WAF**. Loki :
+`{host="waf01",identifier="waf-ban"}` (décisions),
+`{host="waf01",container="resilience-waf"} | json | event_type="waf_banned"` (requêtes refusées).
+
+### Exploitation
+
+```bash
+ssh -i /root/.ssh/id_ed25519_infra debian@10.30.2.251
+sudo waf-ban list                 # IP bannies, expiration (heure UTC de waf01), raison
+sudo waf-ban unban 203.0.113.7    # débannir tout de suite (journalisé)
+sudo waf-ban unban --all          # tout vider
+sudo systemctl stop waf-ban       # suspendre le bannissement automatique
+```
+
+Ne pas éditer `banned.conf` à la main : passer par `waf-ban unban`, qui recharge nginx.
+Un débannissement prend effet en 1 à 3 s (les connexions gardées ouvertes par NPM sont servies
+par l'ancien processus nginx jusqu'à la fin du rechargement).
+
+### Tests du 21/10/2026
+
+| Test | Attendu | Obtenu |
+|---|---|---|
+| Webhook sans jeton / avec un mauvais jeton (depuis monitoring01) | 401 | 401, 401 (`refus_auth`) |
+| Port 9095 depuis .110 | fermé | timeout (nftables) |
+| Webhook authentifié, `source_ip=203.0.113.7` | ban, nginx rechargé | `ban`, ligne dans `banned.conf` visible dans le conteneur |
+| Même alerte une seconde fois | pas de doublon | `deja_banni` |
+| 172.16.1.10, 10.30.1.200, 10.0.1.110, `1.2.3.4; rm -rf /` | refus | `adresse_protegee`, `adresse_protegee`, `liste_blanche`, `ip_invalide` |
+| Alerte `resolved` ou sans `action="ban"` | ignorée | ignorée |
+| Expiration (date avancée) | retirée et journalisée | retirée en moins de 10 s, `expiration` |
+| **Bout en bout** : 12 POST `/auth/login` erronés depuis .110 par l'URL publique (exception temporaire de la liste blanche) | IP réelle vue par le WAF, alerte, ban | WAF voit 10.0.1.110 ; `WafSourceBruteForce` → Alertmanager → `ban` ; `/` et `/api/health` en 403 |
+| Délai attaque → bannissement | < 1 min | **27 s** (premier échec 10:34:55, `ban` 10:35:21, premier 403 10:35:22) |
+| `/healthz` pendant le bannissement | 200 | 200 (public et direct) |
+| Débannissement manuel, liste blanche rétablie | 200 | 200 en moins de 3 s |
+| Second passage des deux playbooks | `changed=0` | `changed=0` |
+
+Le délai se décompose ainsi : arrivée des logs dans Loki, évaluation du ruler (toutes les
+15 s), `group_wait` de 5 s, rechargement de nginx (< 1 s).
+
+### Limites
+
+- Une IP partagée (NAT d'entreprise, opérateur mobile) est bannie pour tous ses utilisateurs ;
+  les seuils restent volontairement élevés et la durée courte.
+- IPv6 : géré par le récepteur et `geo`, mais la chaîne publique est en IPv4 seulement.
+- Une attaque distribuée (beaucoup d'IP, chacune sous les seuils) n'est pas arrêtée ; le
+  plafond de 20 IP limite aussi l'effet d'un emballement.
+- Le webhook circule en HTTP entre MANAGEMENT et RA-DMZ (jeton lisible sur ce lien interne) ;
+  il ne permet que de bannir 15 min une IP hors liste blanche.
+- `WafSourceAttacks` compte aussi les 403 de l'application.
+- Le bannissement ne remplace pas la remédiation de disponibilité : il contient la source,
+  le moteur de remédiation rétablit le service.
+- Les fichiers de `/opt/resilience-waf` restent ceux de l'équipe cyber : une réinstallation de
+  leur côté doit être suivie de `waf-ban.yml`.
+
+## Feuille de route publiée par le WAF
+
+La feuille de route du projet (`infra/roadmap/index.html`) est servie par le WAF lui-même sur
+https://app.slabreze.fr/roadmap/ (`infra/waf/nginx/site-8443.conf`, inclus dans le serveur 8443,
+dossier `/opt/resilience-waf/site` monté en lecture seule). Publication et mise à jour :
+`vault-env ansible-playbook waf-roadmap.yml`. Une mise à jour de la page n'est qu'une copie de
+fichier, sans rechargement de nginx. La redirection `/roadmap` → `/roadmap/` est relative
+(`absolute_redirect off`) : sinon nginx ajouterait son port interne 8443.

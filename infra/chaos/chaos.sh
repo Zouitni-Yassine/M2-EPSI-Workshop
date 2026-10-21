@@ -103,10 +103,12 @@ task_container() {  # conteneur de la tâche d'un service sur un worker
   "${SSH_VM[@]}" "debian@$(host_ip "$1")" \
     "sudo docker ps -q --filter label=com.docker.swarm.service.name=$2" | head -1
 }
-replicas_ok() {  # « 1/1 » -> vrai
-  local r
+replicas_ok() {  # « 1/1 », « 3/3 (max 1 per node) » -> vrai
+  local r run want
   r=$(mgr docker service ls --filter "name=$1" --format '{{.Replicas}}' | head -1)
-  [ -n "$r" ] && [ "${r%%/*}" = "${r##*/}" ] && [ "${r%%/*}" != 0 ]
+  r=${r%% *}
+  run=${r%%/*} want=${r##*/}
+  [ -n "$r" ] && [ "$run" = "$want" ] && [ "$run" != 0 ]
 }
 swarm_node_ready() {
   mgr docker node ls --format '{{.Hostname}}:{{.Status}}' | grep -qx "$1:Ready"
@@ -116,6 +118,7 @@ vip_holder() {
   for h in dockerwrk01 dockerwrk02 dockerwrk03; do
     "${SSH_VM[@]}" "debian@$(host_ip $h)" "ip -o addr" 2>/dev/null | grep -q " $VIP/" && echo $h
   done
+  return 0  # sinon le dernier grep, sans correspondance, arrête le script (set -e, pipefail)
 }
 leader() {
   mgr docker node ls --format '{{.Hostname}} {{.ManagerStatus}}' | awk '$2 == "Leader" { print $1 }'

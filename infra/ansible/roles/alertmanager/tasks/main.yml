@@ -41,6 +41,25 @@
   when: discord_webhook_url | length == 0
   notify: Redémarrer Alertmanager
 
+# Jeton du récepteur de bannissement du WAF (waf01) : lu via credentials_file
+- name: Jeton du bannissement au WAF
+  ansible.builtin.copy:
+    dest: /etc/prometheus/waf_ban_token
+    content: "{{ waf_ban_token }}"
+    owner: root
+    group: prometheus
+    mode: "0640"
+  no_log: true
+  when: waf_ban_token | length > 0
+  notify: Redémarrer Alertmanager
+
+- name: Pas de jeton de bannissement résiduel
+  ansible.builtin.file:
+    path: /etc/prometheus/waf_ban_token
+    state: absent
+  when: waf_ban_token | length == 0
+  notify: Redémarrer Alertmanager
+
 - name: Configuration
   ansible.builtin.template:
     src: "{{ monitoring_config_dir }}/alertmanager/alertmanager.yml.j2"

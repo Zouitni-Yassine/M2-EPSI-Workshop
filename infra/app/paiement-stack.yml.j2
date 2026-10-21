@@ -264,8 +264,10 @@ services:
       resources:
         limits: { cpus: "0.5", memory: 64M }
       restart_policy: { condition: any, delay: 5s, window: 30s }
-      update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s }
-      rollback_config: { parallelism: 1, order: start-first }
+      # stop-first : une réplica par worker, la nouvelle tâche ne peut pas démarrer à côté de
+      # l'ancienne (start-first bloquait la mise à jour) ; les deux autres servent pendant ce temps
+      update_config: { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 30s }
+      rollback_config: { parallelism: 1, order: stop-first }
 
 volumes:
   db-data:

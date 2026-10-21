@@ -1,0 +1,82 @@
+# Feuille de route du projet, publiée sur https://app.slabreze.fr/roadmap/ par le WAF (waf01)
+#   cd /srv/M2-EPSI-Workshop/infra/ansible
+#   vault-env ansible-playbook waf-roadmap.yml
+# Source : infra/roadmap/index.html. Une mise à jour de la page n'est qu'une copie de fichier :
+# nginx le lit sur le disque, sans rechargement. Seul le premier passage modifie les fichiers de
+# l'équipe cyber (un volume, un include), avec une copie *.bak-20261021-roadmap, et recrée le
+# conteneur du WAF (environ 15 s sans WAF).
+
+- name: Feuille de route servie par le WAF
+  hosts: waf
+  vars:
+    waf_dir: /opt/resilience-waf
+    waf_roadmap_backup: bak-20261021-roadmap
+  tasks:
+    - name: Copie des fichiers de l'équipe cyber avant modification
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ item }}.{{ waf_roadmap_backup }}"
+        remote_src: true
+        force: false
+        mode: preserve
+      loop:
+        - "{{ waf_dir }}/compose.yml"
+        - "{{ waf_dir }}/default.conf.template"
+
+    - name: Dossiers des pages
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - "{{ waf_dir }}/site"
+        - "{{ waf_dir }}/site/roadmap"
+
+    - name: Configuration nginx des pages (serveur 8443)
+      ansible.builtin.copy:
+        src: ../waf/nginx/site-8443.conf
+        dest: "{{ waf_dir }}/site/server-8443.conf"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Recharger nginx
+
+    - name: Feuille de route
+      ansible.builtin.copy:
+        src: ../roadmap/index.html
+        dest: "{{ waf_dir }}/site/roadmap/index.html"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Dossier des pages monté dans le conteneur du WAF
+      ansible.builtin.lineinfile:
+        path: "{{ waf_dir }}/compose.yml"
+        insertafter: '^\s+- \./waf-ban:/etc/nginx/waf-ban:ro'
+        line: "      - ./site:/etc/nginx/site:ro"
+      notify: Recréer le WAF
+
+    - name: Pages incluses dans le serveur 8443
+      ansible.builtin.lineinfile:
+        path: "{{ waf_dir }}/default.conf.template"
+        insertafter: '^\s+listen 8443 ssl;'
+        line: "    include /etc/nginx/site/server-8443.conf;"
+      notify: Recréer le WAF
+
+  handlers:
+    - name: Recréer le WAF
+      ansible.builtin.command:
+        cmd: docker compose up -d --force-recreate waf
+        chdir: "{{ waf_dir }}"
+      changed_when: true
+
+    # Après une recréation, le conteneur peut mettre quelques secondes à démarrer
+    - name: Recharger nginx
+      ansible.builtin.shell: docker exec resilience-waf nginx -t && docker exec resilience-waf nginx -s reload
+      register: waf_reload
+      until: waf_reload.rc == 0
+      retries: 10
+      delay: 3
+      changed_when: true

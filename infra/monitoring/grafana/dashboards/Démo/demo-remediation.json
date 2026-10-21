@@ -132,6 +132,21 @@
         "tagKeys": "kind"
       },
       {
+        "name": "IP bannie au WAF",
+        "enable": true,
+        "hide": false,
+        "iconColor": "dark-red",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "instant": false,
+        "expr": "{host=\"waf01\",identifier=\"waf-ban\"} |~ \"^ban ip=\" | logfmt",
+        "titleFormat": "IP bannie au WAF : {{ip}}",
+        "textFormat": "{{raison}}, {{duree_s}} s",
+        "tagKeys": "raison"
+      },
+      {
         "name": "Tests de chaos",
         "enable": true,
         "hide": false,

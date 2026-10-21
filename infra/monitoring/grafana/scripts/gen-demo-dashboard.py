@@ -438,6 +438,12 @@ dashboard = {
         loki_annotation("Service rétabli", "green", EVENTS + ' | kind="restore"'),
         loki_annotation("Sonde : panne / reprise", "purple",
                         PROBE + ' |= "type=incident" | logfmt'),
+        # Réponse à l'attaque : IP bannie au WAF par waf-ban (alerte Loki -> Alertmanager)
+        {"name": "IP bannie au WAF", "enable": True, "hide": False, "iconColor": "dark-red",
+         "datasource": LOKI, "instant": False,
+         "expr": '{host="waf01",identifier="waf-ban"} |~ "^ban ip=" | logfmt',
+         "titleFormat": "IP bannie au WAF : {{ip}}", "textFormat": "{{raison}}, {{duree_s}} s",
+         "tagKeys": "raison"},
         # Posées par infra/chaos/chaos.sh (API Grafana, tag chaos) : une zone par test
         {"name": "Tests de chaos", "enable": True, "hide": False, "iconColor": "#B877D9",
          "datasource": {"type": "grafana", "uid": "-- Grafana --"},

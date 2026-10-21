@@ -1,0 +1,56 @@
+# Bannissement automatique au WAF : alertes par IP source (label source_ip, IP réelle du client
+# vue par waf01 derrière NPM) portant action="ban". Alertmanager les envoie au récepteur de waf01
+# (bannissement de 15 min, garde-fous côté récepteur) et à Discord. Voir docs/waf.md.
+# Les requêtes déjà refusées pour bannissement ont event_type="waf_banned" : elles ne comptent
+# pas, l'alerte se résout une fois l'IP bannie.
+#   vault-env ansible-playbook monitoring.yml --limit monitoring_core
+groups:
+  - name: resilience-waf-ban
+    interval: 15s
+    limit: 50
+    rules:
+      # Rafale : plus de 20 requêtes/s en moyenne sur une minute (une page complète en fait ~25)
+      - alert: WafSourceFlood
+        expr: |
+          sum by (source_ip) (
+            count_over_time({host="waf01",container="resilience-waf"}
+              | json | __error__="" | event_type="http_access" | route!="/healthz" [1m])
+          ) > 1200
+        labels:
+          severity: warning
+          domain: cyber
+          action: ban
+        annotations:
+          summary: "Rafale de requêtes depuis {{ $labels.source_ip }} : bannissement au WAF"
+          description: "{{ $value }} requêtes en une minute. IP bannie 15 min au WAF (waf-ban)."
+
+      # Force brute : échecs de connexion (401, ou 429 si l'application freine déjà)
+      - alert: WafSourceBruteForce
+        expr: |
+          sum by (source_ip) (
+            count_over_time({host="waf01",container="resilience-waf"}
+              | json | __error__="" | event_type="http_access" | method="POST"
+              | route=~"/auth/(login|token)" | status=~"401|429" [2m])
+          ) >= 10
+        labels:
+          severity: warning
+          domain: cyber
+          action: ban
+        annotations:
+          summary: "Force brute sur la connexion depuis {{ $labels.source_ip }} : bannissement au WAF"
+          description: "{{ $value }} échecs de connexion en deux minutes. IP bannie 15 min au WAF (waf-ban)."
+
+      # Attaques bloquées : 403 répétés (ModSecurity ; un refus applicatif compte aussi)
+      - alert: WafSourceAttacks
+        expr: |
+          sum by (source_ip) (
+            count_over_time({host="waf01",container="resilience-waf"}
+              | json | __error__="" | event_type="http_access" | status="403" [2m])
+          ) >= 10
+        labels:
+          severity: warning
+          domain: cyber
+          action: ban
+        annotations:
+          summary: "Attaques bloquées par le WAF depuis {{ $labels.source_ip }} : bannissement"
+          description: "{{ $value }} requêtes bloquées (403) en deux minutes. IP bannie 15 min au WAF (waf-ban)."

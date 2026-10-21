@@ -367,6 +367,22 @@ l'alerte ne s'est pas déclenchée après le redémarrage du cluster. La nouvell
 dès que la cible répond sans se déclarer descellée. Testée de bout en bout : Vault scellé,
 alerte sur Discord, descellement, résolution sur Discord.
 
+### Règles sur les logs (Loki)
+
+Fichiers : `monitoring/loki/rules/*.yml`, copiés tels quels par le rôle `loki` dans
+`/etc/loki/rules/fake/`, évalués toutes les 15 s par le ruler de Loki, alertes envoyées à
+Alertmanager.
+
+| Alerte | Fichier | Condition (par IP source vue par le WAF) | Action |
+|---|---|---|---|
+| `WAFRepeatedBlocks` | `cyber.yml` (équipe cyber) | au moins 10 réponses 403 en 1 min | manuelle (Discord) |
+| `WafSourceFlood` | `waf-ban.yml` | plus de 1200 requêtes en 1 min (20/s), hors `/healthz` | **bannissement au WAF** |
+| `WafSourceBruteForce` | `waf-ban.yml` | au moins 10 échecs de connexion (POST `/auth/login` ou `/auth/token`, 401 ou 429) en 2 min | **bannissement au WAF** |
+| `WafSourceAttacks` | `waf-ban.yml` | au moins 10 réponses 403 en 2 min | **bannissement au WAF** |
+
+Les trois dernières portent `action="ban"` et `source_ip` : voir
+[waf.md, bannissement automatique](waf.md#5-bannissement-automatique).
+
 ### Routage (Alertmanager)
 
 Fichier : `monitoring/alertmanager/alertmanager.yml.j2`.
@@ -375,6 +391,11 @@ Fichier : `monitoring/alertmanager/alertmanager.yml.j2`.
   30 s avant le premier envoi, 5 min entre deux mises à jour d'un groupe, rappel toutes les 4 h.
   Les résolutions sont envoyées. Le message indique le statut (🔥 ALERTE / ✅ RÉSOLU), la
   sévérité, le résumé, l'hôte et les heures de début et de fin.
+- **`action="ban"` → récepteur de waf01 puis Discord** : regroupées par `alertname` et
+  `source_ip` (une notification par IP), 5 s d'attente, rappel au bout de 15 min, sans les
+  résolutions pour le récepteur (`http://10.30.2.251:9095/alertmanager`, jeton Bearer lu dans
+  `/etc/prometheus/waf_ban_token` par `credentials_file`). `continue: true` puis une seconde
+  route vers Discord : les humains sont prévenus de chaque bannissement.
 - **Watchdog → healthchecks.io**, renvoyé chaque minute, jamais vers Discord. C'est un *dead
   man's switch* : si vmalert, Alertmanager, monitoring01 ou le réseau tombent, les pings
   s'arrêtent et healthchecks.io prévient de son côté. Une panne de la chaîne d'alerte est donc

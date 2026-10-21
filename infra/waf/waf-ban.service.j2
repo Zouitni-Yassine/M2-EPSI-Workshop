@@ -1,0 +1,57 @@
+# {{ ansible_managed }}
+# Récepteur des webhooks d'Alertmanager : bannissement d'IP au WAF (infra/waf/waf-ban.py).
+# Utilisateur dédié ; le groupe docker (nécessaire au rechargement de nginx par docker exec)
+# équivaut à root sur l'hôte : le reste est verrouillé au maximum.
+[Unit]
+Description=Bannissement automatique d'IP au WAF (webhooks Alertmanager)
+After=network-online.target docker.service waf-firewall.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=waf-ban
+Group=waf-ban
+SupplementaryGroups=docker
+ExecStart=/usr/bin/python3 -I /usr/local/sbin/waf-ban serve
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=waf-ban
+Environment=LISTEN_ADDR={{ ansible_host }}
+Environment=LISTEN_PORT={{ waf_ban_port }}
+Environment=BAN_DURATION_S={{ waf_ban_duration_s }}
+Environment=MAX_ACTIVE={{ waf_ban_max_active }}
+Environment=MAX_PER_MIN={{ waf_ban_max_per_min }}
+Environment=DOCKER_CONFIG=/run/waf-ban
+RuntimeDirectory=waf-ban
+RuntimeDirectoryMode=0700
+UMask=0022
+
+# Seule écriture permise : la liste des IP bannies
+ProtectSystem=strict
+ReadWritePaths={{ waf_dir }}/waf-ban/banned
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Réseau : seulement Alertmanager et l'hôte lui-même (en plus du firewall nftables)
+IPAddressDeny=any
+IPAddressAllow=localhost {{ ansible_host }}/32 {{ waf_ban_alertmanager_ip }}/32
+
+[Install]
+WantedBy=multi-user.target

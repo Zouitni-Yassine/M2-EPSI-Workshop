@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Source : infra/roadmap/index.html, publiée par ansible/waf-roadmap.yml -->
+<title>Roadmap Resilience-Alpha</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout : un graphe de branches façon « git log », le tronc = ce que le sujet exige,
+   les branches = ce qu'on a ajouté en plus. Une ligne par étape, phases en séparateurs. */
+:root {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --ink: #16202a;
+  --muted: #5b6876;
+  --rule: #d8dee5;
+  --trunk: #16202a;
+  --infra: #1f6fd1;
+  --secu: #c2364f;
+  --obs: #b7791f;
+  --ia: #7b4bc4;
+  --ok: #1d8a5a;
+  --wip: #c27a12;
+  --todo: #6b7785;
+  --warn: #c2364f;
+  --pill-bg: #eef2f6;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --lane: 22px;
+  --node-y: 19px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151b; --surface: #17202a; --ink: #e6ecf2; --muted: #9aa8b6; --rule: #2a3643;
+    --trunk: #e6ecf2; --infra: #5aa2f5; --secu: #f0687f; --obs: #e3a845; --ia: #ad86ee;
+    --ok: #4cc28d; --wip: #e3a845; --todo: #8794a2; --warn: #f0687f; --pill-bg: #1f2a36;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151b; --surface: #17202a; --ink: #e6ecf2; --muted: #9aa8b6; --rule: #2a3643;
+  --trunk: #e6ecf2; --infra: #5aa2f5; --secu: #f0687f; --obs: #e3a845; --ia: #ad86ee;
+  --ok: #4cc28d; --wip: #e3a845; --todo: #8794a2; --warn: #f0687f; --pill-bg: #1f2a36;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.5 var(--font-body);
+  padding-block: 32px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 28px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font: 600 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 800 clamp(30px, 6vw, 46px)/1.05 var(--font-display); margin: 0; text-wrap: balance; letter-spacing: -.01em; }
+.lede { margin: 0; color: var(--muted); max-width: 64ch; }
+.deadlines { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.deadline { font: 500 13px/1 var(--font-mono); padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+.deadline b { color: var(--warn); font-weight: 600; }
+
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.stat { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; display: grid; gap: 2px; }
+.stat .n { font: 700 26px/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
+.stat .l { font-size: 13px; color: var(--muted); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 14px 22px; font-size: 13px; color: var(--muted); align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.swatch { width: 18px; height: 3px; border-radius: 2px; display: inline-block; }
+
+.graph { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 0; overflow-x: auto; }
+.row { display: grid; grid-template-columns: calc(var(--lane) * 5 + 14px) minmax(0, 1fr); min-width: 0; }
+.gutter { position: relative; }
+.gutter i { position: absolute; width: 2px; border-radius: 1px; }
+.gutter .fork { position: absolute; height: 2px; top: calc(var(--node-y) - 1px); }
+.node { position: absolute; top: calc(var(--node-y) - 7px); width: 14px; height: 14px; border-radius: 50%; border: 2.5px solid currentColor; background: var(--surface); }
+.node.done { background: currentColor; }
+.node.wip { background: radial-gradient(circle, currentColor 0 3px, var(--surface) 3.5px); }
+.node.idea { border-style: dashed; }
+.node.blocked::after { content: ""; position: absolute; inset: 2px; background: linear-gradient(45deg, transparent 42%, currentColor 42% 58%, transparent 58%); }
+@media (prefers-reduced-motion: no-preference) {
+  .node.wip { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 22%, transparent); } }
+}
+.content { padding: 9px 18px 11px 4px; display: grid; gap: 3px; min-width: 0; }
+.title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; font-weight: 600; }
+.detail { color: var(--muted); font-size: 14px; max-width: 72ch; }
+.pill { font: 600 11px/1 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; padding: 4px 7px; border-radius: 4px; background: var(--pill-bg); white-space: nowrap; }
+.pill.done { color: var(--ok); } .pill.wip { color: var(--wip); } .pill.todo { color: var(--todo); }
+.pill.idea { color: var(--muted); } .pill.blocked { color: var(--warn); }
+.tag { font: 500 11px/1 var(--font-mono); color: var(--muted); }
+.phase .content { padding: 18px 18px 8px 4px; }
+.phase h2 { margin: 0; font: 700 13px/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.phase h2 em { font-style: normal; color: var(--ink); }
+.risk { color: var(--warn); font-weight: 600; }
+footer { font-size: 13px; color: var(--muted); }
+@media (max-width: 520px) {
+  :root { --lane: 16px; }
+  .content { padding-right: 12px; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">PROJECT RESILIENCE-ALPHA · Workshop EPSI M2 · état au mercredi 21/10</div>
+    <h1>Feuille de route de la plateforme</h1>
+    <p class="lede">Le tronc suit ce que le sujet exige : une plateforme de paiement qui encaisse une attaque et se rétablit sans opérateur. Les branches de couleur sont ce que l'équipe a construit en plus, sans que le sujet le demande.</p>
+    <div class="deadlines">
+      <span class="deadline">Gel du code : <b>jeu. 22/10, 17h</b></span>
+      <span class="deadline">Rendus : <b>jeu. 22/10, 23h59</b></span>
+      <span class="deadline">Jury : <b>ven. 23/10</b></span>
+    </div>
+  </header>
+
+  <section class="summary" id="summary" aria-label="Avancement"></section>
+
+  <div class="legend" aria-label="Légende">
+    <span><i class="swatch" style="background:var(--trunk)"></i>Sujet (exigé)</span>
+    <span><i class="swatch" style="background:var(--infra)"></i>Infra en plus</span>
+    <span><i class="swatch" style="background:var(--secu)"></i>Sécurité en plus</span>
+    <span><i class="swatch" style="background:var(--obs)"></i>Exploitation en plus</span>
+    <span><i class="swatch" style="background:var(--ia)"></i>IA en plus</span>
+    <span>● fait</span><span>◉ en cours</span><span>○ à faire</span><span>◌ idée</span>
+  </div>
+
+  <section class="graph" id="graph" aria-label="Graphe des étapes"></section>
+
+  <footer>Chiffres mesurés sur le lab par la sonde de transaction et le script chaos.sh. RTO = durée de panne vue par un client, RPO = perte de données maximale.</footer>
+</div>
+
+<script>
+// lane : 0 tronc (sujet), 1 infra, 2 sécurité, 3 exploitation, 4 IA
+// status : done | wip | todo | idea | blocked ; fork : le tronc ouvre la branche indiquée à cette ligne
+const LANES = ["--trunk", "--infra", "--secu", "--obs", "--ia"];
+const STATUS = { done: "fait", wip: "en cours", todo: "à faire", idea: "idée", blocked: "bloqué" };
+const ITEMS = [
+  { phase: "Lun – mar", sub: "Socle et application" },
+  { lane: 0, status: "done", title: "Plateforme de paiement conteneurisée", tag: "DEV · INFRA",
+    detail: "Resilience Pay : frontal React/Tailwind, API FastAPI, authentification, PostgreSQL, Stripe en test et PayPal en sandbox. Transaction fictive de bout en bout." },
+  { lane: 0, status: "done", title: "Déploiement reproductible", tag: "INFRA", fork: 1,
+    detail: "Terraform, Packer et Ansible idempotent (second passage sans changement). Images construites depuis GitHub au commit poussé." },
+  { lane: 1, status: "done", title: "Cluster Proxmox 3 nœuds, Ceph et HA", tag: "au lieu d'un PC hôte",
+    detail: "Fencing par watchdog : une VM perdue redémarre seule (31 s mesurées sur un worker)." },
+  { lane: 1, status: "done", title: "Docker Swarm 3 managers + 3 workers", tag: "au lieu de Compose",
+    detail: "Managers drainés, hors trafic. Perte du leader : nouveau leader élu, 0 s de panne." },
+  { lane: 0, status: "done", title: "Observabilité : métriques, logs, dashboards", tag: "INFRA",
+    detail: "VictoriaMetrics (compatible Prometheus, validé par le jury), Grafana, Loki avec Alloy sur 18 machines, alertes Discord." },
+  { lane: 0, status: "done", title: "Secrets dans HashiCorp Vault", tag: "CYBER", fork: 2,
+    detail: "Plus aucun fichier .env. Secrets Swarm versionnés, mots de passe renouvelés." },
+  { lane: 2, status: "done", title: "SSO Keycloak avec double authentification", tag: "",
+    detail: "Grafana et Proxmox derrière Keycloak (TOTP). Comptes de secours dans Vaultwarden." },
+  { lane: 2, status: "done", title: "Segmentation en VLAN", tag: "",
+    detail: "RA-APP, RA-DMZ, RA-VPN sur la passerelle UniFi, règles en code, plus un pare-feu nftables par machine." },
+
+  { phase: "Mercredi", sub: "Intégration : détection, reprise, défense" },
+  { lane: 0, status: "done", title: "Détecteur d'anomalies par machine learning", tag: "IA",
+    detail: "IsolationForest sur 6 variables de l'API. Précision 0,81, rappel 0,92, F1 0,86, détection en 4 s." },
+  { lane: 0, status: "done", title: "Remédiation autonome et transaction de contrôle", tag: "DEV · INFRA",
+    detail: "Moteur, puis passerelle à liste fermée d'actions, puis redémarrage, puis paiement de vérification. Reprise en 10 à 16 s, 0 intervention." },
+  { lane: 0, status: "done", title: "Dashboard avant / pendant / après", tag: "INFRA", fork: 3,
+    detail: "Grafana « Démo / Remédiation » : paiements, score ML, moteur, chronologie, infrastructure, zones des tests de chaos." },
+  { lane: 3, status: "done", title: "Sonde de transaction", tag: "",
+    detail: "Un vrai client paie toutes les 30 s : la panne est mesurée comme la vit un utilisateur." },
+  { lane: 3, status: "done", title: "Score ML dans la supervision", tag: "",
+    detail: "Le détecteur expose /metrics. Alertes « anomalie détectée » et « détecteur muet »." },
+  { lane: 0, status: "done", title: "WAF ModSecurity dans le flux public", tag: "CYBER", fork: 1,
+    detail: "Internet, NPM (Let's Encrypt), WAF en DMZ, puis l'application. Injections bloquées (403), plus aucun accès sans WAF." },
+  { lane: 1, status: "done", title: "Exposition publique app.slabreze.fr", tag: "",
+    detail: "Certificat valide, HSTS. Le WAF est importé dans Terraform sans être recréé." },
+  { lane: 1, status: "done", title: "Adresse virtuelle et frontal en 3 réplicas", tag: "",
+    detail: "keepalived : bascule en 1 requête perdue. Une réplica du frontal par worker : un frontal tué coûtait 11 s de panne, il n'en coûte plus aucune." },
+  { lane: 1, status: "done", title: "Sauvegardes PBS et dump de la base toutes les 15 min", tag: "",
+    detail: "Restauration testée : 423 paiements restaurés en 0,7 s. Démarrage à froid du lab en environ 5 min." },
+  { lane: 0, status: "done", title: "SIEM : règles d'alerte et dashboard Cyber", tag: "CYBER", fork: 2,
+    detail: "Règles Loki sur les journaux du WAF et des services, dashboard dédié." },
+  { lane: 2, status: "done", title: "Moteur de remédiation aux droits réduits", tag: "",
+    detail: "Passerelle SSH à liste fermée, clé dédiée, 60 s entre deux actions et 10 actions au plus par fenêtre de 10 min." },
+  { lane: 2, status: "done", title: "IP réelle du client jusqu'à l'authentification", tag: "",
+    detail: "Le freinage de la force brute vise l'attaquant, plus tous les clients à la fois." },
+  { lane: 0, status: "done", title: "Assistant opérateur RAG local", tag: "IA", fork: 4,
+    detail: "Ollama + LangChain, llama3.2:3b, en lecture seule sur une VM isolée, avec les procédures de l'équipe. Réponse en 17 à 30 s sur CPU." },
+  { lane: 4, status: "blocked", title: "Délestage du modèle sur un GPU", tag: "",
+    detail: "PC d'un membre raccordé par VPN, tunnel SSH, secours automatique sur CPU. En attente du PC distant." },
+  { lane: 4, status: "idea", title: "Accès MCP Grafana en lecture seule", tag: "",
+    detail: "L'assistant croiserait les procédures avec l'état réel du système. Présenté comme étape suivante." },
+  { lane: 0, status: "done", title: "Tests de chaos : application et conteneurs", tag: "INFRA", fork: 3,
+    detail: "10 pannes provoquées, toutes réparées sans humain. API arrêtée 10 s, base tuée 7,5 s sans perte, rafale 0 s, worker perdu 3 s." },
+  { lane: 3, status: "done", title: "chaos.sh et demo-check.sh", tag: "",
+    detail: "13 pannes scriptées et mesurées. Vérification « prêt / pas prêt » de la démo en une commande." },
+  { lane: 0, status: "done", title: "Réponse à l'attaque : bannissement au WAF", tag: "CYBER · INFRA", fork: 2,
+    detail: "Rétablir le service ne suffit pas : l'IP source est bannie automatiquement (règles Loki, Alertmanager, liste nginx). Force brute bannie en 27 s, expiration au bout de 15 min, liste blanche et plafonds." },
+  { lane: 2, status: "idea", title: "Suspension du VPN de l'attaquant", tag: "",
+    detail: "Peer WireGuard suspendu automatiquement, par une action réversible et limitée. Étape suivante si le temps manque." },
+
+  { phase: "Jeudi", sub: "Recette, chaos engineering, rendus · gel à 17h" },
+  { lane: 0, status: "todo", title: "Attaque depuis le PC attaquant", tag: "CYBER",
+    detail: "Scénario « PC admin compromis » sur le VPN EPSI-WG. La segmentation l'oblige à passer par le WAF et la détection." },
+  { lane: 0, status: "todo", title: "Tests de chaos : virtualisation", tag: "INFRA",
+    detail: "Perte d'un hyperviseur entier, supervision coupée, restauration PBS sur un nouvel identifiant." },
+  { lane: 0, status: "todo", title: "Gouvernance : EBIOS RM, NIS2/DORA, PCA/PRA", tag: "GOUV",
+    detail: "Rien dans le dépôt pour l'instant. Les RTO/RPO mesurés sont prêts à être repris.", risk: true },
+  { lane: 0, status: "todo", title: "Répétition de la démo et Clip Chrono 60 s", tag: "TOUS",
+    detail: "Une prise continue, sans coupe. Éviter les créneaux de sauvegarde (15h36, 21h00, 22h30)." },
+  { lane: 0, status: "todo", title: "Rendus : dossier PDF, présentation, archive du code", tag: "TOUS",
+    detail: "README de déploiement, documentation d'API, fusion des branches, scan anti-secrets de l'archive." },
+
+  { phase: "Vendredi", sub: "Jury local" },
+  { lane: 0, status: "todo", title: "Démonstration en direct", tag: "TOUS",
+    detail: "Attaque, détection, reprise autonome, paiement vérifié. 5 points sur 20, 0 si un humain doit réparer." },
+];
+
+// Couleurs par variable CSS : les lignes suivent le thème sans recalcul
+const color = (lane) => `var(${LANES[lane]})`;
+
+// Étendue de chaque branche : de la ligne qui l'ouvre à sa dernière étape
+const span = {};
+ITEMS.forEach((it, i) => {
+  if (it.fork) (span[it.fork] = span[it.fork] || []).push([i, null]);
+});
+// Segments : chaque ouverture court jusqu'à la dernière étape de la branche avant la prochaine ouverture
+Object.keys(span).forEach((lane) => {
+  span[lane].forEach((seg, k) => {
+    const stop = k + 1 < span[lane].length ? span[lane][k + 1][0] : ITEMS.length;
+    let last = seg[0];
+    for (let j = seg[0] + 1; j < stop; j++) if (ITEMS[j].lane === +lane) last = j;
+    seg[1] = last;
+  });
+});
+const trunkEnd = ITEMS.length - 1;
+
+const x = (lane) => `calc(var(--lane) * ${lane} + 14px)`;
+const graph = document.getElementById("graph");
+ITEMS.forEach((it, i) => {
+  const row = document.createElement("div");
+  row.className = "row" + (it.phase ? " phase" : "");
+  const gutter = document.createElement("div");
+  gutter.className = "gutter";
+  // Tronc
+  const t = document.createElement("i");
+  t.style.cssText = `left:${x(0)};top:${i === 1 ? "var(--node-y)" : "0"};bottom:${i === trunkEnd ? "calc(100% - var(--node-y))" : "0"};background:${color(0)}`;
+  if (i > 0) gutter.appendChild(t);
+  // Branches vivantes sur cette ligne
+  Object.keys(span).forEach((lane) => {
+    span[lane].forEach(([a, b]) => {
+      if (i < a || i > b) return;
+      const v = document.createElement("i");
+      const top = i === a ? "var(--node-y)" : "0";
+      const bottom = i === b ? "calc(100% - var(--node-y))" : "0";
+      v.style.cssText = `left:${x(+lane)};top:${top};bottom:${bottom};background:${color(+lane)}`;
+      if (a !== b) gutter.appendChild(v);
+      if (i === a) {
+        const f = document.createElement("span");
+        f.className = "fork";
+        f.style.cssText = `left:${x(0)};width:calc(var(--lane) * ${lane});background:${color(+lane)}`;
+        gutter.appendChild(f);
+      }
+    });
+  });
+  const content = document.createElement("div");
+  content.className = "content";
+  if (it.phase) {
+    content.innerHTML = `<h2><em>${it.phase}</em> · ${it.sub}</h2>`;
+  } else {
+    const n = document.createElement("span");
+    n.className = "node " + it.status;
+    n.style.left = `calc(var(--lane) * ${it.lane} + 8px)`;
+    n.style.color = color(it.lane);
+    n.title = STATUS[it.status];
+    gutter.appendChild(n);
+    content.innerHTML =
+      `<div class="title"><span${it.risk ? ' class="risk"' : ""}>${it.title}</span>` +
+      `<span class="pill ${it.status}">${STATUS[it.status]}</span>` +
+      (it.tag ? `<span class="tag">${it.tag}</span>` : "") + `</div>` +
+      `<div class="detail">${it.detail}</div>`;
+  }
+  row.append(gutter, content);
+  graph.appendChild(row);
+});
+
+// Avancement
+const steps = ITEMS.filter((it) => it.lane !== undefined);
+const required = steps.filter((it) => it.lane === 0);
+const extra = steps.filter((it) => it.lane > 0);
+const count = (list, s) => list.filter((it) => s.includes(it.status)).length;
+const stats = [
+  [`${count(required, ["done"])} / ${required.length}`, "étapes du sujet faites"],
+  [count(steps, ["wip"]), "en cours"],
+  [count(required, ["todo"]), "étapes du sujet à faire"],
+  [count(extra, ["done"]), "ajouts réalisés hors sujet"],
+  [count(extra, ["idea", "blocked"]), "idées ou ajouts en attente"],
+];
+document.getElementById("summary").innerHTML = stats
+  .map(([n, l]) => `<div class="stat"><span class="n">${n}</span><span class="l">${l}</span></div>`).join("");
+</script>
+
+</body>
+</html>
