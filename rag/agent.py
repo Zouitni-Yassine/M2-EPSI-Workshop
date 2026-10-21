@@ -108,7 +108,8 @@ async def _outils_mcp():
 
 
 async def _boucle(question, outils, appels):
-    llm = ChatOllama(model=MODEL, reasoning=False, temperature=0, num_ctx=8192)
+    # num_predict : ~1500 caractères de réponse, borne aussi la durée de génération
+    llm = ChatOllama(model=MODEL, reasoning=False, temperature=0, num_ctx=8192, num_predict=700)
     avec_outils = llm.bind_tools(outils)
     par_nom = {o.name: o for o in outils}
     maintenant = datetime.now(TZ).strftime("%d/%m/%Y %H:%M")
@@ -139,6 +140,14 @@ async def _boucle(question, outils, appels):
             messages.append(ToolMessage(contenu, tool_call_id=appel["id"], name=appel["name"]))
 
 
+def _cause(e):
+    """Message court d'une erreur (première sous-exception d'un groupe, cas du client MCP)."""
+    while isinstance(e, BaseExceptionGroup) and e.exceptions:
+        e = e.exceptions[0]
+    texte = str(e).splitlines()[0][:150] if str(e) else ""
+    return f"{e.__class__.__name__}: {texte}" if texte else e.__class__.__name__
+
+
 def _borne(texte):
     texte = (texte or "").strip()
     return texte if len(texte) <= MAX_REPONSE else texte[:MAX_REPONSE - 1].rstrip() + "…"
@@ -147,7 +156,8 @@ def _borne(texte):
 async def _repli(question, raison, appels, debut, modele):
     """Documentation seule (chain.ask, inchangé), en le signalant."""
     reponse = await asyncio.to_thread(chain.ask, question)
-    entete = f"[Documentation seule : {raison}. L'état réel du système n'a pas été consulté.]\n"
+    entete = (f"[Mode dégradé : {raison}. Réponse tirée de la documentation seule : elle ne "
+              "reflète PAS l'état réel du système.]\n")
     return {"answer": _borne(entete + str(reponse)), "tools": appels, "model": modele,
             "mode": "documentation", "duration_s": round(time.monotonic() - debut, 1)}
 
@@ -167,8 +177,7 @@ async def repondre(question):
     except asyncio.TimeoutError:
         return await _repli(question, "délai de l'agent dépassé", appels, debut, modele)
     except Exception as e:  # supervision injoignable, outil en erreur, modèle en erreur
-        raison = str(e).splitlines()[0][:150] if str(e) else e.__class__.__name__
-        return await _repli(question, f"supervision ou outil en erreur ({raison})", appels, debut, modele)
+        return await _repli(question, f"supervision ou outil en erreur ({_cause(e)})", appels, debut, modele)
     return {"answer": _borne(texte), "tools": appels, "model": modele, "mode": "agent",
             "duration_s": round(time.monotonic() - debut, 1)}
 
