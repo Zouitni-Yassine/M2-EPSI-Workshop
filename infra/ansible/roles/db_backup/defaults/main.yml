@@ -1,0 +1,8 @@
+# Sauvegarde logique de la base de l'application (pg_dump), depuis le poste de contrôle : hors du
+# worker qui porte la base (dockerwrk01, volume local), et incluse dans la sauvegarde PBS de .110.
+db_backup_dir: /var/backups/paiement
+db_backup_calendar: "*:0/15"     # toutes les 15 min : perte de données maximale de 15 min
+db_backup_keep: 96               # dumps gardés par base (24 h à 15 min)
+db_backup_databases: [payments, auth]
+db_backup_service: paiement_db   # service Swarm de PostgreSQL
+db_backup_ssh_key: /root/.ssh/id_ed25519_infra

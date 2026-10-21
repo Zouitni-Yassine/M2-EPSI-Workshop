@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Dump de chaque base de l'application (format custom pg_dump, restaurable base par base).
+# Lancé par paiement-db-backup.timer ({{ db_backup_calendar }}). Résultat dans le journal
+# (identifiant paiement-db-backup, donc dans Loki) : une ligne par base.
+set -euo pipefail
+DIR={{ db_backup_dir }}
+KEEP={{ db_backup_keep }}
+SSH=(ssh -n -o BatchMode=yes -o ConnectTimeout=5 -i {{ db_backup_ssh_key }})
+MANAGERS=({% for h in groups['swarm_managers'] %}{{ hostvars[h].ansible_host }} {% endfor %})
+declare -A WORKER=({% for h in groups['swarm_workers'] %}[{{ h }}]={{ hostvars[h].ansible_host }} {% endfor %})
+
+log() { logger -t paiement-db-backup "$*"; echo "$*"; }
+
+# Nœud qui fait tourner la base (demandé au premier manager joignable)
+node=""
+for m in "${MANAGERS[@]}"; do
+  node=$("${SSH[@]}" "debian@$m" "sudo docker service ps {{ db_backup_service }} --filter desired-state=running --format '{{ '{{' }}.Node{{ '}}' }}'" 2>/dev/null | head -1) && [ -n "$node" ] && break
+done
+[ -n "$node" ] && [ -n "${WORKER[$node]:-}" ] || { log "echec : base introuvable dans le Swarm"; exit 1; }
+ip=${WORKER[$node]}
+
+rc=0
+stamp=$(date +%Y%m%d-%H%M%S)
+for db in {{ db_backup_databases | join(' ') }}; do
+  out="$DIR/$db-$stamp.dump"
+  start=$(date +%s.%N)
+  # pg_dump dans le conteneur (socket local, utilisateur postgres) : aucun mot de passe transmis
+  if "${SSH[@]}" "debian@$ip" "sudo docker exec \$(sudo docker ps -q --filter label=com.docker.swarm.service.name={{ db_backup_service }}) pg_dump -U postgres -Fc $db" > "$out.part" \
+     && [ -s "$out.part" ]; then
+    mv "$out.part" "$out"
+    log "ok base=$db noeud=$node taille=$(stat -c %s "$out") duree_s=$(awk -v a="$start" -v b="$(date +%s.%N)" 'BEGIN { printf "%.1f", b - a }') fichier=$out"
+  else
+    rm -f "$out.part"
+    log "echec base=$db noeud=$node"
+    rc=1
+  fi
+  # Rotation : les KEEP dumps les plus récents de chaque base
+  ls -1t "$DIR"/"$db"-*.dump 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+done
+exit $rc

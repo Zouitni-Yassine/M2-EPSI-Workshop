@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Test de restauration (PRA) : restaure le dernier dump de la base payments dans une base
+# temporaire restore_test du même PostgreSQL, compare le nombre de paiements à la production,
+# puis supprime la base temporaire. La production n'est jamais modifiée.
+# Mesures : RPO = âge du dump, RTO = durée de la restauration.
+#   paiement-db-restore-test
+set -euo pipefail
+DIR={{ db_backup_dir }}
+SSH=(ssh -n -o BatchMode=yes -o ConnectTimeout=5 -i {{ db_backup_ssh_key }})
+MANAGERS=({% for h in groups['swarm_managers'] %}{{ hostvars[h].ansible_host }} {% endfor %})
+declare -A WORKER=({% for h in groups['swarm_workers'] %}[{{ h }}]={{ hostvars[h].ansible_host }} {% endfor %})
+
+dump=$(ls -1t "$DIR"/payments-*.dump 2>/dev/null | head -1)
+[ -n "$dump" ] || { echo "aucun dump de payments dans $DIR"; exit 1; }
+age=$(( $(date +%s) - $(stat -c %Y "$dump") ))
+
+node=""
+for m in "${MANAGERS[@]}"; do
+  node=$("${SSH[@]}" "debian@$m" "sudo docker service ps {{ db_backup_service }} --filter desired-state=running --format '{{ '{{' }}.Node{{ '}}' }}'" 2>/dev/null | head -1) && [ -n "$node" ] && break
+done
+ip=${WORKER[$node]}
+ctr="\$(sudo docker ps -q --filter label=com.docker.swarm.service.name={{ db_backup_service }})"
+psql() { "${SSH[@]}" "debian@$ip" "sudo docker exec $ctr psql -U postgres -tAc \"$1\" ${2:-postgres}"; }
+
+echo "dump : $dump (âge $age s = perte de données maximale)"
+psql "DROP DATABASE IF EXISTS restore_test" >/dev/null
+psql "CREATE DATABASE restore_test" >/dev/null
+start=$(date +%s.%N)
+# Le dump part de .110 vers pg_restore dans le conteneur (entrée standard)
+ssh -o BatchMode=yes -o ConnectTimeout=5 -i {{ db_backup_ssh_key }} "debian@$ip" \
+  "sudo docker exec -i $ctr pg_restore -U postgres --no-owner --no-acl -d restore_test" < "$dump"
+rto=$(awk -v a="$start" -v b="$(date +%s.%N)" 'BEGIN { printf "%.1f", b - a }')
+restored=$(psql "SELECT count(*) FROM payments" restore_test)
+prod=$(psql "SELECT count(*) FROM payments" payments)
+psql "DROP DATABASE restore_test" >/dev/null
+echo "restauration : ${rto} s ; paiements restaurés : $restored ; en production : $prod"
+logger -t paiement-db-backup "restauration-test dump_age_s=$age duree_s=$rto restaures=$restored production=$prod"
+[ "$restored" -gt 0 ] && [ "$restored" -le "$prod" ]

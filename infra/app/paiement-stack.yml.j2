@@ -76,6 +76,9 @@ services:
     image: {{ app_registry }}/auth:{{ app_image_tags['auth'] }}
     <<: *hardening
     environment:
+      # Uvicorn ne croit X-Forwarded-For (adresse réelle du client, posée par le frontal) que
+      # venant des réseaux overlay de la stack : le freinage de la force brute vise le bon client
+      FORWARDED_ALLOW_IPS: "{{ swarm_default_addr_pool }}"
       CORS_ORIGINS: "{{ app_cors_origins }}"
       APP_URL: "{{ app_url }}"
       COOKIE_SECURE: "{{ 'true' if app_url.startswith('https://') else 'false' }}"

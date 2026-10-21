@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Sauvegarde logique de la base de l'application ({{ db_backup_calendar }})
+
+[Timer]
+OnCalendar={{ db_backup_calendar }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

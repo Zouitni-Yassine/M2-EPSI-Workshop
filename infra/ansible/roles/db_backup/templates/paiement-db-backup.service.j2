@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Sauvegarde logique de la base de l'application (pg_dump)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/paiement-db-backup
+UMask=0077
+TimeoutStartSec=300
