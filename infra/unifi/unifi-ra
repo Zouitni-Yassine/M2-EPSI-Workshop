@@ -61,7 +61,13 @@ def network_body(n):
     }
 
 
-def endpoint(spec, zones, mgmt_net, internal_zone):
+def zone_of(spec):
+    """Zone RA-* visée par une source ou une destination (RA-APP, RA-APP:10.30.1.230), sinon None."""
+    name = spec.split(":", 1)[0]
+    return name if name.startswith("RA-") else None
+
+
+def endpoint(spec, zones, mgmt_net, internal_zone, nets):
     """Côté source ou destination d'une politique."""
     if spec == "management":
         return {"zone_id": internal_zone, "matching_target": "NETWORK", "network_ids": [mgmt_net],
@@ -69,12 +75,23 @@ def endpoint(spec, zones, mgmt_net, internal_zone):
     if spec.startswith("ip:"):
         return {"zone_id": internal_zone, "matching_target": "IP", "matching_target_type": "SPECIFIC",
                 "ips": [spec[3:]], "match_opposite_ips": False}
+    if spec.startswith("net:"):
+        # Réseau existant hors projet (ex. un serveur VPN) : désigné par son nom, dans sa zone
+        net_id = nets[spec[4:]]["_id"]
+        zone = next(z for z in zones.values() if net_id in (z.get("network_ids") or []))
+        return {"zone_id": zone["_id"], "matching_target": "NETWORK", "network_ids": [net_id],
+                "match_opposite_networks": False, "match_mac": False}
+    if ":" in spec:
+        # Une machine d'une zone RA-* (ex. RA-APP:10.30.1.230)
+        zone, ip = spec.split(":", 1)
+        return {"zone_id": zones[zone]["_id"], "matching_target": "IP",
+                "matching_target_type": "SPECIFIC", "ips": [ip], "match_opposite_ips": False}
     return {"zone_id": zones[spec]["_id"], "matching_target": "ANY"}
 
 
-def policy_body(p, zones, mgmt_net, internal_zone):
-    src = endpoint(p["from"], zones, mgmt_net, internal_zone)
-    dst = endpoint(p["to"], zones, mgmt_net, internal_zone)
+def policy_body(p, zones, mgmt_net, internal_zone, nets):
+    src = endpoint(p["from"], zones, mgmt_net, internal_zone, nets)
+    dst = endpoint(p["to"], zones, mgmt_net, internal_zone, nets)
     src.update(port_matching_type="ANY", match_opposite_ports=False)
     dst.pop("match_mac", None)  # la console ne garde ce champ que côté source
     dst["match_opposite_ports"] = False
@@ -168,12 +185,12 @@ def main():
         for p in cfg["policies"]:
             wanted.add(p["name"])
             label = f"{p['name']} : {p['from']} -> {p['to']} {p.get('protocol', 'all')} {p.get('ports', 'tous')}"
-            missing_zone = any(s.startswith("RA-") and s not in zones for s in (p["from"], p["to"]))
+            missing_zone = any(zone_of(s) and zone_of(s) not in zones for s in (p["from"], p["to"]))
             if missing_zone:  # zone pas encore créée (plan seul)
                 changes += 1
                 print(f"+ politique {label}")
                 continue
-            want = policy_body(p, zones, mgmt_net, internal_zone)
+            want = policy_body(p, zones, mgmt_net, internal_zone, nets)
             have = pols.get(p["name"])
             if have is None:
                 changes += 1

@@ -1,0 +1,98 @@
+- name: Utilisateur système ollama
+  ansible.builtin.user:
+    name: ollama
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ ollama_data_dir }}"
+    create_home: false
+
+- name: Répertoires d'Ollama
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ ollama_dir }}/{{ ollama_version }}", owner: root, mode: "0755" }
+    - { path: "{{ ollama_data_dir }}", owner: ollama, mode: "0750" }
+
+- name: Ollama {{ ollama_version }} déjà installé
+  ansible.builtin.stat:
+    path: "{{ ollama_dir }}/{{ ollama_version }}/bin/ollama"
+  register: rag_ollama_bin
+
+# Archive de ~1,4 Go (binaire + bibliothèques) : téléchargée une seule fois par version,
+# supprimée après extraction
+- name: Installer Ollama {{ ollama_version }}
+  when: not rag_ollama_bin.stat.exists
+  block:
+    - name: Télécharger Ollama {{ ollama_version }}
+      ansible.builtin.get_url:
+        url: "{{ ollama_release_url }}/{{ ollama_version }}/ollama-linux-amd64.tar.zst"
+        checksum: "sha256:{{ ollama_sha256 }}"
+        dest: "{{ ollama_dir }}/ollama-linux-amd64-{{ ollama_version }}.tar.zst"
+        mode: "0644"
+        timeout: 120
+
+    - name: Extraire Ollama {{ ollama_version }}
+      ansible.builtin.command:
+        cmd: tar --zstd -xf {{ ollama_dir }}/ollama-linux-amd64-{{ ollama_version }}.tar.zst -C {{ ollama_dir }}/{{ ollama_version }}
+        creates: "{{ ollama_dir }}/{{ ollama_version }}/bin/ollama"
+      notify: Redémarrer Ollama
+
+  always:
+    - name: Supprimer l'archive
+      ansible.builtin.file:
+        path: "{{ ollama_dir }}/ollama-linux-amd64-{{ ollama_version }}.tar.zst"
+        state: absent
+
+- name: Lien vers la version active
+  ansible.builtin.file:
+    src: "{{ ollama_dir }}/{{ ollama_version }}/bin/ollama"
+    dest: /usr/local/bin/ollama
+    state: link
+
+- name: Service systemd ollama
+  ansible.builtin.template:
+    src: ollama.service.j2
+    dest: /etc/systemd/system/ollama.service
+    mode: "0644"
+  notify: Redémarrer Ollama
+
+- name: Appliquer les changements d'Ollama
+  ansible.builtin.meta: flush_handlers
+
+- name: Ollama actif
+  ansible.builtin.systemd_service:
+    name: ollama
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: API d'Ollama joignable
+  ansible.builtin.uri:
+    url: "http://{{ ollama_listen }}/api/version"
+  register: rag_ollama_api
+  until: rag_ollama_api.status == 200
+  retries: 15
+  delay: 2
+
+- name: Modèles présents
+  ansible.builtin.command: ollama list
+  environment:
+    OLLAMA_HOST: "{{ ollama_listen }}"
+  register: rag_ollama_list
+  changed_when: false
+
+# llama3.2:3b ~2 Go, nomic-embed-text ~270 Mo : tirés seulement s'ils manquent
+- name: Tirer les modèles manquants
+  ansible.builtin.command: ollama pull {{ item }}
+  environment:
+    OLLAMA_HOST: "{{ ollama_listen }}"
+  loop: "{{ ollama_models }}"
+  when: >-
+    (rag_ollama_list.stdout_lines[1:] | map('split') | map('first') | list)
+    is not contains(item if ':' in item else item ~ ':latest')
+  async: 1800
+  poll: 10

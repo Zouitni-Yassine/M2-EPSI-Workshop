@@ -1,0 +1,12 @@
+host_role: rag
+
+# Interface de l'assistant (Streamlit) : LAN MANAGEMENT (fw_monitoring_allowed) et VPN
+# d'administration (fw_admin_web_allowed). node_exporter : collecteurs uniquement (scrapers).
+fw_open_ports:
+  - 8501 # Streamlit
+fw_admin_ports:
+  - 8501 # Streamlit
+
+# Délestage IA : tunnel SSH vers Ollama depuis le PC à GPU de l'équipe (VPN EPSI-WS-IA,
+# règles UniFi ra-iapc-to-rag*). SSH et interface de l'assistant ; ICMP déjà accepté pour tous.
+rag_gpu_vpn_cidr: 192.168.2.0/24

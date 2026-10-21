@@ -1,0 +1,57 @@
+- name: Paquets nécessaires (firewall, node_exporter, archive Ollama, venv Python, module pip)
+  ansible.builtin.apt:
+    name:
+      - nftables
+      - prometheus-node-exporter
+      - zstd
+      - python3-venv
+      - python3-packaging
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# Docker vient du template mais ne sert pas ici : arrêté et désactivé (aucun port, aucun socket)
+- name: Docker arrêté et désactivé
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - docker.socket
+    - docker.service
+    - containerd.service
+
+- name: Firewall de l'hôte (nftables)
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    owner: root
+    group: root
+    mode: "0755"
+    validate: nft -c -f %s
+  notify: Recharger nftables
+
+- name: Appliquer le firewall
+  ansible.builtin.meta: flush_handlers
+
+# Garde-fou : le fichier peut être conforme sans que les règles soient chargées
+- name: Règles du firewall chargées
+  ansible.builtin.command: nft list table inet host_fw
+  register: rag_fw
+  changed_when: false
+  failed_when: false
+
+- name: Charger les règles du firewall
+  ansible.builtin.systemd_service:
+    name: nftables
+    state: reloaded
+  when: rag_fw.rc != 0
+
+- name: Services actifs au démarrage
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - nftables
+    - prometheus-node-exporter

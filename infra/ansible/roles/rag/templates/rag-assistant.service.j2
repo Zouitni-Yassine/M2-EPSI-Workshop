@@ -1,0 +1,35 @@
+# {{ ansible_managed }}
+# Assistant RAG (Streamlit) : code de l'équipe IA, révision {{ rag_git_ref[:7] }}.
+# Aucun secret ni accès privilégié : lit le code (à root) et écrit seulement {{ rag_data_dir }}.
+[Unit]
+Description=Assistant RAG des opérateurs (Streamlit)
+After=network-online.target ollama.service
+Wants=network-online.target ollama.service
+
+[Service]
+User=rag
+Group=rag
+WorkingDirectory={{ rag_dir }}/app
+{% for name, value in rag_env.items() %}
+Environment={{ name }}={{ value }}
+{% endfor %}
+ExecStart={{ rag_dir }}/venv/bin/streamlit run app.py --server.address 0.0.0.0 --server.port {{ rag_port }} --server.headless true --server.fileWatcherType none --browser.gatherUsageStats false
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ rag_data_dir }}
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

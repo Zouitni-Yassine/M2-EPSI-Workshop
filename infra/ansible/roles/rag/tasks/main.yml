@@ -1,0 +1,10 @@
+# Machine rag01 (VM clonée du template debian13-docker) : socle (firewall, node_exporter,
+# Docker arrêté), Ollama et ses modèles, puis l'assistant (code, venv, index, service).
+- name: Socle de la machine
+  ansible.builtin.import_tasks: system.yml
+
+- name: Ollama et modèles
+  ansible.builtin.import_tasks: ollama.yml
+
+- name: Assistant (code, dépendances, index, service)
+  ansible.builtin.import_tasks: app.yml

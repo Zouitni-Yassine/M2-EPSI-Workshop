@@ -1,0 +1,22 @@
+# Assistant RAG de l'équipe IA (VM créée par infra/terraform/rag.tf, docs/rag.md)
+#   cd /srv/M2-EPSI-Workshop/infra/ansible
+#   vault-env ansible-playbook rag.yml
+#   vault-env ansible-playbook rag.yml -e rag_git_ref=<sha complet de origin/IA>   # nouveau code
+# Secrets lus dans Vault (secret/infra/*) par vault-env : seul le mot de passe de Loki (Alloy)
+# arrive sur la machine ; l'assistant lui-même n'en reçoit aucun.
+
+- name: Assistant RAG (Ollama, ChromaDB, Streamlit)
+  hosts: rag_servers
+  pre_tasks:
+    - name: Secret Loki présent dans l'environnement
+      ansible.builtin.assert:
+        that:
+          - loki_auth_password | length >= 16
+        fail_msg: "Secrets absents : lancer le playbook par vault-env (vault-env ansible-playbook ...)"
+        quiet: true
+      run_once: true
+      delegate_to: localhost
+      become: false
+  roles:
+    - rag
+    - alloy

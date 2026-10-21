@@ -10,7 +10,7 @@ en défense en profondeur, par le firewall nftables des machines de destination.
 | VLAN | Réseau / zone UniFi | Sous-réseau (passerelle .254) | Vnet Proxmox | Machines |
 |---|---|---|---|---|
 | 10 (existant) | `MANAGEMENT` / `Internal` | 10.0.1.0/24 | `vmbr0` (sans tag) | Hyperviseurs, poste de contrôle, supervision, identité, `waf01` (provisoire) |
-| 301 | `RA-APP` / `RA-APP` | 10.30.1.0/24 | `raapp` | Swarm : `dockermgr01-03` (.211-.213), `dockerwrk01-03` (.221-.223) |
+| 301 | `RA-APP` / `RA-APP` | 10.30.1.0/24 | `raapp` | Swarm : `dockermgr01-03` (.211-.213), `dockerwrk01-03` (.221-.223) ; assistant RAG `rag01` (.230, [rag.md](rag.md)) |
 | 302 | `RA-DMZ` / `RA-DMZ` | 10.30.2.0/24 | `radmz` | Exposé à Internet : serveur NetBird (à venir), WAF (quand l'équipe cyber le déplacera, .251) |
 | 303 | `RA-VPN` / `RA-VPN` | 10.30.3.0/24 | `ravpn` | Passerelle NetBird vers le lab (à venir) |
 
@@ -50,6 +50,8 @@ de retour). Seules ces règles `ra-*` ouvrent des flux. `MANAGEMENT` désigne to
 | `ra-dmz-to-loki` | `RA-DMZ` → 10.0.1.233 | 3100 | Logs |
 | `ra-dmz-to-keycloak` | `RA-DMZ` → 10.0.1.241 | 443 | SSO (NetBird) |
 | `ra-vpn-to-mgmt`, `-dmz`, `-app` | `RA-VPN` → `MANAGEMENT`, `RA-DMZ`, `RA-APP` | tous | VPN admin : le filtrage par utilisateur et par groupe Keycloak est fait par NetBird |
+| `ra-wg-to-iapc`, `-icmp` | `EPSI-WG` → `EPSI-WS-IA` | ICMP, 22, 3389 | Administration du PC de délestage IA |
+| `ra-iapc-to-rag`, `-icmp` | `EPSI-WS-IA` → rag01 (10.30.1.230) | ICMP, 22, 8501 | Tunnel SSH vers Ollama, interface de l'assistant |
 
 Tout le reste est refusé : en particulier `RA-APP` → `RA-DMZ`, `RA-APP` → SSH ou interfaces web
 de `MANAGEMENT`, et `RA-*` → les autres réseaux de la passerelle.

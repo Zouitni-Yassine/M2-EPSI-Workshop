@@ -1,0 +1,46 @@
+# Assistant RAG de l'équipe IA (docs/rag.md) : Ollama + LangChain + ChromaDB + Streamlit.
+# En lecture seule sur les procédures : aucun secret, aucune clé, aucun jeton sur la machine.
+
+# Ollama : binaire officiel de la release GitHub, version figée, empreinte vérifiée
+# (sha256sum.txt de la release). Changer de version : les deux valeurs ensemble.
+ollama_version: v0.35.1
+ollama_sha256: 9fcd79ac4575b2bd31b992eee18b1000c8ad126b451627c8f8cd091714cfbb10
+ollama_release_url: https://github.com/ollama/ollama/releases/download
+ollama_dir: /opt/ollama
+ollama_data_dir: /var/lib/ollama
+# Écoute locale uniquement : seul l'assistant, sur la même machine, interroge les modèles
+ollama_listen: 127.0.0.1:11434
+# Modèles gardés en mémoire en permanence : pas de rechargement entre deux questions
+ollama_keep_alive: "-1"
+
+# Modèles utilisés par chain.py / ingest.py (noms codés en dur dans le code de l'équipe IA)
+rag_llm_model: llama3.2:3b
+rag_embed_model: nomic-embed-text
+ollama_models:
+  - "{{ rag_llm_model }}"
+  - "{{ rag_embed_model }}"
+
+# Code : dossier rag/ de la branche IA, à un commit figé, extrait du dépôt du poste de contrôle
+# (git archive). Mettre à jour : git fetch origin, puis
+#   vault-env ansible-playbook rag.yml -e rag_git_ref=<sha complet de origin/IA>
+rag_repo_dir: /srv/M2-EPSI-Workshop
+rag_git_ref: 1b7f20b96067ad5da3213cb7e2db9f349b34dcc1
+
+# Fiches de procédures de l'infra, ajoutées au corpus de l'équipe IA (docs/infra/ de l'appli)
+rag_infra_corpus_dir: "{{ playbook_dir | dirname }}/rag/corpus"
+
+# Dépendances Python figées (pip freeze du premier déploiement, files/constraints.txt)
+rag_pip_constraints: true
+
+rag_dir: /opt/rag          # code (une version par commit dans releases/) et venv, à root
+rag_data_dir: /var/lib/rag # base vectorielle ChromaDB et HOME du service, à l'utilisateur rag
+rag_port: 8501
+
+# Environnement de l'assistant (service et indexation) : URL d'Ollama lue par le client
+# Python (OLLAMA_HOST), télémétrie de ChromaDB et de Streamlit coupée (aucun appel sortant)
+rag_env:
+  OLLAMA_HOST: "http://{{ ollama_listen }}"
+  ANONYMIZED_TELEMETRY: "False"
+  STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+  HOME: "{{ rag_data_dir }}"
+  LANG: C.UTF-8
