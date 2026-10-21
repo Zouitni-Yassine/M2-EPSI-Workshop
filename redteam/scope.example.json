@@ -1,0 +1,16 @@
+{
+  "name": "Laboratoire autorisé - à renseigner",
+  "allowed_origins": [
+    "https://10.0.0.10:8443"
+  ],
+  "default_origin": "https://10.0.0.10:8443",
+  "ca_file": "ca-interne.crt",
+  "max_requests": 40,
+  "max_rate": 2,
+  "timeout_seconds": 5,
+  "ssh_relay": {
+    "host": "10.0.0.5",
+    "user": "redteam-operator",
+    "known_hosts": "ssh-known-hosts"
+  }
+}
