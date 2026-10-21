@@ -97,8 +97,6 @@ services:
       AUTH_MAX_FAILURES: "5"
       AUTH_MAX_FAILURES_PER_IP: "20"
       AUTH_LOCKOUT_SECONDS: "300"
-      # Adresse du client lue dans X-Forwarded-For, que le relais écrase
-      FORWARDED_ALLOW_IPS: "*"
     secrets:
       - { source: auth_db_password, target: auth_db_password }
       - { source: jwt_private_key, target: jwt_private_key }
@@ -257,8 +255,12 @@ services:
       - { target: 80, published: {{ app_frontend_port }}, protocol: tcp, mode: ingress }
     networks: [resilience]
     deploy:
-      replicas: 1
-      placement: *worker
+      # 3 réplicas, une par worker : la perte d'un conteneur ou d'un nœud ne coupe plus l'entrée
+      # (le maillage de routage répartit les requêtes entre elles). Sans état : rien à partager
+      replicas: 3
+      placement:
+        <<: *worker
+        max_replicas_per_node: 1
       resources:
         limits: { cpus: "0.5", memory: 64M }
       restart_policy: { condition: any, delay: 5s, window: 30s }
