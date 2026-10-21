@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Cookie, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 ISSUER = "resilience-auth"
@@ -69,10 +69,14 @@ def _unauthorized(detail: str) -> HTTPException:
 _bearer = HTTPBearer(auto_error=False, description="Jeton délivré par POST /auth/login du service d'authentification")
 
 
-def current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> User:
-    if cred is None:
+def current_user(
+    cred: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    rp_session: str | None = Cookie(default=None, include_in_schema=False),
+) -> User:
+    # Le navigateur envoie le cookie httpOnly posé par /auth/login ; les scripts, l'en-tête Bearer.
+    token = cred.credentials if cred else rp_session
+    if not token:
         raise _unauthorized("Connexion requise")
-    token = cred.credentials
     try:
         kid = jwt.get_unverified_header(token).get("kid")
     except jwt.InvalidTokenError as exc:

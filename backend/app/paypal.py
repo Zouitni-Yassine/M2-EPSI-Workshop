@@ -22,7 +22,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from . import store
+from . import metrics, store
 from .security import User, current_user
 
 # Figée : même avec des identifiants live collés par erreur, aucun argent réel ne bouge.
@@ -182,6 +182,7 @@ def _http_error(exc: PayPalError) -> HTTPException:
     if exc.issue == "ORDER_NOT_APPROVED":
         return HTTPException(status_code=409, detail="Le payeur n’a pas encore approuvé la commande PayPal")
     suffix = f" (debug_id {exc.debug_id})" if exc.debug_id else ""
+    metrics.provider_error("paypal", f"{exc.issue} {exc.debug_id}".strip())
     return HTTPException(status_code=502, detail=f"PayPal : {exc}{suffix}")
 
 
@@ -311,7 +312,7 @@ def to_intent(order: dict[str, Any], error: dict[str, str] | None = None) -> dic
 # Pas d'API « lister les commandes » chez PayPal : le journal est notre base, et lui seul.
 # Contrairement à Stripe, une commande manquée pendant une panne de la base ne se rattrape pas.
 def _remember(intent: dict[str, Any]) -> dict[str, Any]:
-    return store.record(intent, "paypal")
+    return store.record(metrics.payment(intent, "paypal"), "paypal")
 
 
 def _order_id(order_id: str) -> str:
@@ -366,7 +367,7 @@ def create_order(body: CreateOrder, user: User = Depends(current_user)) -> dict[
         # Rejouer la même requête (timeout, double clic) ne crée pas de seconde commande.
         request_id=key,
     )
-    return _remember(to_intent(order))
+    return _remember(metrics.created(to_intent(order), "paypal"))
 
 
 @router.post("/orders/{order_id}/capture")

@@ -163,3 +163,19 @@ def test_un_client_ne_relit_pas_le_paiement_d_un_autre(monkeypatch: pytest.Monke
     with pytest.raises(HTTPException) as exc:
         main._owned("pi_1", User("bob", "client"))
     assert exc.value.status_code == 404
+
+
+def test_session_par_cookie_du_navigateur(auth: FakeAuth, balance: None) -> None:
+    res = client.get("/api/balance", headers={"Cookie": f"rp_session={token('operateur', 'operator')}"})
+    assert res.status_code == 200
+    assert client.get("/api/balance", headers={"Cookie": f"rp_session={token(role='client')}"}).status_code == 403
+
+
+def test_bearer_prioritaire_sur_le_cookie(auth: FakeAuth, balance: None) -> None:
+    headers = {"Authorization": f"Bearer {token('operateur', 'operator')}", "Cookie": f"rp_session={token(role='client')}"}
+    assert client.get("/api/balance", headers=headers).status_code == 200
+
+
+def test_documentation_sous_le_prefixe_api() -> None:
+    assert client.get("/api/docs").status_code == 200
+    assert "/api/payment_intents" in client.get("/api/openapi.json").json()["paths"]

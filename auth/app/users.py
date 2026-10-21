@@ -25,7 +25,10 @@ from sqlalchemy.engine import URL, make_url
 
 ROLES = ("client", "operator")
 USERNAME = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
+# Volontairement simple : le vrai filtre, c'est l'e-mail de confirmation qu'on n'envoie pas ici.
+EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
 MIN_PASSWORD = 8
+MAX_NAME = 64
 
 _hasher = PasswordHasher()  # argon2id, paramètres recommandés par la bibliothèque
 
@@ -42,6 +45,8 @@ users = Table(
     Column("password_hash", String(255), nullable=False),
     Column("role", String(16), nullable=False),
     Column("disabled", Boolean, nullable=False, default=False),
+    Column("first_name", String(64)),
+    Column("last_name", String(64)),
     Column("created_at", DateTime(timezone=True), server_default=func.now()),
 )
 
@@ -50,6 +55,11 @@ users = Table(
 class User:
     username: str
     role: str
+    first_name: str = ""
+    last_name: str = ""
+
+    def payload(self) -> dict:
+        return {"username": self.username, "role": self.role, "firstName": self.first_name, "lastName": self.last_name}
 
 
 def secret(name: str) -> str:
@@ -74,6 +84,19 @@ def _verify(stored: str, password: str) -> bool:
         return False
 
 
+def check_signup(email: str, first_name: str, last_name: str, password: str) -> str | None:
+    """Ce qui rend l'inscription invalide, ou None."""
+    if not EMAIL.match(email) or len(email) > MAX_NAME:
+        return "adresse e-mail invalide"
+    if not first_name or len(first_name) > MAX_NAME:
+        return "prénom manquant"
+    if not last_name or len(last_name) > MAX_NAME:
+        return "nom manquant"
+    if len(password) < MIN_PASSWORD:
+        return f"mot de passe trop court (au moins {MIN_PASSWORD} caractères)"
+    return None
+
+
 def check(username: str, role: str, password: str) -> str | None:
     """Ce qui rend le compte invalide, ou None."""
     if not USERNAME.match(username):
@@ -95,6 +118,15 @@ class Store:
             os.makedirs(os.path.dirname(url.database) or ".", exist_ok=True)
         self.engine = create_engine(url, **options)
         metadata.create_all(self.engine)
+        # Base créée avant l'ajout des noms : on complète les colonnes manquantes.
+        with self.engine.begin() as c:
+            existing = {row[1] for row in c.exec_driver_sql("PRAGMA table_info(users)")} if url.get_backend_name() == "sqlite" else None
+            for col in ("first_name", "last_name"):
+                try:
+                    if existing is None or col not in existing:
+                        c.exec_driver_sql(f"ALTER TABLE users ADD COLUMN {col} VARCHAR(64)")
+                except Exception:
+                    pass  # Déjà présente.
 
     def ping(self) -> bool:
         try:
@@ -109,7 +141,7 @@ class Store:
             row = c.execute(select(users).where(users.c.username == username)).first()
         if row is None or row.disabled:
             return None
-        return User(row.username, row.role)
+        return User(row.username, row.role, row.first_name or "", row.last_name or "")
 
     def authenticate(self, username: str, password: str) -> User | None:
         with self.engine.connect() as c:
@@ -121,7 +153,38 @@ class Store:
             return None
         if _hasher.check_needs_rehash(row.password_hash):
             self._set_hash(username, _hasher.hash(password))
-        return User(row.username, row.role)
+        return User(row.username, row.role, row.first_name or "", row.last_name or "")
+
+    def create(self, username: str, password: str, role: str, first_name: str = "", last_name: str = "") -> bool:
+        """Crée le compte ; False s'il existe déjà (jamais d'écrasement, contrairement au seed)."""
+        with self.engine.begin() as c:
+            row = c.execute(select(users.c.id).where(users.c.username == username)).first()
+            if row is not None:
+                return False
+            c.execute(users.insert().values(
+                username=username, password_hash=_hasher.hash(password), role=role,
+                first_name=first_name, last_name=last_name,
+            ))
+            return True
+
+    def password_stamp(self, username: str) -> str | None:
+        """Empreinte du hachage courant : change dès que le mot de passe change."""
+        import hashlib
+
+        with self.engine.connect() as c:
+            row = c.execute(select(users.c.password_hash).where(users.c.username == username, users.c.disabled == False)).first()  # noqa: E712
+        if row is None:
+            return None
+        return hashlib.sha256(row.password_hash.encode()).hexdigest()[:16]
+
+    def set_password(self, username: str, password: str) -> bool:
+        """Change le mot de passe d'un compte actif. False si le compte n'existe pas."""
+        with self.engine.begin() as c:
+            row = c.execute(select(users.c.id).where(users.c.username == username, users.c.disabled == False)).first()  # noqa: E712
+            if row is None:
+                return False
+            c.execute(users.update().where(users.c.username == username).values(password_hash=_hasher.hash(password)))
+            return True
 
     def upsert(self, username: str, password: str, role: str) -> str:
         """Crée le compte, ou aligne son mot de passe et son rôle. Renvoie ce qui a été fait."""

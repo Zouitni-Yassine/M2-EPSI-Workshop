@@ -30,7 +30,7 @@ export function Outcome({ intent, onRestart }: Props) {
         <p className="mt-3 max-w-[38ch] text-sm leading-relaxed text-text-2">
           {failed
             ? intent.error?.message
-            : 'Un reçu a été envoyé à votre adresse e-mail. Le montant apparaîtra sur votre relevé sous le libellé RESILIENCE PAY.'}
+            : 'Un reçu a été envoyé à votre adresse e-mail. Le montant apparaîtra sur votre relevé sous le libellé YAZNOW.'}
         </p>
       </div>
 

@@ -15,10 +15,11 @@ export function createDataSource(): DataSource {
     return createLiveSource(import.meta.env.VITE_WS_URL ?? 'ws://localhost:8080/ws/state')
   }
   if (mode === 'api') {
+    // Chemins relatifs : tout passe par le relais nginx, qui réserve ces sondes aux opérateurs.
     return createApiSource(
-      import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api',
-      import.meta.env.VITE_DETECTOR_URL,
-      import.meta.env.VITE_REMEDIATION_URL,
+      import.meta.env.VITE_API_URL ?? '/api',
+      import.meta.env.VITE_DETECTOR_URL ?? '/detector',
+      import.meta.env.VITE_REMEDIATION_URL ?? '/remediation',
     )
   }
   return createMockSource()
