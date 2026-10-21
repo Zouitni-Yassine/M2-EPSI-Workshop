@@ -46,10 +46,10 @@ code() { curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$@"; }
 section "Créneaux"
 now_paris=$(TZ=Europe/Paris date +%H:%M)
 min_paris=$(( 10#$(TZ=Europe/Paris date +%H) * 60 + 10#$(TZ=Europe/Paris date +%M) ))
-# Sauvegardes PBS 21h00 et 22h30, gel par la sauvegarde de l'hôte parent vers 15h36 (heure de Paris)
+# Sauvegardes PBS 13h00 et 21h00, gel par la sauvegarde de l'hôte parent vers 15h36 (heure de Paris)
 for slot in "15:36 sauvegarde de l'hôte parent (gel ~45 s des VM de ceph01)" \
             "21:00 sauvegarde PBS (contrôle, collecteurs, supervision)" \
-            "22:30 sauvegarde PBS (Swarm, identité, WAF)"; do
+            "13:00 sauvegarde PBS (Swarm, rag01, identité, WAF)"; do
   h=${slot%% *}; m=$(( 10#${h%%:*} * 60 + 10#${h##*:} ))
   d=$(( m - min_paris ))
   if [ "$d" -ge -10 ] && [ "$d" -le 20 ]; then warn "il est $now_paris : $slot à $h"; fi
@@ -87,6 +87,26 @@ leader=$(mgr docker node ls --format '{{.Hostname}} {{.ManagerStatus}}' | awk '$
 [ -n "$leader" ] && ok "Swarm : leader $leader" || ko "Swarm : aucun leader"
 bad=$(mgr docker service ls --format '{{.Name}} {{.Replicas}}' | awk '$1 ~ /^(paiement|probe)_/ { split($2, r, "/"); if (r[1] != r[2] || r[1] == 0) print $1 " " $2 }')
 [ -z "$bad" ] && ok "services paiement_* et sonde : toutes les réplicas en marche" || ko "services incomplets : $(echo $bad)"
+# Base haute disponibilité (Patroni) : un seul primaire, tous les autres membres en réplication
+members=0 nprim=0 prim="" pctr=""
+for h in 10.30.1.221 10.30.1.222 10.30.1.223; do
+  c=$("${SSH_VM[@]}" "debian@$h" "sudo docker ps -q --filter label=com.epsi.db=paiement" 2>/dev/null | head -1)
+  [ -n "$c" ] || continue
+  members=$((members + 1))
+  r=$("${SSH_VM[@]}" "debian@$h" "sudo docker exec $c psql -U postgres -tAc 'select pg_is_in_recovery()'" 2>/dev/null)
+  [ "$r" = f ] && { nprim=$((nprim + 1)); prim=$h; pctr=$c; }
+done
+if [ "$nprim" = 1 ]; then
+  read -r streaming quorum < <("${SSH_VM[@]}" "debian@$prim" "sudo docker exec $pctr psql -U postgres -tA -F ' ' -c \"select count(*) filter (where state = 'streaming'), count(*) filter (where sync_state in ('quorum', 'sync')) from pg_stat_replication\"" 2>/dev/null)
+  if [ "${streaming:-0}" -ge 1 ] && [ "${streaming:-0}" = $((members - 1)) ]; then
+    ok "base : primaire sur dockerwrk0${prim: -1}, ${streaming} standby(s) en réplication (${quorum:-0} synchrone(s) par quorum)"
+  elif [ "${streaming:-0}" -ge 1 ]; then
+    warn "base : primaire sur dockerwrk0${prim: -1}, ${streaming} standby(s) en réplication sur $((members - 1)) : bascule possible, redondance réduite"
+  else
+    warn "base : primaire sur dockerwrk0${prim: -1} sans aucun standby en réplication : pas de bascule possible"
+  fi
+elif [ "$nprim" = 0 ]; then ko "base : aucun primaire PostgreSQL ($members membre(s) trouvé(s))"
+else ko "base : $nprim primaires PostgreSQL (double primaire)"; fi
 holder=""
 for h in 10.30.1.221 10.30.1.222 10.30.1.223; do
   "${SSH_VM[@]}" "debian@$h" "ip -o addr" 2>/dev/null | grep -q " $VIP/" && holder="$holder $h"

@@ -10,3 +10,7 @@ fw_admin_ports:
 # Délestage IA : tunnel SSH vers Ollama depuis le PC à GPU de l'équipe (VPN EPSI-WS-IA,
 # règles UniFi ra-iapc-to-rag*). SSH et interface de l'assistant ; ICMP déjà accepté pour tous.
 rag_gpu_vpn_cidr: 192.168.2.0/24
+
+# Clé publique du PC à GPU (tunnel uniquement : from=, restrict, permitlisten ; voir gpu_tunnel.yml)
+rag_gpu_tunnel_keys:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBOGW0G1cmUuuCLw87vxES3ckxwcSlw8TuRODFiqG1cz pc-gpu-remi

@@ -45,6 +45,8 @@ KEYS = {
     "PAIEMENT_POSTGRES_PASSWORD": password,     # superutilisateur postgres
     "PAIEMENT_AUTH_DB_PASSWORD": password,      # rôle auth
     "PAIEMENT_PAYMENTS_DB_PASSWORD": password,  # rôle payments
+    "PAIEMENT_REPLICATION_PASSWORD": password,  # rôle replicator (standbys Patroni)
+    "PAIEMENT_PATRONI_API_PASSWORD": password,  # API REST de Patroni (bascule, redémarrage)
     "PAIEMENT_JWT_PRIVATE_KEY": ed25519_pem,    # signature des jetons de session (auth)
     "PAIEMENT_DETECTOR_ADMIN_TOKEN": password,  # POST /reset du détecteur
     "PAIEMENT_AUTH_PASSWORD_OPERATEUR": password,  # compte semé "operateur" (rôle operator)

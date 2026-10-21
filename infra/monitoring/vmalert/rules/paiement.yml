@@ -94,10 +94,10 @@ groups:
           summary: "payment-api lent : p95 à {{ $value | humanizeDuration }} sur 2 min (seuils : 2 s, 5 s pour la confirmation Stripe)"
 
       # Base vue en panne par toutes les réplicas (sondée en tâche de fond toutes les 2 s).
-      # Remédiation manuelle : Swarm relance déjà une base dont le healthcheck échoue, la base est
-      # épinglée sur un seul nœud (volume local, pas de bascule) et la redémarrer coupe toutes
-      # les transactions en cours. Si elle répond à son healthcheck mais pas à l'API, la cause
-      # est ailleurs (réseau, connexions saturées) : décision humaine.
+      # Remédiation manuelle : Patroni rétablit déjà un primaire (bascule automatique, ~20 s) et
+      # Swarm relance un membre arrêté. Une minute sans base = la bascule n'a pas abouti (etcd,
+      # plus aucun standby) ou la cause est ailleurs (réseau, connexions saturées) : décision
+      # humaine (voir les alertes PaiementDb* ci-dessous et docs/application.md).
       - alert: PaiementDatabaseDown
         expr: max by (service, stack) (payment_api_dependency_up{service="paiement_payment-api", dependency="db"}) == 0
         for: 1m
@@ -108,6 +108,82 @@ groups:
           action: restart
         annotations:
           summary: "payment-api ne joint plus sa base de données (paiement_db) depuis 1 min"
+
+      # Base haute disponibilité (Patroni, /metrics :8008 de paiement_db1..3, swarm_scrape_targets).
+      # Membres attendus = services vus dans l'heure (un membre arrêté disparaît du DNS, donc des
+      # séries "up"). Remédiation manuelle : la bascule elle-même est automatique.
+      - alert: PaiementDbSansPrimaire
+        expr: |
+          (sum(patroni_primary{stack="paiement"} == 1) or on() vector(0)) < 1
+            and on() count(present_over_time(patroni_primary{stack="paiement"}[1h])) > 0
+        for: 45s
+        labels:
+          severity: critical
+          remediation: manual
+          service: paiement_db
+          stack: paiement
+          action: none
+        annotations:
+          summary: "Base de données : aucun primaire PostgreSQL depuis 45 s (bascule Patroni bloquée ?)"
+
+      - alert: PaiementDbDoublePrimaire
+        expr: sum(patroni_primary{stack="paiement"} == 1) > 1
+        for: 15s
+        labels:
+          severity: critical
+          remediation: manual
+          service: paiement_db
+          stack: paiement
+          action: none
+        annotations:
+          summary: "Base de données : {{ $value }} primaires PostgreSQL à la fois (split brain)"
+
+      # Standbys en réplication moins nombreux que les membres attendus moins le primaire : la base
+      # tourne, mais une nouvelle panne pourrait ne plus être rattrapée.
+      - alert: PaiementDbStandbyManquant
+        expr: |
+          (count(patroni_replica{stack="paiement"} == 1 and on (instance) patroni_postgres_streaming{stack="paiement"} == 1) or on() vector(0))
+            < on() (count(count by (service) (present_over_time(patroni_version{stack="paiement"}[1h]))) - 1)
+        for: 3m
+        labels:
+          severity: warning
+          remediation: manual
+          service: paiement_db
+          stack: paiement
+          action: none
+        annotations:
+          summary: "Base de données : {{ $value }} standby(s) en réplication seulement (membre arrêté ou réplication cassée)"
+
+      # Retard de rejeu d'un standby (octets de WAL) : il ne pourrait pas être promu sans perte
+      # (maximum_lag_on_failover = 1 Mo)
+      - alert: PaiementDbReplicationRetard
+        expr: |
+          scalar(max(patroni_xlog_location{stack="paiement"} and on (instance) patroni_primary{stack="paiement"} == 1))
+            - (patroni_xlog_received_location{stack="paiement"} and on (instance) patroni_replica{stack="paiement"} == 1)
+            > 16 * 1024 * 1024
+        for: 2m
+        labels:
+          severity: warning
+          remediation: manual
+          service: paiement_db
+          stack: paiement
+          action: none
+        annotations:
+          summary: "Base de données : un standby a plus de 16 Mo de retard de réplication"
+
+      # etcd (verrou du primaire) injoignable par un membre : le primaire reste en place tant qu'il
+      # joint les autres membres (failsafe_mode), mais aucune bascule n'est possible
+      - alert: PaiementDbEtcdInjoignable
+        expr: time() - patroni_dcs_last_seen{stack="paiement"} > 60
+        for: 1m
+        labels:
+          severity: warning
+          remediation: manual
+          service: paiement_db
+          stack: paiement
+          action: none
+        annotations:
+          summary: "Base de données : etcd injoignable depuis plus d'une minute pour un membre Patroni"
 
       # Prestataire externe (Stripe, PayPal) en échec. La sonde n'est rafraîchie que par
       # /api/status : seules les réplicas sondées dans les 2 dernières minutes comptent (une

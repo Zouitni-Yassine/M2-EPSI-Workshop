@@ -7,8 +7,23 @@
 #     attendu par le code (target) ; aucune valeur dans ce fichier ni dans l'environnement ;
 #   - pas de build, container_name, security_opt, env_file (ignorés ou refusés par Swarm) ;
 #   - pas de docker-socket-proxy : le moteur passe par la passerelle SSH des managers ;
-#   - tous les services sur les workers (managers drainés), la base épinglée sur un nœud.
+#   - tous les services sur les workers (managers drainés) ;
+#   - base PostgreSQL selon app_db_mode (docs/application.md, "Base de données") :
+#     ha = Patroni + etcd, un membre par worker, bascule automatique ; single = ancienne base
+#     unique épinglée (retour arrière) ; migration = les deux, clients sur la base unique.
 # Les "$$" ci-dessous sont des "$" échappés pour l'interpolation de docker stack deploy.
+{% set db_ha = app_db_mode in ['migration', 'ha'] %}
+{% set db_legacy = app_db_mode in ['single', 'migration'] %}
+{# Clients : base unique, ou tous les membres en multi-hôtes (libpq choisit le primaire) #}
+{% if app_db_mode == 'ha' %}
+{%   set ns = namespace(hosts=[]) %}
+{%   for n in app_db_nodes %}{% set ns.hosts = ns.hosts + ['host=db' ~ loop.index ~ ':5432'] %}{% endfor %}
+{%   set db_query = '?' ~ (ns.hosts | join('&')) ~ '&' ~ app_db_url_options %}
+{%   set db_host = '' %}
+{% else %}
+{%   set db_query = '' %}
+{%   set db_host = 'db:5432' %}
+{% endif %}
 
 x-hardening: &hardening
   read_only: true
@@ -20,9 +35,101 @@ x-worker: &worker
     - spread: node.labels.pve_node
 
 services:
+{% if db_ha %}
+  # PostgreSQL haute disponibilité : un membre Patroni par worker (volume local à chaque nœud),
+  # un primaire élu dans etcd, standbys en réplication synchrone par quorum. Si le nœud du
+  # primaire tombe, un standby à jour est promu (verrou expiré : ~20 s) ; l'ancien primaire
+  # revient en standby (pg_rewind). Les clients listent tous les membres et ne retiennent que
+  # celui qui accepte les écritures (target_session_attrs=read-write).
+{% for node in app_db_nodes %}
+  etcd{{ loop.index }}:
+    image: {{ app_etcd_image }}
+    <<: *hardening
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd{{ loop.index }}
+      - --data-dir=/var/lib/etcd
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd{{ loop.index }}:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd{{ loop.index }}:2380
+      - --initial-cluster={% for n in app_db_nodes %}etcd{{ loop.index }}=http://etcd{{ loop.index }}:2380{{ ',' if not loop.last }}{% endfor %}
+
+      - --initial-cluster-state=new
+      - --initial-cluster-token={{ app_stack_name }}-etcd
+    volumes:
+      - etcd-data:/var/lib/etcd
+    # Réseau dédié : seuls les membres Patroni joignent etcd
+    networks: [dcs]
+    deploy:
+      endpoint_mode: dnsrr
+      placement:
+        constraints: [node.hostname == {{ node }}]
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+      restart_policy: { condition: any, delay: 5s }
+
+  db{{ loop.index }}:
+    image: {{ app_db_image_ref }}
+    <<: *hardening
+    # Utilisateur postgres de l'image : volume à son nom, aucune capacité nécessaire
+    user: postgres
+    # Repère des sauvegardes, de chaos.sh et de demo-check (primaire = membre hors recouvrement).
+    # Valeur fixe : un label modifié redémarrerait les trois membres en même temps
+    labels:
+      com.epsi.db: "{{ app_stack_name }}"
+    environment:
+      PATRONI_NAME: db{{ loop.index }}
+      PATRONI_RESTAPI_CONNECT_ADDRESS: db{{ loop.index }}:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: db{{ loop.index }}:5432
+      # Lu par db-init (post_bootstrap de Patroni, script db/init/01-roles.sh)
+      POSTGRES_USER: postgres
+    secrets:
+      - { source: postgres_password, target: postgres_password }
+      - { source: replication_password, target: replication_password }
+      - { source: patroni_api_password, target: patroni_api_password }
+      - { source: auth_db_password, target: auth_db_password }
+      - { source: payments_db_password, target: payments_db_password }
+    configs:
+      - { source: patroni, target: /etc/patroni/patroni.yml, mode: 0444 }
+      # Crée les rôles et bases auth / payments, à l'initialisation du cluster seulement
+      - { source: db_init, target: /usr/local/bin/db-init, mode: 0555 }
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - { type: tmpfs, target: /var/run/postgresql }
+      - { type: tmpfs, target: /tmp }
+    # Arrêt propre : Patroni rend le verrou et laisse un standby prendre la main (~4 s)
+    stop_grace_period: 30s
+    # Patroni vivant (et non "PostgreSQL prêt") : une reconstruction de standby peut durer
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8008/liveness', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 6
+      start_period: 30s
+    # data : clients et réplication ; dcs : etcd ; monitoring : /metrics de Patroni (8008)
+    networks: [data, dcs, monitoring]
+    deploy:
+      # DNS = adresse de la tâche (pas d'adresse virtuelle IPVS) : un membre arrêté disparaît
+      # du DNS et les clients passent aussitôt au suivant
+      endpoint_mode: dnsrr
+      placement:
+        constraints: [node.hostname == {{ node }}]
+      resources:
+        limits: { cpus: "1", memory: 512M }
+      restart_policy: { condition: any, delay: 5s }
+
+{% endfor %}
+{% endif %}
+{% if db_legacy %}
+  # Base unique (retour arrière, app_db_mode=single) : volume db-data d'origine sur {{ app_db_node }}
   db:
     image: {{ app_postgres_image }}
     <<: *hardening
+{% if app_db_mode == 'single' %}
+    labels:
+      com.epsi.db: "{{ app_stack_name }}"
+{% endif %}
     environment:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets:
@@ -52,13 +159,14 @@ services:
       replicas: 1
       placement:
         # Volume local au nœud : la base est épinglée sur {{ app_db_node }}. Pas de bascule :
-        # si ce nœud tombe, la base reste arrêtée jusqu'à son retour (voir docs/application-stack.md)
+        # si ce nœud tombe, la base reste arrêtée jusqu'à son retour
         constraints:
           - node.role == worker
           - node.hostname == {{ app_db_node }}
       resources:
         limits: { cpus: "1", memory: 512M }
       restart_policy: { condition: any, delay: 5s }
+{% endif %}
 
   # Boîte mail de démonstration (e-mails de réinitialisation). Non publiée sur le cluster :
   # un port publié par Swarm l'est sur tous les nœuds et contourne le firewall des hôtes.
@@ -84,7 +192,7 @@ services:
       COOKIE_SECURE: "{{ 'true' if app_url.startswith('https://') else 'false' }}"
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
-      DATABASE_URL: postgresql+psycopg://auth@db:5432/auth
+      DATABASE_URL: "postgresql+psycopg://auth@{{ db_host }}/auth{{ db_query }}"
       DB_PASSWORD_FILE: /run/secrets/auth_db_password
       # Partagée par toutes les réplicas : un jeton signé par l'une est vérifiable par toutes
       JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
@@ -133,7 +241,7 @@ services:
     environment:
       CORS_ORIGINS: "{{ app_cors_origins }}"
       AUTH_URL: http://auth:8300
-      DATABASE_URL: postgresql+psycopg://payments@db:5432/payments
+      DATABASE_URL: "postgresql+psycopg://payments@{{ db_host }}/payments{{ db_query }}"
       DB_PASSWORD_FILE: /run/secrets/payments_db_password
       FORWARDED_ALLOW_IPS: "*"
       PAYPAL_MAX_RPS: "5"
@@ -270,7 +378,13 @@ services:
       rollback_config: { parallelism: 1, order: stop-first }
 
 volumes:
+  # Base unique (app_db_mode=single) : gardée, jamais supprimée par la stack
   db-data:
+{% if db_ha %}
+  # Un volume local par nœud (même nom sur chaque worker) : membre Patroni et membre etcd
+  pg-data:
+  etcd-data:
+{% endif %}
 
 networks:
   resilience:
@@ -283,6 +397,14 @@ networks:
     internal: true
     driver_opts:
       encrypted: "true"
+{% if db_ha %}
+  # Verrou du primaire : etcd et membres Patroni seulement
+  dcs:
+    driver: overlay
+    internal: true
+    driver_opts:
+      encrypted: "true"
+{% endif %}
   # Créé par la stack monitoring (rôle swarm_monitoring) : collecte des /metrics
   monitoring:
     name: monitoring
@@ -303,6 +425,11 @@ configs:
   db_init:
     name: {{ app_db_init_config_name }}
     external: true
+{% if db_ha %}
+  patroni:
+    name: {{ app_patroni_config_name }}
+    external: true
+{% endif %}
   remediation_known_hosts:
     name: {{ app_known_hosts_config.stdout }}
     external: true

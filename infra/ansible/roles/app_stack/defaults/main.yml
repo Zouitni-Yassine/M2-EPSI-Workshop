@@ -22,8 +22,26 @@ app_url: http://10.30.1.221:5173
 app_cors_origins: "{{ app_url }}"
 app_frontend_port: 5173
 
-# Volume local : la base est épinglée sur ce worker (pas de bascule automatique)
+# Base de données (docs/application.md, "Base de données") :
+#   ha        PostgreSQL + Patroni + etcd, un membre par worker de app_db_nodes, bascule auto ;
+#   single    ancienne base unique épinglée sur app_db_node, volume db-data (retour arrière) ;
+#   migration les deux à la fois, clients sur la base unique (le temps d'importer les données).
+app_db_mode: ha
+# Un membre Patroni et un membre etcd par nœud (3 : quorum etcd de 2, perte d'un nœud tolérée)
+app_db_nodes: [dockerwrk01, dockerwrk02, dockerwrk03]
+# Base unique (single / migration) : volume local db-data sur ce worker
 app_db_node: dockerwrk01
+# Image PostgreSQL 16 + Patroni, construite sur le manager depuis infra/app/postgres-ha
+# (pas de GitHub : c'est de l'infra) ; tag = empreinte des sources, comme la sonde
+app_db_image_name: paiement-postgres
+app_db_image_src: "{{ playbook_dir | dirname }}/app/postgres-ha"
+app_db_image_files: [Dockerfile, entrypoint.sh, pctl]
+app_db_build_dir: /var/lib/paiement-postgres-build
+app_etcd_image: quay.io/coreos/etcd:v3.6.15
+# Options libpq des clients (auth, payment-api) en mode ha : seul le primaire est retenu ;
+# une connexion vers un nœud disparu (VM coupée) échoue en quelques secondes au lieu de
+# plusieurs minutes (tcp_user_timeout en ms, keepalives en s)
+app_db_url_options: target_session_attrs=read-write&tcp_user_timeout=5000&keepalives_idle=5&keepalives_interval=2&keepalives_count=3
 
 # Comptes semés au démarrage d'auth ; mot de passe de chacun : secret auth_password_<compte>
 app_seed_users:
@@ -49,6 +67,9 @@ app_secret_values:
   postgres_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_POSTGRES_PASSWORD') }}"
   auth_db_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_AUTH_DB_PASSWORD') }}"
   payments_db_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_PAYMENTS_DB_PASSWORD') }}"
+  # Base haute disponibilité : réplication (standbys) et API REST de Patroni (bascule manuelle)
+  replication_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_REPLICATION_PASSWORD') }}"
+  patroni_api_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_PATRONI_API_PASSWORD') }}"
   jwt_private_key: "{{ lookup('ansible.builtin.env', 'PAIEMENT_JWT_PRIVATE_KEY') }}"
   detector_admin_token: "{{ lookup('ansible.builtin.env', 'PAIEMENT_DETECTOR_ADMIN_TOKEN') }}"
   auth_password_operateur: "{{ lookup('ansible.builtin.env', 'PAIEMENT_AUTH_PASSWORD_OPERATEUR') }}"

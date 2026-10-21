@@ -96,3 +96,13 @@
     is not contains(item if ':' in item else item ~ ':latest')
   async: 1800
   poll: 10
+
+# Secours dégradé du modèle du GPU : alias local du même nom vers le petit modèle (ollama cp ne
+# copie que le manifeste, aucun téléchargement)
+- name: Alias local du modèle du GPU
+  ansible.builtin.command: ollama cp {{ rag_llm_model }} {{ rag_gpu_llm_model }}
+  environment:
+    OLLAMA_HOST: "{{ ollama_listen }}"
+  when: >-
+    rag_gpu_llm_model != rag_llm_model and
+    (rag_ollama_list.stdout_lines[1:] | map('split') | map('first') | list) is not contains(rag_gpu_llm_model)

@@ -24,7 +24,7 @@ ollama_models:
 # (git archive). Mettre à jour : git fetch origin, puis
 #   vault-env ansible-playbook rag.yml -e rag_git_ref=<sha complet de origin/IA>
 rag_repo_dir: /srv/M2-EPSI-Workshop
-rag_git_ref: 1b7f20b96067ad5da3213cb7e2db9f349b34dcc1
+rag_git_ref: 71cc5617da41ba5db63ba1d2796fb530eba36b25
 
 # Fiches de procédures de l'infra, ajoutées au corpus de l'équipe IA (docs/infra/ de l'appli)
 rag_infra_corpus_dir: "{{ playbook_dir | dirname }}/rag/corpus"
@@ -39,8 +39,21 @@ rag_port: 8501
 # Environnement de l'assistant (service et indexation) : URL d'Ollama lue par le client
 # Python (OLLAMA_HOST), télémétrie de ChromaDB et de Streamlit coupée (aucun appel sortant)
 rag_env:
-  OLLAMA_HOST: "http://{{ ollama_listen }}"
+  OLLAMA_HOST: "http://{{ rag_relay_listen }}"
   ANONYMIZED_TELEMETRY: "False"
   STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+  RAG_LLM_MODEL: "{{ rag_gpu_llm_model }}"
   HOME: "{{ rag_data_dir }}"
   LANG: C.UTF-8
+
+# Délestage IA (tasks/gpu_tunnel.yml) : tunnel SSH inverse depuis le PC à GPU, relais nginx qui
+# préfère le GPU et retombe sur l'Ollama local. L'assistant interroge toujours le relais.
+rag_relay_listen: 127.0.0.1:11430
+rag_gpu_tunnel_listen: 127.0.0.1:11435
+rag_gpu_tunnel_user: gpu-tunnel
+rag_gpu_tunnel_keys: []   # clés publiques SSH des PC à GPU (inventaire)
+# Modèle de génération servi par le GPU distant (27B, au-delà des 8B du §3.3 : dérogation validée
+# par le coach le 21/10/2026). Il ne tient pas sur le CPU de rag01 : un alias local du même nom
+# pointe vers {{ rag_llm_model }}, pour que l'assistant réponde encore (en mode dégradé) si le
+# GPU est absent. Lu par chain.py dans RAG_LLM_MODEL.
+rag_gpu_llm_model: qwen3.8:27b

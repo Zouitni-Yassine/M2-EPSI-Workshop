@@ -154,7 +154,7 @@ L'application « Resilience Pay » (code à la racine du dépôt) tourne sur le 
 | `paiement_payment-api` | `<registre>/payment-api` | resilience, data, **monitoring** | aucun (relais `/api/`) ; `/metrics` :8000 | 1, **on-failure** |
 | `paiement_detector` | `<registre>/detector` | resilience | aucun (relais `/detector/score`, opérateurs) | 1 (modèle en mémoire), any |
 | `paiement_remediation` | `<registre>/remediation` | resilience | aucun (relais `/remediation/state`, opérateurs) | 1 (un seul décideur), any |
-| `paiement_db` | `postgres:16-alpine` | data (interne) | aucun | 1, épinglée sur `dockerwrk01` |
+| `paiement_db1..3`, `paiement_etcd1..3` | `<registre>/paiement-postgres` (PostgreSQL 16 + Patroni), `quay.io/coreos/etcd` | data, dcs (internes), monitoring | aucun | 1 par worker, bascule automatique (voir « Base de données haute disponibilité ») |
 | `paiement_mailpit` | `axllent/mailpit:v1.20` | resilience | aucun (non publié sur le cluster) | 1, any |
 
 - Réseaux overlay de la stack **chiffrés** (IPsec, ESP autorisé par le firewall des nœuds) :
@@ -171,7 +171,7 @@ L'application « Resilience Pay » (code à la racine du dépôt) tourne sur le 
   `security_opt`, `env_file` (variables explicites dans la stack) ; **pas de
   `docker-socket-proxy`** (contrat : jamais le socket Docker) ; `payment-api` en
   `restart_policy: on-failure` (un crash est relancé par Swarm, un arrêt volontaire, code 0,
-  est laissé au moteur de remédiation) ; Mailpit non publié ; base épinglée.
+  est laissé au moteur de remédiation) ; Mailpit non publié ; base PostgreSQL répliquée (Patroni).
 - **Moteur de remédiation en mode SSH** : il agit par la passerelle `remediate` des managers
   ([remediation.md](remediation.md)) : `REMEDIATION_MODE=ssh`,
   `REMEDIATION_GATEWAYS=10.30.1.211,10.30.1.212,10.30.1.213` (construit depuis l'inventaire),
@@ -258,10 +258,8 @@ vault-env ansible-playbook app-deploy.yml                   # second passage : c
 
 ### Limites
 
-- **Base sans bascule** : volume local sur `dockerwrk01` (contrainte de placement). Si ce
-  worker tombe, la base (donc les paiements et la connexion) reste indisponible jusqu'à son
-  retour ; les données ne suivent pas. Pistes : volume partagé (Ceph RBD/CephFS via un plugin
-  de volume), ou PostgreSQL répliqué (Patroni) ; et sauvegarde `pg_dump` vers le PBS/S3.
+- **Base** : répliquée sur les trois workers avec bascule automatique depuis le 21/10/2026
+  (section « Base de données haute disponibilité », limites restantes en fin de section).
 - **Réplicas uniques** (auth, payment-api, detector, remediation) : choix de l'application
   (état en mémoire), un redémarrage provoque une courte coupure. C'est aussi ce qui rend la
   démonstration de remédiation visible.
@@ -273,6 +271,163 @@ vault-env ansible-playbook app-deploy.yml                   # second passage : c
   `docker exec` dans le conteneur ou publier temporairement le port avec un filtrage amont.
 - Les clés Stripe/PayPal publiques sont intégrées **à la construction** du frontend
   (`VITE_*`, app-build.yml) : les changer impose de reconstruire l'image `frontend`.
+
+## Base de données haute disponibilité (PostgreSQL + Patroni)
+
+Depuis le 21/10/2026, la base de l'application n'est plus une instance unique épinglée sur
+dockerwrk01 (perte de ce worker le 21/10 : 92 s sans paiement, le temps que la HA Proxmox
+relance la VM) mais un cluster **Patroni** à trois membres, un par worker et donc par
+hyperviseur, avec bascule automatique.
+
+### Choix
+
+| Piste | Verdict |
+|---|---|
+| `bitnami/postgresql-repmgr` | Écartée : retirée de Docker Hub (catalogue déplacé en 2025), seule `bitnamilegacy/` reste, figée depuis août 2025 (plus de correctifs) ; pas de verrou distribué (risque de double primaire au retour de l'ancien primaire) |
+| **Patroni + etcd** (retenue) | Standard de fait ; verrou du primaire à durée de vie dans etcd (jamais deux primaires) ; réplication synchrone par quorum ; `pg_rewind` automatique au retour de l'ancien primaire ; métriques Prometheus natives. Paquets PGDG maintenus (Patroni 4.1.5) sur l'image officielle `postgres:16.15-bookworm` |
+| Proxy (HAProxy, PgBouncer) devant la base | Inutile : libpq (psycopg 3, SQLAlchemy) accepte plusieurs hôtes et ne garde que celui qui accepte les écritures (`target_session_attrs=read-write`). Aucune modification du code applicatif ni des images construites depuis GitHub |
+
+### Topologie
+
+| Service Swarm | Image | Nœud | Rôle |
+|---|---|---|---|
+| `paiement_db1` / `db2` / `db3` | `<registre>/paiement-postgres:<empreinte>` (PostgreSQL 16.15 + Patroni 4.1.5) | dockerwrk01 / 02 / 03 (`node.hostname`) | un membre Patroni, volume local `paiement_pg-data` |
+| `paiement_etcd1` / `2` / `3` | `quay.io/coreos/etcd:v3.6.15` | dockerwrk01 / 02 / 03 | verrou du primaire (quorum 2 sur 3), volume local `paiement_etcd-data` |
+
+- **Image** : `infra/app/postgres-ha/` (Dockerfile, `entrypoint.sh`, `pctl`). Construite sur le
+  manager par le rôle `app_stack` (comme la sonde : tag = empreinte des sources, reconstruite
+  seulement si elles changent), poussée dans le registre privé, pré-téléchargée sur les
+  workers avec l'image etcd par `app-deploy.yml`.
+- **Configuration** : `infra/app/postgres-ha/patroni.yml.j2`, rendue en config Swarm versionnée
+  `paiement_patroni_<empreinte>`. Valeurs du cluster (écrites dans etcd au premier démarrage
+  seulement, ensuite `pctl edit-config`) : `ttl 20`, `loop_wait 5`, `retry_timeout 5`,
+  `synchronous_mode: quorum` (un COMMIT attend au moins un des deux standbys ; seul un standby
+  à jour est promu), `maximum_lag_on_failover` 1 Mo, `failsafe_mode` (etcd perdu : le primaire
+  reste primaire s'il joint les autres membres), `use_pg_rewind`, slots de réplication,
+  `wal_sender_timeout`/`wal_receiver_timeout` 10 s, sommes de contrôle des pages.
+- **Initialisation** : le `post_bootstrap` de Patroni exécute `db/init/01-roles.sh` (même
+  script que la base unique : rôles et bases `auth` et `payments`).
+- **Durcissement** : utilisateur `postgres` de l'image, `read_only`, `cap_drop: [ALL]` sans
+  aucune capacité ajoutée (le volume hérite du propriétaire du dossier de l'image), tmpfs.
+  `pg_hba` : socket local sans mot de passe (sauvegardes, exploitation par `docker exec`),
+  réseau en SCRAM depuis les réseaux overlay seulement.
+- **Réseaux** : `data` (clients et réplication), `dcs` (nouveau, interne et chiffré : etcd et
+  membres Patroni seulement), `monitoring` (`/metrics` de Patroni, port 8008). Membres et etcd
+  en `endpoint_mode: dnsrr` : le nom d'un membre arrêté disparaît du DNS, pas d'adresse
+  virtuelle IPVS devant des connexions longues.
+- **Clients** (auth, payment-api) : `DATABASE_URL` =
+  `postgresql+psycopg://<rôle>@/<base>?host=db1:5432&host=db2:5432&host=db3:5432&target_session_attrs=read-write&tcp_user_timeout=5000&keepalives_idle=5&keepalives_interval=2&keepalives_count=3`
+  (variable `app_db_url_options`). Les options TCP font échouer en quelques secondes une
+  connexion vers une VM disparue (sinon : plusieurs minutes de retransmissions).
+- **Secrets** (modèle habituel : Vault → secrets Swarm versionnés, aucune valeur dans la spec) :
+  `postgres_password` (superutilisateur), `replication_password` (rôle `replicator`,
+  `PAIEMENT_REPLICATION_PASSWORD`), `patroni_api_password` (API REST de Patroni : bascule,
+  redémarrage ; `PAIEMENT_PATRONI_API_PASSWORD`). Les deux nouvelles clés sont générées par
+  `init-secrets-vault.py` dans `secret/infra/paiement-app`. Patroni ne lit pas de fichiers de
+  secrets : l'entrypoint les exporte pour son seul processus.
+- **Repère** : label de conteneur `com.epsi.db=paiement` sur chaque membre (sauvegarde,
+  `chaos.sh`, `demo-check.sh`) ; le primaire est le membre hors recouvrement.
+
+### Bascule et retour de l'ancien primaire
+
+1. Le primaire disparaît (VM coupée, conteneur tué) : son verrou dans etcd n'est plus
+   renouvelé et expire au bout de 20 s au plus.
+2. Les standbys comparent leur position ; le standby synchrone le plus avancé prend le verrou
+   et se promeut (nouvelle timeline). En quorum, il a forcément reçu toute transaction validée.
+3. Les clients, à leur connexion suivante, essaient db1, db2, db3 et ne gardent que le nouveau
+   primaire ; le standby restant suit le nouveau primaire.
+4. L'ancien primaire revient (HA Proxmox, Swarm) : il voit le verrou tenu par un autre, se
+   remet au niveau par `pg_rewind` (reconstruction complète si cela échoue) et redémarre en
+   **standby**. Pas de double primaire possible : un membre sans verrou ne s'écrit jamais
+   primaire.
+5. Conteneur du primaire tué mais nœud vivant : Swarm le relance en ~5 s ; il retrouve son
+   verrou encore valide et redevient primaire.
+
+### Mesures
+
+| Test | Panne | Résultat |
+|---|---|---|
+| Prototype (stack `dbtest`, client écrivant toutes les 200 ms) | `kill -9` de la VM du primaire | écritures interrompues **18,3 s**, **0** écriture validée perdue (2 979), ancien primaire revenu en standby par `pg_rewind` |
+| Prototype | `docker kill` du primaire | 11,8 s, 0 perte |
+| Prototype | `docker kill` d'un standby | aucune interruption (0,3 s entre deux écritures) |
+| Prototype | bascule manuelle (`pctl switchover`) | 3,7 s |
+| Production, `chaos.sh db-kill` (21/10 12:26 UTC) | `docker kill` du primaire db2 | panne vue par la sonde **0 s**, db2 relancé et de nouveau primaire, état nominal à +44,5 s, 686 → 687 paiements |
+| Production, `chaos.sh db-node-crash` (21/10 12:35 UTC) | `kill -9` de la VM dockerwrk02 (primaire db2) | db3 promu **23 s** après la panne, panne vue par la sonde **0 s** (contre 92 s le 21/10 avec la base unique), transaction réussie à +16,4 s, db2 revenu en standby, état nominal à +86 s, 704 → 707 paiements |
+| Production, perte de l'hyperviseur ceph03 (21/10 12:12:35 UTC, coupé depuis l'hôte parent) | standby db3 et etcd3 perdus | primaire db2 et standby synchrone db1 inchangés ; db3 revenu en standby à 12:15:45 (après redémarrage de ceph03), sans intervention |
+
+**RPO** : 0 pour toute transaction validée (réplication synchrone par quorum, vérifiée sur le
+prototype). **RTO** : ~20-25 s sans écriture possible si le nœud du primaire tombe (expiration
+du verrou), quelques secondes si seul le conteneur tombe ; aucun si un standby tombe.
+Pendant ce temps payment-api continue d'accepter les paiements (Stripe reste la source de
+vérité) et rejoue les derniers paiements Stripe au retour de la base.
+
+### Exploitation
+
+`pctl` = `patronictl` avec les secrets, dans n'importe quel membre (`docker exec` sur le
+worker qui le porte) :
+
+```sh
+# Depuis un worker (ex. dockerwrk01) : conteneur du membre local
+C=$(sudo docker ps -q --filter label=com.epsi.db=paiement)
+sudo docker exec $C pctl list                        # primaire, standbys, timeline, retard
+sudo docker exec $C pctl switchover --candidate db1 --force paiement   # bascule propre (~4 s)
+sudo docker exec $C pctl reinit paiement db3 --force # reconstruire un standby (pg_basebackup)
+sudo docker exec $C pctl edit-config                 # paramètres du cluster (stockés dans etcd)
+sudo docker exec $C psql -U postgres -c 'select application_name, state, sync_state, replay_lag from pg_stat_replication'   # sur le primaire
+```
+
+- **Primaire** : `pctl list`, métrique `patroni_primary` (dashboard / VictoriaMetrics),
+  ou `infra/demo/demo-check.sh` (ligne « base : primaire sur … »).
+- **Alertes** (`monitoring/vmalert/rules/paiement.yml`, métriques de Patroni collectées par le
+  vmagent du Swarm, cibles `paiement_db1..3:8008`) : `PaiementDbSansPrimaire` (critique,
+  45 s), `PaiementDbDoublePrimaire` (critique), `PaiementDbStandbyManquant` (moins de
+  standbys en réplication que de membres attendus, 3 min), `PaiementDbReplicationRetard`
+  (> 16 Mo, 2 min), `PaiementDbEtcdInjoignable` (1 min). `PaiementDatabaseDown` (vue de
+  payment-api) reste en place.
+- **Sauvegarde** : `paiement-db-backup` (rôle `db_backup`, toutes les 15 min) cherche le
+  primaire sur chaque worker (label `com.epsi.db`, `pg_is_in_recovery() = false`) et y fait
+  le `pg_dump` ; `paiement-db-restore-test` restaure dans une base temporaire du primaire.
+- **Tests de panne** : `infra/chaos/chaos.sh db-kill` (conteneur du primaire) et
+  `db-node-crash` (VM du worker qui porte le primaire) ; `worker-crash` attend aussi le retour
+  de la réplication complète.
+- **Déploiement** : `app_db_mode` (défaut `ha`). `migration` = base unique et cluster côte à
+  côte, clients sur la base unique (import des données) ; `single` = retour à la base unique
+  (`paiement_db`, volume d'origine `paiement_db-data` sur dockerwrk01, gardé jusqu'après la
+  démo). En `ha`, le rôle retire le service `paiement_db` s'il existe encore (volume gardé).
+
+### Migration du 21/10/2026
+
+Déploiement en `migration` (cluster vide initialisé), puis bascule des données. Incident : le
+script de bascule s'est arrêté avant la copie (sessions encore ouvertes) mais son échec a été
+masqué par un `tee`, et le mode `ha` a été déployé sur un cluster vide (≈ 10 min avec
+l'historique absent, 12:09 - 12:20 UTC ; paiements du moment rejoués depuis Stripe). Reprise :
+sauvegarde de l'état du cluster, arrêt d'auth et de payment-api (19 s), bases `payments` et
+`auth` recréées vides, restauration complète depuis une **copie** de l'ancien volume
+(PostgreSQL 16 temporaire sans réseau ; l'original n'est pas modifié) : 659 paiements et
+3 comptes, identiques dans la source, le primaire et les deux standbys. Copies dans
+`/root/db-migration/` sur .110 (dumps de l'ancien volume, de l'état intermédiaire, plan de
+retour arrière `RETOUR-ARRIERE.txt`).
+
+### Limites
+
+- **Redémarrage simultané** : les trois membres sont trois services Swarm ; un changement de
+  leur spec (image, `patroni.yml`, secrets, labels) les met à jour en même temps (coupure de
+  quelques dizaines de secondes, élection d'un nouveau primaire). Les paramètres PostgreSQL se
+  changent sans redémarrage de conteneur par `pctl edit-config`.
+- **Pas de fencing matériel** (pas de watchdog) : un primaire isolé du réseau mais vivant
+  garde ses connexions locales ; en quorum synchrone ses COMMIT restent bloqués (aucun
+  standby ne confirme), donc pas de divergence de données validées.
+- **etcd sans TLS ni authentification**, sur un réseau overlay interne et chiffré réservé aux
+  membres. Perte de deux nœuds sur trois : plus de quorum etcd ni de standby, le primaire
+  restant ne bascule plus (et ses écritures attendent un standby).
+- **Volumes locaux** : un worker reconstruit (volume perdu) revient vide ; Patroni recrée le
+  membre par `pg_basebackup`, mais un membre etcd perdu doit être retiré puis réajouté
+  (`etcdctl member remove/add`) avant d'être relancé.
+- **Clients** : une connexion déjà ouverte vers un primaire disparu échoue en ≤ 11 s
+  (`keepalives`, `tcp_user_timeout`) ; pendant la bascule, une nouvelle connexion essaie les
+  trois hôtes (2 s chacun au plus).
+- **Version majeure de PostgreSQL** : changement par dump/restauration (pas de `pg_upgrade`
+  automatisé).
 
 ## Moteur de remédiation en mode SSH
 

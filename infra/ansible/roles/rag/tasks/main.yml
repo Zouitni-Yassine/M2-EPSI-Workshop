@@ -6,5 +6,8 @@
 - name: Ollama et modèles
   ansible.builtin.import_tasks: ollama.yml
 
+- name: Délestage sur GPU distant (tunnel SSH et relais)
+  ansible.builtin.import_tasks: gpu_tunnel.yml
+
 - name: Assistant (code, dépendances, index, service)
   ansible.builtin.import_tasks: app.yml

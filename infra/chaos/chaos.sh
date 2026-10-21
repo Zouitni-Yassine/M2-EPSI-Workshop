@@ -40,13 +40,14 @@ PBS_STORAGE=workshop-local-pbs
 TESTS=(
   "api-stop|Appli|Arrêt propre de payment-api (code 0 : Swarm ne relance pas) : le détecteur et le moteur doivent agir"
   "burst|Appli|Rafale de requêtes sur l'API pendant 45 s : le détecteur ML doit voir l'anomalie"
-  "db-kill|Appli|Arrêt brutal de PostgreSQL : Swarm relance, aucun paiement perdu"
+  "db-kill|Appli|Arrêt brutal du PostgreSQL primaire : Patroni rétablit un primaire, aucun paiement perdu"
   "kill-payment-api|Conteneur|Arrêt brutal (SIGKILL) de payment-api : Swarm relance"
   "kill-auth|Conteneur|Arrêt brutal du service d'authentification"
   "kill-frontend|Conteneur|Arrêt brutal du frontal"
   "kill-detector|Conteneur|Arrêt brutal du détecteur ML"
   "kill-remediation|Conteneur|Arrêt brutal du moteur de remédiation"
   "worker-crash|Conteneur|Arrêt brutal de la VM du worker qui porte l'adresse virtuelle"
+  "db-node-crash|Conteneur|Arrêt brutal de la VM du worker qui porte le PostgreSQL primaire : bascule sur un standby"
   "leader-crash|Conteneur|Arrêt brutal de la VM du manager Swarm leader"
   "monitoring-crash|Virtualisation|Arrêt brutal du LXC monitoring01 (Loki, Grafana, alertes)"
   "node-loss|Virtualisation|Perte d'un hyperviseur entier, coupée à la main depuis l'hôte parent"
@@ -119,6 +120,39 @@ vip_holder() {
     "${SSH_VM[@]}" "debian@$(host_ip $h)" "ip -o addr" 2>/dev/null | grep -q " $VIP/" && echo $h
   done
   return 0  # sinon le dernier grep, sans correspondance, arrête le script (set -e, pipefail)
+}
+# Primaire PostgreSQL (base haute disponibilité) : "<worker> <conteneur> <service>", vide si aucun.
+# Sur chaque worker, le conteneur de la base (label com.epsi.db=paiement) hors recouvrement.
+db_primary() {
+  local h c r
+  for h in dockerwrk01 dockerwrk02 dockerwrk03; do
+    c=$("${SSH_VM[@]}" "debian@$(host_ip $h)" \
+      "sudo docker ps --filter label=com.epsi.db=paiement --format '{{.ID}} {{.Label \"com.docker.swarm.service.name\"}}'" 2>/dev/null | head -1) || true
+    [ -n "$c" ] || continue
+    r=$("${SSH_VM[@]}" "debian@$(host_ip $h)" "sudo docker exec ${c%% *} psql -U postgres -tAc 'select pg_is_in_recovery()'" 2>/dev/null) || true
+    [ "$r" = f ] && { echo "$h $c"; return 0; }
+  done
+  return 0
+}
+db_psql() {  # db_psql <requête> [base] : sur le primaire
+  local p; p=$(db_primary)
+  [ -n "$p" ] || return 1
+  set -- $p "$1" "${2:-postgres}"
+  "${SSH_VM[@]}" "debian@$(host_ip "$1")" "sudo docker exec $2 psql -U postgres -tAc \"$4\" $5"
+}
+# Un primaire et tous les autres membres en réplication (streaming) : état nominal de la base
+db_nominal() {
+  local want n
+  want=$(( $(mgr docker service ls --filter label=com.docker.stack.namespace=paiement --format '{{.Name}}' | grep -c '^paiement_db[0-9]*$') - 1 ))
+  n=$(db_psql "select count(*) from pg_stat_replication where state = 'streaming'") || return 1
+  [ "$want" -ge 1 ] && [ "$n" = "$want" ]
+}
+db_primary_up() { [ -n "$(db_primary)" ]; }
+stack_ok() {  # toutes les réplicas de tous les services de la stack paiement
+  local bad
+  bad=$(mgr docker service ls --filter label=com.docker.stack.namespace=paiement --format '{{.Name}} {{.Replicas}}' \
+    | awk '{ split($2, r, "/"); if (r[1] != r[2] || r[1] == 0) print $1 }')
+  [ -z "$bad" ]
 }
 leader() {
   mgr docker node ls --format '{{.Hostname}} {{.ManagerStatus}}' | awk '$2 == "Leader" { print $1 }'
@@ -234,18 +268,32 @@ inject() {
           -H 'Content-Type: application/json' -d '{"amount":100}' "$APP/api/payment_intents" || true
       done
       ;;
-    db-kill|kill-*)
-      local svc=paiement_db node
-      [ "$TEST" = db-kill ] || svc=paiement_${TEST#kill-}
+    db-kill)
+      local p; p=$(db_primary)
+      [ -n "$p" ] || die "primaire PostgreSQL introuvable"
+      set -- $p
+      PAY_BEFORE=$(payments_count) TARGET=$1
+      say "panne : docker kill (SIGKILL) du primaire PostgreSQL $3 sur $1"
+      "${SSH_VM[@]}" "debian@$(host_ip "$1")" "sudo docker kill $2" >/dev/null
+      ;;
+    db-node-crash)
+      local p; p=$(db_primary)
+      [ -n "$p" ] || die "primaire PostgreSQL introuvable"
+      set -- $p
+      PAY_BEFORE=$(payments_count) TARGET=$1
+      say "primaire PostgreSQL : $3 sur $1 ; adresse virtuelle sur $(vip_holder | head -1), payment-api sur $(service_node paiement_payment-api)"
+      crash_vm "$(host_vmid "$TARGET")"
+      ;;
+    kill-*)
+      local svc=paiement_${TEST#kill-} node
       node=$(service_node "$svc")
-      [ "$TEST" != db-kill ] || PAY_BEFORE=$(payments_count)
       say "panne : docker kill (SIGKILL) de $svc sur $node"
       "${SSH_VM[@]}" "debian@$(host_ip "$node")" "sudo docker kill $(task_container "$node" "$svc")" >/dev/null
       ;;
     worker-crash)
       TARGET=$(vip_holder | head -1)
       [ -n "$TARGET" ] || die "aucun worker ne porte $VIP"
-      say "porteur de l'adresse virtuelle : $TARGET ; base sur $(service_node paiement_db), payment-api sur $(service_node paiement_payment-api)"
+      say "porteur de l'adresse virtuelle : $TARGET ; primaire PostgreSQL sur $(db_primary | awk '{ print $1 }'), payment-api sur $(service_node paiement_payment-api)"
       crash_vm "$(host_vmid "$TARGET")"
       ;;
     leader-crash)
@@ -275,11 +323,7 @@ node_lost() {
   done
   return 1
 }
-payments_count() {
-  local node; node=$(service_node paiement_db)
-  "${SSH_VM[@]}" "debian@$(host_ip "$node")" \
-    "sudo docker exec \$(sudo docker ps -q --filter label=com.docker.swarm.service.name=paiement_db) psql -U postgres -d payments -tAc 'select count(*) from payments'"
-}
+payments_count() { db_psql "select count(*) from payments" payments; }
 
 do_restore() {
   local backup start
@@ -320,8 +364,16 @@ wait_back() {
   probe_back() { [ -n "$(probe_ok_after "$T_FAULT")" ]; }
   wait_until "transaction de la sonde réussie après la panne" probe_back || ok=0
   case "$TEST" in
-    db-kill)
-      wait_until "PostgreSQL relancé" replicas_ok paiement_db || ok=0
+    db-kill|db-node-crash)
+      wait_until "un primaire PostgreSQL" db_primary_up || ok=0
+      say "primaire PostgreSQL : $(db_primary | awk '{ print $3 " sur " $1 }')"
+      if [ "$TEST" = db-node-crash ]; then
+        local id; id=$(host_vmid "$TARGET")
+        wait_until "VM $TARGET relancée par la HA Proxmox" guest_running "$id" || ok=0
+        wait_until "$TARGET de nouveau Ready dans Swarm" swarm_node_ready "$TARGET" || ok=0
+      fi
+      wait_until "toutes les réplicas de la stack paiement" stack_ok || ok=0
+      wait_until "ancien primaire revenu en standby, réplication complète" db_nominal || ok=0
       PAY_AFTER=$(payments_count)
       say "paiements en base : $PAY_BEFORE avant, $PAY_AFTER après (les nouveaux sont ceux de la sonde)"
       [ "$PAY_AFTER" -ge "$PAY_BEFORE" ] || { say "PERTE DE DONNÉES"; ok=0; }
@@ -335,9 +387,8 @@ wait_back() {
       local id; id=$(host_vmid "$TARGET")
       wait_until "VM $TARGET relancée par la HA Proxmox" guest_running "$id" || ok=0
       wait_until "$TARGET de nouveau Ready dans Swarm" swarm_node_ready "$TARGET" || ok=0
-      for s in paiement_db paiement_auth paiement_payment-api paiement_frontend paiement_detector paiement_remediation; do
-        wait_until "$s 1/1" replicas_ok "$s" || ok=0
-      done
+      wait_until "toutes les réplicas de la stack paiement" stack_ok || ok=0
+      wait_until "base : un primaire et tous ses standbys" db_nominal || ok=0
       [ "$TEST" = worker-crash ] || say "nouveau leader : $(leader)"
       ;;
     monitoring-crash)

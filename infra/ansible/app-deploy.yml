@@ -64,6 +64,26 @@
       delegate_to: localhost
       become: false
 
+    - name: Secrets de la base haute disponibilité présents (secret/infra/paiement-app)
+      ansible.builtin.assert:
+        that:
+          - app_secret_values[item] | length >= 16
+        fail_msg: >-
+          Secret {{ item }} absent : python3 ../app/init-secrets-vault.py (ajoute les clés
+          manquantes sans toucher aux autres), puis relancer par vault-env
+        quiet: true
+      loop: [replication_password, patroni_api_password]
+      when: app_db_mode != 'single'
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Mode de la base connu
+      ansible.builtin.assert:
+        that: app_db_mode in ['ha', 'single', 'migration']
+        fail_msg: "app_db_mode : ha, single ou migration"
+        quiet: true
+
     - name: Clé de signature des jetons (PEM Ed25519)
       ansible.builtin.assert:
         that:
@@ -151,13 +171,18 @@
   hosts: swarm_workers
   vars_files:
     - roles/app_registry/defaults/main.yml
+    - roles/app_stack/defaults/main.yml   # app_etcd_image
   vars:
     app_pull_images: >-
       {{ (hostvars[groups['swarm_managers'][0]].app_image_tags | dict2items
           | map(attribute='key') | zip(hostvars[groups['swarm_managers'][0]].app_image_tags | dict2items
           | map(attribute='value')) | map('join', ':') | map('regex_replace', '^', app_registry ~ '/') | list)
-         + app_public_images }}
+         + app_public_images + app_db_images }}
     app_public_images: [postgres:16-alpine, axllent/mailpit:v1.20]
+    # Base haute disponibilité : image construite par app_stack (fait du manager) et etcd
+    app_db_images: >-
+      {{ [hostvars[groups['swarm_managers'][0]].app_db_image_ref, app_etcd_image]
+         if hostvars[groups['swarm_managers'][0]].app_db_image_ref is defined else [] }}
   tasks:
     - name: Images déjà présentes
       community.docker.docker_image_info:

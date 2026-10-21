@@ -1,0 +1,90 @@
+# {{ ansible_managed }}
+# Patroni (rendu par le rôle app_stack, config Swarm commune aux membres db1..dbN de la stack
+# "{{ app_stack_name }}"). Propre à chaque membre, par variables du service : PATRONI_NAME,
+# PATRONI_RESTAPI_CONNECT_ADDRESS, PATRONI_POSTGRESQL_CONNECT_ADDRESS. Mots de passe : secrets
+# Swarm exportés par l'entrypoint de l'image (infra/app/postgres-ha/entrypoint.sh).
+scope: {{ app_stack_name }}
+namespace: /patroni/
+
+log:
+  level: INFO
+
+restapi:
+  listen: 0.0.0.0:8008
+  # Points d'entrée qui modifient le cluster (bascule, redémarrage) : authentifiés.
+  # Lecture (/health, /primary, /metrics...) libre sur les réseaux internes.
+  authentication:
+    username: patroni
+
+# Verrou du primaire (DCS) : etcd à 3 membres, un par worker (quorum = 2)
+etcd3:
+  hosts: [{% for n in app_db_nodes %}"etcd{{ loop.index }}:2379"{{ ", " if not loop.last }}{% endfor %}]
+
+bootstrap:
+  # Paramètres du cluster, écrits dans etcd au premier démarrage seulement
+  # (ensuite : patronictl edit-config)
+  dcs:
+    # Le verrou expire 20 s après la perte du primaire : un standby est promu dans la foulée
+    ttl: 20
+    loop_wait: 5
+    retry_timeout: 5
+    # Réplication synchrone par quorum : une validation (COMMIT) attend qu'au moins un standby
+    # ait reçu la transaction, et seul un standby à jour peut être promu (aucune perte de
+    # données validées). La perte d'un standby ne bloque pas les écritures (ANY 1 parmi 2).
+    synchronous_mode: quorum
+    synchronous_node_count: 1
+    maximum_lag_on_failover: 1048576
+    # etcd perdu : le primaire reste primaire tant qu'il joint tous les autres membres
+    failsafe_mode: true
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        max_connections: 100
+        shared_buffers: 128MB
+        wal_level: replica
+        hot_standby: "on"
+        wal_log_hints: "on"
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_keep_size: 256MB
+        # Un standby disparu (VM coupée) est constaté en 10 s, pas en 60
+        wal_sender_timeout: 10s
+        wal_receiver_timeout: 10s
+        password_encryption: scram-sha-256
+  initdb:
+    - encoding: UTF8
+    - locale: C.UTF-8
+    - data-checksums
+  # Rôles et bases auth / payments : même script que la base unique (db/init/01-roles.sh)
+  post_bootstrap: /usr/local/bin/db-init
+
+postgresql:
+  listen: 0.0.0.0:5432
+  data_dir: /var/lib/postgresql/data/pgdata
+  bin_dir: /usr/lib/postgresql/16/bin
+  pgpass: /tmp/pgpass
+  use_unix_socket: true
+  authentication:
+    superuser:
+      username: postgres
+    replication:
+      username: replicator
+  # Ancien primaire qui revient : pg_rewind, puis reconstruction complète si cela échoue
+  remove_data_directory_on_rewind_failure: true
+  remove_data_directory_on_diverged_timelines: true
+  basebackup:
+    - checkpoint: fast
+  parameters:
+    unix_socket_directories: /var/run/postgresql
+  # Socket local (sauvegardes, exploitation par docker exec) sans mot de passe ; réseau : SCRAM,
+  # depuis les réseaux overlay du Swarm seulement
+  pg_hba:
+    - local all all trust
+    - host replication replicator 127.0.0.1/32 scram-sha-256
+    - host all all 127.0.0.1/32 scram-sha-256
+    - host replication replicator {{ swarm_default_addr_pool }} scram-sha-256
+    - host all all {{ swarm_default_addr_pool }} scram-sha-256
+
+watchdog:
+  mode: "off"

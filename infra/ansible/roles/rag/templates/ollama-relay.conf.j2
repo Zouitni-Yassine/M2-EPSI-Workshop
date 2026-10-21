@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+# Relais de l'assistant vers Ollama : le GPU distant (tunnel SSH inverse) en priorité, l'Ollama
+# local (CPU) en secours. Sans tunnel, le port {{ rag_gpu_tunnel_listen }} refuse la connexion
+# et nginx bascule aussitôt sur le secours. Écoute locale uniquement.
+upstream ollama {
+    server {{ rag_gpu_tunnel_listen }} max_fails=1 fail_timeout=20s;
+    server {{ ollama_listen }} backup;
+}
+
+server {
+    listen {{ rag_relay_listen }};
+    access_log /var/log/nginx/ollama-relay.log combined;
+
+    location / {
+        proxy_pass http://ollama;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        # Ollama refuse un Host inconnu (protection contre le DNS rebinding)
+        proxy_set_header Host localhost;
+        # Ollama renvoie la génération en flux : pas de mise en tampon
+        proxy_buffering off;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        # Un GPU qui ne répond pas (PC en veille) bascule aussi sur le CPU
+        proxy_next_upstream error timeout http_502 http_503;
+    }
+}

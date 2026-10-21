@@ -1,29 +1,33 @@
 #!/usr/bin/env bash
 # {{ ansible_managed }}
 # Test de restauration (PRA) : restaure le dernier dump de la base payments dans une base
-# temporaire restore_test du même PostgreSQL, compare le nombre de paiements à la production,
-# puis supprime la base temporaire. La production n'est jamais modifiée.
+# temporaire restore_test du primaire PostgreSQL (répliquée sur les standbys), compare le nombre
+# de paiements à la production, puis supprime la base temporaire. La production n'est jamais
+# modifiée.
 # Mesures : RPO = âge du dump, RTO = durée de la restauration.
 #   paiement-db-restore-test
 set -euo pipefail
 DIR={{ db_backup_dir }}
 SSH=(ssh -n -o BatchMode=yes -o ConnectTimeout=5 -i {{ db_backup_ssh_key }})
-MANAGERS=({% for h in groups['swarm_managers'] %}{{ hostvars[h].ansible_host }} {% endfor %})
 declare -A WORKER=({% for h in groups['swarm_workers'] %}[{{ h }}]={{ hostvars[h].ansible_host }} {% endfor %})
 
-dump=$(ls -1t "$DIR"/payments-*.dump 2>/dev/null | head -1)
+dump=$(ls -1t "$DIR"/payments-*.dump 2>/dev/null | head -1) || true
 [ -n "$dump" ] || { echo "aucun dump de payments dans $DIR"; exit 1; }
 age=$(( $(date +%s) - $(stat -c %Y "$dump") ))
 
-node=""
-for m in "${MANAGERS[@]}"; do
-  node=$("${SSH[@]}" "debian@$m" "sudo docker service ps {{ db_backup_service }} --filter desired-state=running --format '{{ '{{' }}.Node{{ '}}' }}'" 2>/dev/null | head -1) && [ -n "$node" ] && break
+# Primaire PostgreSQL : sur chaque worker, le conteneur de la base (label com.epsi.db) qui n'est
+# pas en recouvrement. Base haute disponibilité : il change de nœud à chaque bascule.
+node="" ip="" ctr=""
+for n in "${!WORKER[@]}"; do
+  c=$("${SSH[@]}" "debian@${WORKER[$n]}" "sudo docker ps -q --filter label=com.epsi.db={{ db_backup_label }}" 2>/dev/null | head -1) || true
+  [ -n "$c" ] || continue
+  r=$("${SSH[@]}" "debian@${WORKER[$n]}" "sudo docker exec $c psql -U postgres -tAc 'select pg_is_in_recovery()'" 2>/dev/null) || true
+  if [ "$r" = f ]; then node=$n ip=${WORKER[$n]} ctr=$c; break; fi
 done
-ip=${WORKER[$node]}
-ctr="\$(sudo docker ps -q --filter label=com.docker.swarm.service.name={{ db_backup_service }})"
+[ -n "$ctr" ] || { echo "primaire PostgreSQL introuvable"; exit 1; }
 psql() { "${SSH[@]}" "debian@$ip" "sudo docker exec $ctr psql -U postgres -tAc \"$1\" ${2:-postgres}"; }
 
-echo "dump : $dump (âge $age s = perte de données maximale)"
+echo "dump : $dump (âge $age s = perte de données maximale) ; primaire : $node"
 psql "DROP DATABASE IF EXISTS restore_test" >/dev/null
 psql "CREATE DATABASE restore_test" >/dev/null
 start=$(date +%s.%N)

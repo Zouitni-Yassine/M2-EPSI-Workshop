@@ -64,6 +64,80 @@
     password: "{{ app_registry_password }}"
   no_log: true
 
+# Base haute disponibilité (app_db_mode ha ou migration) : image PostgreSQL + Patroni construite
+# sur le manager (même principe que la sonde : tag = empreinte des sources, reconstruite
+# seulement si elles changent), configuration de Patroni en config Swarm versionnée
+- name: Base haute disponibilité (image, configuration)
+  when: app_db_mode != 'single'
+  block:
+    - name: Tag de l'image PostgreSQL + Patroni (empreinte des sources)
+      ansible.builtin.set_fact:
+        app_db_image_ref: >-
+          {{ app_registry }}/{{ app_db_image_name }}:{{ (lookup('ansible.builtin.pipe', 'cd '
+             ~ (app_db_image_src | quote) ~ ' && sha256sum ' ~ (app_db_image_files | map('quote') | join(' ')))
+             | hash('sha256'))[:12] }}
+
+    - name: Image déjà dans le registre ?
+      ansible.builtin.uri:
+        url: "https://{{ app_registry }}/v2/{{ app_db_image_name }}/manifests/{{ app_db_image_ref.split(':')[-1] }}"
+        method: HEAD
+        url_username: "{{ app_registry_username }}"
+        url_password: "{{ app_registry_password }}"
+        force_basic_auth: true
+        headers:
+          Accept: >-
+            application/vnd.oci.image.index.v1+json,
+            application/vnd.oci.image.manifest.v1+json,
+            application/vnd.docker.distribution.manifest.list.v2+json,
+            application/vnd.docker.distribution.manifest.v2+json
+        status_code: [200, 404]
+      register: app_db_image_present
+      changed_when: false
+      no_log: true
+
+    - name: Construire et pousser l'image
+      when: app_db_image_present.status == 404
+      block:
+        - name: Dossier de construction
+          ansible.builtin.file:
+            path: "{{ app_db_build_dir }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0700"
+
+        - name: Sources de l'image
+          ansible.builtin.copy:
+            src: "{{ app_db_image_src }}/{{ item }}"
+            dest: "{{ app_db_build_dir }}/{{ item }}"
+            owner: root
+            group: root
+            mode: "{{ '0644' if item == 'Dockerfile' else '0755' }}"
+          loop: "{{ app_db_image_files }}"
+
+        - name: docker build
+          ansible.builtin.command:
+            argv: [docker, build, --quiet, --pull, -t, "{{ app_db_image_ref }}",
+                   --label, org.opencontainers.image.title=paiement-postgres, "{{ app_db_build_dir }}"]
+
+        - name: docker push
+          ansible.builtin.command: docker push --quiet {{ app_db_image_ref }}
+
+    - name: Configuration de Patroni
+      ansible.builtin.set_fact:
+        app_patroni_config: "{{ lookup('ansible.builtin.template', app_db_image_src ~ '/patroni.yml.j2') }}"
+
+    - name: Nom versionné de la configuration de Patroni
+      ansible.builtin.set_fact:
+        app_patroni_config_name: "{{ app_stack_name }}_patroni_{{ (app_patroni_config | hash('sha1'))[:12] }}"
+
+    - name: Configuration de Patroni (config Swarm)
+      community.docker.docker_config:
+        name: "{{ app_patroni_config_name }}"
+        data: "{{ app_patroni_config }}"
+        labels:
+          com.epsi.usage: "{{ app_stack_name }}"
+
 # Config des empreintes des managers, créée par le rôle remediation_gateway (nom versionné)
 - name: Config d'empreintes de la passerelle de remédiation
   ansible.builtin.shell: >-
@@ -89,6 +163,20 @@
     with_registry_auth: true
     state: present
 
+# docker stack deploy ne retire pas un service absent du fichier : l'ancienne base unique est
+# supprimée ici une fois la bascule faite (mode ha). Son volume db-data reste sur {{ app_db_node }}
+# (retour arrière : -e app_db_mode=single).
+- name: Ancienne base unique encore présente ?
+  ansible.builtin.command: docker service inspect --format '{{ '{{' }}.ID{{ '}}' }}' {{ app_stack_name }}_db
+  register: app_legacy_db
+  changed_when: false
+  failed_when: false
+  when: app_db_mode == 'ha'
+
+- name: Retirer l'ancienne base unique (volume db-data conservé)
+  ansible.builtin.command: docker service rm {{ app_stack_name }}_db
+  when: app_db_mode == 'ha' and app_legacy_db.rc == 0
+
 - name: Secrets présents
   ansible.builtin.command: docker secret ls --filter label=com.epsi.usage={{ app_stack_name }} --format "{{ '{{' }}.Name{{ '}}' }}"
   register: app_secrets_present
@@ -110,5 +198,7 @@
   community.docker.docker_config:
     name: "{{ item }}"
     state: absent
-  loop: "{{ app_configs_present.stdout_lines | reject('equalto', app_db_init_config_name) | list }}"
+  loop: >-
+    {{ app_configs_present.stdout_lines | reject('equalto', app_db_init_config_name)
+       | reject('equalto', app_patroni_config_name | default('')) | list }}
   failed_when: false
