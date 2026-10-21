@@ -248,7 +248,7 @@ def remediate(score: float | None, threshold: float | None) -> None:
     except RateLimited as exc:
         # La passerelle protège le service contre les redémarrages en rafale : on ne
         # vérifie rien, on rend la main et on retentera après le délai indiqué.
-        wait = max(int(exc.retry_in), 5) if exc.retry_in else COOLDOWN_SECONDS
+        wait = max(int(exc.retry_in), 5) if exc.retry_in is not None else COOLDOWN_SECONDS
         event("act", f"Action différée : {exc} — nouvel essai dans {wait} s")
         with _lock:
             _state["status"] = "idle"

@@ -5,3 +5,5 @@ app_vip: 10.30.1.200
 app_vip_prefix: 24
 app_vip_router_id: 51
 app_vip_check_port: 5173
+# Répertoire du collecteur textfile de node_exporter (paquet Debian)
+app_vip_textfile_dir: /var/lib/prometheus/node-exporter

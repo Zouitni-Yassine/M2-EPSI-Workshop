@@ -315,6 +315,88 @@ panels += [
 ]
 y += H
 
+# ---- Infrastructure : ce qui encaisse les pannes sous l'application ------------------
+# Pour les tests de résilience (infra/chaos/chaos.sh) : chaque test pose une annotation
+# « Tests de chaos » (zone violette) sur tous les panneaux. Métriques à 30 s près.
+panels.append({"id": next(_ids), "type": "row", "title": "Infrastructure",
+               "collapsed": False, "gridPos": {"x": 0, "y": y, "w": 24, "h": 1}, "panels": []})
+y += 1
+H = 5
+panels += [
+    stat("Adresse virtuelle 10.30.1.200",
+         [tgt('max by (host) (app_vip_master) == 1', "{{host}}", instant=True)],
+         (0, y, 5, H), text_mode="name", no_value="PERSONNE",
+         thresholds=steps(("green", None)),
+         desc="Worker qui porte l'adresse d'entrée de l'application (keepalived, métrique "
+              "app_vip_master publiée à chaque changement d'état). Deux noms = conflit."),
+    stat("Nœuds Swarm joignables",
+         [tgt('count(up{job="docker"} == 1) or vector(0)', instant=True)],
+         (5, y, 4, H), unit="suffix: / 6",
+         thresholds=steps(("red", None), ("orange", 4), ("green", 6)),
+         desc="Démons Docker des 3 managers et 3 workers dont les métriques répondent."),
+    stat("Leader Swarm",
+         [tgt('max by (host) (swarm_manager_leader) == 1', "{{host}}", instant=True)],
+         (9, y, 4, H), text_mode="name", no_value="AUCUN",
+         thresholds=steps(("blue", None)),
+         desc="Manager leader du consensus Raft (réélu en quelques secondes s'il tombe)."),
+    stat("Hyperviseurs",
+         [tgt('count(up{job="node", role="pve"} == 1) or vector(0)', instant=True)],
+         (13, y, 4, H), unit="suffix: / 3",
+         thresholds=steps(("red", None), ("orange", 2), ("green", 3)),
+         desc="Nœuds Proxmox joignables (node_exporter). Quorum du cluster : 2 sur 3."),
+    stat("Ceph",
+         [tgt('max(ceph_health_status)', instant=True)],
+         (17, y, 4, H),
+         mappings=[text_map(0, "HEALTH_OK", "green"), text_map(1, "HEALTH_WARN", "orange"),
+                   text_map(2, "HEALTH_ERR", "red")],
+         thresholds=steps(("green", None), ("orange", 1), ("red", 2)),
+         desc="Santé du stockage distribué (module prometheus du mgr Ceph). WARN après la "
+              "perte d'un nœud : données servies par les répliques restantes."),
+    stat("Vault",
+         [tgt('max(vault_core_unsealed) or vector(0)', instant=True)],
+         (21, y, 3, H),
+         mappings=[text_map(1, "DESCELLÉ", "green"), text_map(0, "SCELLÉ", "red")],
+         thresholds=steps(("red", None), ("green", 1)),
+         desc="Après un redémarrage, Vault revient scellé (choix de sécurité : clés hors de "
+              "la machine) : vault-unseal depuis le poste de contrôle."),
+]
+y += H
+H = 10
+panels += [
+    timeseries("Conteneurs de l'application par worker",
+               [tgt('count by (host) (container_last_seen{'
+                    'container_label_com_docker_stack_namespace="paiement"})', "{{host}}")],
+               (0, y, 8, H), fill=60, decimals=0, minv=0,
+               desc="Tâches de la stack paiement vues par cAdvisor sur chaque worker : quand "
+                    "un worker tombe, Swarm replace ses tâches sur les autres."),
+    panel("state-timeline", "Machines du lab",
+          [tgt('max by (host) (up{job="node", role="pve"})', "{{host}}"),
+           tgt('max by (name) (pve_up * on (id) group_left (name) pve_guest_info{template="0"})',
+               "{{name}}", "B")],
+          (8, y, 10, H),
+          mappings=[text_map(1, "en marche", "green"), text_map(0, "arrêtée", "red")],
+          thresholds=steps(("red", None), ("green", 1)),
+          custom={"lineWidth": 0, "fillOpacity": 85},
+          options={"showValue": "never", "mergeValues": True, "rowHeight": 0.8,
+                   "alignValue": "left", "legend": {"showLegend": False},
+                   "tooltip": {"mode": "single"}},
+          desc="Hyperviseurs (node_exporter) puis VM et conteneurs LXC (exportateur Proxmox). "
+               "La HA Proxmox relance ailleurs les machines d'un nœud perdu."),
+    panel("table", "Placement (hyperviseur)",
+          [tgt('max by (name, node) (pve_guest_info{template="0"})', instant=True, fmt="table")],
+          (18, y, 6, H),
+          custom={"align": "auto", "cellOptions": {"type": "auto"}, "inspect": False},
+          options={"showHeader": True, "cellHeight": "sm",
+                   "sortBy": [{"displayName": "Machine", "desc": False}],
+                   "footer": {"show": False, "reducer": ["sum"], "fields": ""}},
+          transformations=[{"id": "organize", "options": {
+              "excludeByName": {"Time": True, "Value": True},
+              "indexByName": {"name": 0, "node": 1},
+              "renameByName": {"name": "Machine", "node": "Hyperviseur"}}}],
+          desc="Hyperviseur qui fait tourner chaque machine (change après une reprise HA)."),
+]
+y += H
+
 
 # --------------------------------------------------------------------------- #
 # Annotations : événements du moteur et de la sonde, alertes
@@ -356,6 +438,10 @@ dashboard = {
         loki_annotation("Service rétabli", "green", EVENTS + ' | kind="restore"'),
         loki_annotation("Sonde : panne / reprise", "purple",
                         PROBE + ' |= "type=incident" | logfmt'),
+        # Posées par infra/chaos/chaos.sh (API Grafana, tag chaos) : une zone par test
+        {"name": "Tests de chaos", "enable": True, "hide": False, "iconColor": "#B877D9",
+         "datasource": {"type": "grafana", "uid": "-- Grafana --"},
+         "target": {"type": "tags", "tags": ["chaos"], "limit": 100, "matchAny": True}},
         {"name": "Alertes paiement", "enable": True, "hide": False, "iconColor": "yellow",
          "datasource": VM,
          "expr": 'ALERTS{alertstate="firing", alertname=~"Paiement.*"}',

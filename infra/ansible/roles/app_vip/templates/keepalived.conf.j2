@@ -36,4 +36,6 @@ vrrp_instance APP {
     track_script {
         frontal
     }
+    # Métrique app_vip_master (node_exporter) : qui porte l'adresse, visible dans Grafana
+    notify /usr/local/sbin/app-vip-state
 }
