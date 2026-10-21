@@ -1,0 +1,70 @@
+# Outils de supervision de l'agent (serveur MCP « supervision », LECTURE SEULE) et API HTTP de
+# l'assistant pour le bot Discord (docs/rag.md, section 8). Les deux tournent en rag, dans le
+# venv de l'assistant (mcp, fastapi et uvicorn viennent du requirements.txt de l'équipe IA).
+# Configuration seulement, avant le code (app.yml) : les redémarrages notifiés ici partent avec
+# ceux de l'assistant, une fois le code et le venv en place. Démarrage : tools_services.yml.
+
+- name: Utilisateur système rag (non privilégié)
+  ansible.builtin.user:
+    name: rag
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ rag_data_dir }}"
+    create_home: false
+
+# Mots de passe du compte rag-readonly (supervision) et jeton de l'API : lisibles par rag seul
+- name: Répertoire des secrets de l'assistant
+  ansible.builtin.file:
+    path: "{{ rag_secrets_dir }}"
+    state: directory
+    owner: root
+    group: rag
+    mode: "0750"
+
+# Le serveur MCP relit ses mots de passe à chaque appel ; l'API lit son jeton au démarrage
+- name: Secrets de l'assistant (lecture seule de la supervision, jeton de l'API)
+  ansible.builtin.copy:
+    dest: "{{ rag_secrets_dir }}/{{ item.name }}"
+    content: "{{ item.value }}"
+    owner: root
+    group: rag
+    mode: "0640"
+  loop:
+    - { name: vm_password, value: "{{ rag_vm_read_password }}" }
+    - { name: loki_password, value: "{{ rag_loki_read_password }}" }
+    - { name: api_token, value: "{{ rag_api_token }}" }
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  notify: Redémarrer l'API de l'assistant
+
+- name: Répertoire du serveur MCP
+  ansible.builtin.file:
+    path: "{{ rag_dir }}/mcp_supervision"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Serveur MCP « supervision » (infra/rag/mcp_supervision)
+  ansible.builtin.copy:
+    src: "{{ rag_mcp_src }}"
+    dest: "{{ rag_dir }}/mcp_supervision/server.py"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Redémarrer le serveur MCP
+
+- name: Service systemd rag-mcp
+  ansible.builtin.template:
+    src: rag-mcp.service.j2
+    dest: /etc/systemd/system/rag-mcp.service
+    mode: "0644"
+  notify: Redémarrer le serveur MCP
+
+- name: Service systemd rag-api
+  ansible.builtin.template:
+    src: rag-api.service.j2
+    dest: /etc/systemd/system/rag-api.service
+    mode: "0644"
+  notify: Redémarrer l'API de l'assistant

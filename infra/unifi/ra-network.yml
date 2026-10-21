@@ -40,9 +40,9 @@ policies:
   - { name: ra-vpn-to-app, from: RA-VPN, to: RA-APP, desc: "VPN admin" }
   # Délestage IA (docs/rag.md) : PC à GPU d'un membre de l'équipe, raccordé par le VPN WireGuard
   # EPSI-WS-IA (192.168.2.0/24). Les membres du VPN EPSI-WG l'administrent (ping, SSH, RDP) ; lui
-  # ne joint que rag01 : tunnel SSH vers Ollama (22) et interface de l'assistant (8501).
+  # ne joint que rag01 : tunnel SSH vers Ollama (22).
   # Vpn -> Vpn est déjà autorisé par défaut sur la console : ces règles rendent le flux explicite.
   - { name: ra-wg-to-iapc-icmp, from: "net:EPSI-WG", to: "net:EPSI-WS-IA", protocol: icmp, desc: "ping du PC de délestage IA" }
   - { name: ra-wg-to-iapc, from: "net:EPSI-WG", to: "net:EPSI-WS-IA", protocol: tcp_udp, ports: [22, 3389], desc: "SSH et RDP vers le PC de délestage IA" }
   - { name: ra-iapc-to-rag-icmp, from: "net:EPSI-WS-IA", to: "RA-APP:10.30.1.230", protocol: icmp, desc: "ping de rag01" }
-  - { name: ra-iapc-to-rag, from: "net:EPSI-WS-IA", to: "RA-APP:10.30.1.230", protocol: tcp, ports: [22, 8501], desc: "tunnel SSH vers Ollama et interface de l'assistant sur rag01" }
+  - { name: ra-iapc-to-rag, from: "net:EPSI-WS-IA", to: "RA-APP:10.30.1.230", protocol: tcp, ports: [22], desc: "tunnel SSH vers Ollama sur rag01 (interface web désactivée)" }

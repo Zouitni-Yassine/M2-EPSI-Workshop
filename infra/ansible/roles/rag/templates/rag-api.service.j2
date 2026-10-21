@@ -1,0 +1,38 @@
+# {{ ansible_managed }}
+# API HTTP de l'assistant pour le bot Discord (api.py de l'équipe IA, révision {{ rag_git_ref[:7] }}) :
+# POST /ask (jeton Bearer), GET /health. Port {{ rag_api_port }}, filtré par nftables (rag_api_allowed).
+[Unit]
+Description=API de l'assistant RAG (bot Discord)
+After=network-online.target ollama.service rag-mcp.service
+Wants=network-online.target ollama.service rag-mcp.service
+
+[Service]
+User=rag
+Group=rag
+WorkingDirectory={{ rag_dir }}/app
+{% for name, value in rag_env.items() %}
+Environment={{ name }}={{ value }}
+{% endfor %}
+Environment=RAG_API_TOKEN_FILE={{ rag_secrets_dir }}/api_token
+Environment=RAG_API_RATE_PER_MIN={{ rag_api_rate_per_min }}
+Environment=RAG_API_TIMEOUT={{ rag_api_timeout }}
+ExecStart={{ rag_dir }}/venv/bin/uvicorn api:app --host 0.0.0.0 --port {{ rag_api_port }} --workers 1 --no-access-log --no-server-header
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ rag_data_dir }}
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

@@ -42,6 +42,12 @@ vm_auth_password: "{{ lookup('ansible.builtin.env', 'VM_AUTH_PASSWORD') }}"
 # Compte Alertmanager du moteur de remédiation (utilisateur "remediation") : il lit les
 # alertes par l'API au lieu d'exposer un port de webhook. Secret Swarm remediation_alertmanager_password.
 remediation_am_password: "{{ lookup('ansible.builtin.env', 'REMEDIATION_AM_PASSWORD') }}"
+# Compte en LECTURE SEULE de l'assistant RAG (outils MCP de rag01, docs/rag.md) : routes de
+# requête de VictoriaMetrics (vmauth) et de Loki (nginx) uniquement. Secret Vault
+# secret/infra/rag-readonly, un mot de passe par service.
+rag_readonly_user: rag-readonly
+rag_vm_read_password: "{{ lookup('ansible.builtin.env', 'RAG_VM_READ_PASSWORD') }}"
+rag_loki_read_password: "{{ lookup('ansible.builtin.env', 'RAG_LOKI_READ_PASSWORD') }}"
 
 # VictoriaMetrics (binaires officiels GitHub, checksum vérifié ; même version pour l'image Docker)
 vm_version: v1.154.0

@@ -186,14 +186,17 @@
 - name: Appliquer les changements de l'assistant
   ansible.builtin.meta: flush_handlers
 
-- name: Assistant actif
+# Interface web (rag_ui_enabled) : désactivée par défaut, le bot Discord et l'API sont le seul
+# accès. Le code reste installé et l'index est construit par Ansible (ingest.py ci-dessus).
+- name: Interface web de l'assistant (Streamlit)
   ansible.builtin.systemd_service:
     name: rag-assistant
-    enabled: true
-    state: started
+    enabled: "{{ rag_ui_enabled | bool }}"
+    state: "{{ 'started' if rag_ui_enabled | bool else 'stopped' }}"
     daemon_reload: true
 
 - name: Interface Streamlit joignable
+  when: rag_ui_enabled | bool
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ rag_port }}/_stcore/health"
   register: rag_health

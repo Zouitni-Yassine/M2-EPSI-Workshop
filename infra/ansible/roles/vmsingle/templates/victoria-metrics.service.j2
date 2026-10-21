@@ -1,4 +1,6 @@
 # {{ ansible_managed }}
+# Écoute locale : les clients passent par vmauth (:{{ vm_public_port }}, tasks/vmauth.yml), qui
+# ajoute l'authentification de ce compte. L'authentification native reste active derrière.
 [Unit]
 Description=VictoriaMetrics single-node
 Wants=network-online.target
@@ -8,7 +10,7 @@ After=network-online.target
 User=victoriametrics
 Group=victoriametrics
 ExecStart=/usr/local/bin/victoria-metrics \
-  -httpListenAddr=:8428 \
+  -httpListenAddr={{ vm_backend_listen }} \
   -httpAuth.username={{ monitoring_auth_user }} \
   -httpAuth.password=file:///etc/victoria-metrics/http_password \
   -storageDataPath=/var/lib/victoria-metrics \

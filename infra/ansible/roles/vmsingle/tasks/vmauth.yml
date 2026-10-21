@@ -1,0 +1,67 @@
+# vmauth sur le port public de VictoriaMetrics : compte complet ({{ monitoring_auth_user }}) et
+# compte en lecture seule de l'assistant RAG ({{ rag_readonly_user }}, docs/rag.md).
+- name: Installer vmauth
+  ansible.builtin.include_role:
+    name: vm_install
+  vars:
+    vm_archive: vmutils
+    vm_binaries: [vmauth]
+
+# Lu par systemd (root) au démarrage : variables %{...} de vmauth.yml
+- name: Secrets de vmauth
+  ansible.builtin.copy:
+    dest: /etc/victoria-metrics/vmauth.env
+    content: |
+      VM_AUTH_PASSWORD={{ vm_auth_password }}
+      VM_BACKEND_AUTH={{ (monitoring_auth_user ~ ':' ~ vm_auth_password) | b64encode }}
+      RAG_VM_READ_PASSWORD={{ rag_vm_read_password }}
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Redémarrer vmauth
+
+- name: Comptes et routes de vmauth
+  ansible.builtin.template:
+    src: vmauth.yml.j2
+    dest: /etc/victoria-metrics/vmauth.yml
+    owner: root
+    group: victoriametrics
+    mode: "0640"
+  notify: Redémarrer vmauth
+
+- name: Service systemd vmauth
+  ansible.builtin.template:
+    src: vmauth.service.j2
+    dest: /etc/systemd/system/vmauth.service
+    mode: "0644"
+  notify: Redémarrer vmauth
+
+- name: Redémarrer vmauth après une montée de version
+  ansible.builtin.debug:
+    msg: "Nouvelle version de vmauth : {{ vm_version }}"
+  when: vm_install_links is changed
+  changed_when: true
+  notify: Redémarrer vmauth
+
+- name: Appliquer les changements de vmauth
+  ansible.builtin.meta: flush_handlers
+
+- name: vmauth actif
+  ansible.builtin.systemd_service:
+    name: vmauth
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: API publiée par vmauth
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ vm_public_port }}/api/v1/status/buildinfo"
+    url_username: "{{ monitoring_auth_user }}"
+    url_password: "{{ vm_auth_password }}"
+    force_basic_auth: true
+  register: vmauth_check
+  until: vmauth_check.status == 200
+  retries: 15
+  delay: 2
+  no_log: true

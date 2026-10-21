@@ -421,13 +421,14 @@ Le receiver `default` est vide et réservé au moteur de remédiation. Pour le b
 ## 8. Sécurité de la stack
 
 **Authentification Basic** : un utilisateur, `monitoring`, avec un mot de passe distinct par
-service.
+service. Depuis le 21/10/2026, un second compte, `rag-readonly`, limité aux routes de requête de
+VictoriaMetrics et de Loki, sert aux outils de l'assistant RAG (voir [rag.md](rag.md), section 8).
 
 | Service | Mécanisme | Mot de passe partagé avec |
 |---|---|---|
-| VictoriaMetrics `:8428` | `-httpAuth.*` natif, sur toute l'API (écriture, lecture, suppression de séries, vmui, `/metrics`) | vmagent `:8429` et vmalert `:8880`. Sans ça, l'endpoint d'ingestion de vmagent permettrait de contourner l'authentification de VictoriaMetrics |
+| VictoriaMetrics `:8428` | **vmauth** sur `:8428` (comptes et routes, `roles/vmsingle/tasks/vmauth.yml`) devant VictoriaMetrics, qui écoute sur `127.0.0.1:8427` et garde son `-httpAuth.*` natif sur toute l'API. `monitoring` : toute l'API ; `rag-readonly` : `query`, `query_range`, `series`, `labels`, valeurs de label | vmagent `:8429` et vmalert `:8880`. Sans ça, l'endpoint d'ingestion de vmagent permettrait de contourner l'authentification de VictoriaMetrics |
 | Alertmanager `:9093` | `--web.config.file` (exporter-toolkit), hash bcrypt. Alertmanager garde en cache les vérifications réussies | - |
-| Loki `:3100` | Loki n'a pas d'authentification intégrée. Il écoute sur `127.0.0.1:3101` et nginx, sur `:3100`, authentifie puis relaie, comme le recommande Grafana | - |
+| Loki `:3100` | Loki n'a pas d'authentification intégrée. Il écoute sur `127.0.0.1:3101` et nginx, sur `:3100`, authentifie puis relaie, comme le recommande Grafana. `rag-readonly` : routes de requête seulement (403 sinon) | - |
 
 Pour nginx, le hash est un SHA-512 crypt à 5000 tours, et non un bcrypt. nginx vérifie le mot de
 passe à chaque requête, sans cache, et chaque hôte pousse ses logs environ une fois par seconde :
@@ -437,7 +438,8 @@ nginx partent dans journald, donc dans Loki (`{unit="nginx.service"}`).
 Gestion des mots de passe :
 
 - **Sources** : `VM_AUTH_PASSWORD`, `ALERTMANAGER_AUTH_PASSWORD`, `LOKI_AUTH_PASSWORD` et
-  `REMEDIATION_AM_PASSWORD` sont dans Vault (`secret/infra/monitoring`), lus par `vault-env` au
+  `REMEDIATION_AM_PASSWORD` sont dans Vault (`secret/infra/monitoring`), ceux du compte
+  `rag-readonly` dans `secret/infra/rag-readonly`, lus par `vault-env` au
   lancement des playbooks, et nulle part dans le dépôt. Rotation :
   [comptes-et-rotation.md](comptes-et-rotation.md).
 - **Déploiement** : Ansible les dépose dans des fichiers 0640, lisibles par le seul groupe du
@@ -464,9 +466,9 @@ Limites assumées :
 
 - **HTTP en clair**, sans TLS, sur le LAN du lab : les mots de passe Basic passent en clair sur
   le réseau. En production, on mettrait TLS partout, avec une PKI interne.
-- **Un compte par service, avec tous les droits** : le compte VictoriaMetrics peut aussi écrire
-  et supprimer des séries. Un compte en lecture seule, par exemple pour le module ML,
-  demanderait `vmauth` devant VictoriaMetrics.
+- **Un compte par service, avec tous les droits** : le compte `monitoring` de VictoriaMetrics
+  peut aussi écrire et supprimer des séries. Seul l'assistant RAG a un compte en lecture seule
+  (`rag-readonly`, vmauth) ; le module ML pourrait en avoir un de la même façon.
 - **Points restés ouverts** : node_exporter, cAdvisor et les métriques Docker ne sont pas
   authentifiés, mais restent filtrés par le pare-feu. Le `/metrics` de Grafana est public.
 

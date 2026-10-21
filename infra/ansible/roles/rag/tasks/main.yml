@@ -1,5 +1,6 @@
 # Machine rag01 (VM clonée du template debian13-docker) : socle (firewall, node_exporter,
-# Docker arrêté), Ollama et ses modèles, puis l'assistant (code, venv, index, service).
+# Docker arrêté), Ollama et ses modèles, l'assistant (code, venv, index, service), ses outils
+# de supervision et son API, puis le bot Discord.
 - name: Socle de la machine
   ansible.builtin.import_tasks: system.yml
 
@@ -9,5 +10,15 @@
 - name: Délestage sur GPU distant (tunnel SSH et relais)
   ansible.builtin.import_tasks: gpu_tunnel.yml
 
+- name: Outils de supervision (MCP) et API du bot (secrets, code, unités)
+  ansible.builtin.import_tasks: tools.yml
+
 - name: Assistant (code, dépendances, index, service)
   ansible.builtin.import_tasks: app.yml
+
+- name: Outils de supervision et API actifs
+  ansible.builtin.import_tasks: tools_services.yml
+
+- name: Bot Discord de l'équipe
+  ansible.builtin.import_tasks: discord_bot.yml
+  when: discord_bot_enabled | bool

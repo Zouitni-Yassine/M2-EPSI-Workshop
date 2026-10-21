@@ -1,0 +1,26 @@
+# {{ ansible_managed }}
+# vmauth devant VictoriaMetrics ({{ vm_backend_listen }}) : un compte complet, un compte en
+# lecture seule. Aucun mot de passe ici : les %{...} sont remplacés au chargement par les
+# variables de /etc/victoria-metrics/vmauth.env (0600, root).
+# VictoriaMetrics garde son authentification : vmauth lui présente toujours le compte
+# {{ monitoring_auth_user }} (en-tête Authorization remplacé).
+users:
+  # Compte historique : toute l'API, inchangé pour vmagent, vmalert et Grafana
+  - username: {{ monitoring_auth_user }}
+    password: "%{VM_AUTH_PASSWORD}"
+    url_prefix: http://{{ vm_backend_listen }}
+    headers:
+      - "Authorization: Basic %{VM_BACKEND_AUTH}"
+
+  # Assistant RAG (rag01) : requêtes uniquement. Toute autre route est refusée par vmauth.
+  - username: {{ rag_readonly_user }}
+    password: "%{RAG_VM_READ_PASSWORD}"
+    max_concurrent_requests: {{ vmauth_readonly_max_concurrent }}
+    url_map:
+      - src_paths:
+{% for p in vmauth_readonly_paths %}
+          - "{{ p }}"
+{% endfor %}
+        url_prefix: http://{{ vm_backend_listen }}
+        headers:
+          - "Authorization: Basic %{VM_BACKEND_AUTH}"

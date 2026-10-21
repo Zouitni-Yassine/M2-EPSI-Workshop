@@ -1,5 +1,7 @@
-# Assistant RAG de l'équipe IA (docs/rag.md) : Ollama + LangChain + ChromaDB + Streamlit.
-# En lecture seule sur les procédures : aucun secret, aucune clé, aucun jeton sur la machine.
+# Assistant RAG de l'équipe IA (docs/rag.md) : Ollama + LangChain + ChromaDB + Streamlit,
+# agent avec outils de supervision (MCP, lecture seule), API du bot et bot Discord.
+# Secrets sur la machine : comptes LECTURE SEULE de la supervision, jeton de l'API, jeton du bot
+# (fichiers dédiés, jamais dans le dépôt). Ni clé SSH, ni jeton Vault, ni accès d'administration.
 
 # Ollama : binaire officiel de la release GitHub, version figée, empreinte vérifiée
 # (sha256sum.txt de la release). Changer de version : les deux valeurs ensemble.
@@ -24,7 +26,7 @@ ollama_models:
 # (git archive). Mettre à jour : git fetch origin, puis
 #   vault-env ansible-playbook rag.yml -e rag_git_ref=<sha complet de origin/IA>
 rag_repo_dir: /srv/M2-EPSI-Workshop
-rag_git_ref: 71cc5617da41ba5db63ba1d2796fb530eba36b25
+rag_git_ref: 2e3c0c276960575a6b8a36671e506e4bd0a9e4ae
 
 # Fiches de procédures de l'infra, ajoutées au corpus de l'équipe IA (docs/infra/ de l'appli)
 rag_infra_corpus_dir: "{{ playbook_dir | dirname }}/rag/corpus"
@@ -35,6 +37,9 @@ rag_pip_constraints: true
 rag_dir: /opt/rag          # code (une version par commit dans releases/) et venv, à root
 rag_data_dir: /var/lib/rag # base vectorielle ChromaDB et HOME du service, à l'utilisateur rag
 rag_port: 8501
+# Interface web Streamlit (service rag-assistant, port rag_port) : désactivée, le bot Discord et
+# l'API (rag-api) sont le seul accès. Réactiver : -e rag_ui_enabled=true (service et pare-feu).
+rag_ui_enabled: false
 
 # Environnement de l'assistant (service et indexation) : URL d'Ollama lue par le client
 # Python (OLLAMA_HOST), télémétrie de ChromaDB et de Streamlit coupée (aucun appel sortant)
@@ -43,6 +48,7 @@ rag_env:
   ANONYMIZED_TELEMETRY: "False"
   STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
   RAG_LLM_MODEL: "{{ rag_gpu_llm_model }}"
+  RAG_MCP_URL: "http://{{ rag_mcp_host }}:{{ rag_mcp_port }}/mcp"
   HOME: "{{ rag_data_dir }}"
   LANG: C.UTF-8
 
@@ -57,3 +63,29 @@ rag_gpu_tunnel_keys: []   # clés publiques SSH des PC à GPU (inventaire)
 # pointe vers {{ rag_llm_model }}, pour que l'assistant réponde encore (en mode dégradé) si le
 # GPU est absent. Lu par chain.py dans RAG_LLM_MODEL.
 rag_gpu_llm_model: qwen3.8:27b
+
+# --- Outils de supervision (serveur MCP « supervision », LECTURE SEULE) -------------------
+# Code dans infra/rag/mcp_supervision/ (dépôt INFRA), service rag-mcp, écoute locale seulement.
+# Compte rag-readonly : routes de requête de VictoriaMetrics (vmauth) et de Loki (nginx).
+rag_mcp_src: "{{ playbook_dir | dirname }}/rag/mcp_supervision/server.py"
+rag_mcp_host: 127.0.0.1
+rag_mcp_port: 8610
+rag_vm_url: "http://{{ monitoring_core_ip }}:8428"
+rag_loki_url: "http://{{ monitoring_core_ip }}:3100"
+rag_secrets_dir: /etc/rag   # mots de passe lecture seule et jeton de l'API, 0640 root:rag
+
+# --- API de l'assistant pour le bot (service rag-api, FastAPI) -----------------------------
+rag_api_port: 8600
+# Sources autorisées par nftables (le bot local passe par lo, toujours accepté) : LAN
+# MANAGEMENT (tests depuis le poste de contrôle) et VPN d'administration
+rag_api_allowed: "{{ fw_monitoring_allowed + fw_admin_web_allowed }}"
+rag_api_rate_per_min: 10
+rag_api_timeout: 120
+
+# --- Bot Discord de l'équipe (service discord-bot, infra/rag/discord_bot/) -----------------
+discord_bot_enabled: true
+discord_bot_user: qwen-bot
+discord_bot_dir: /opt/discord-bot
+discord_bot_src: "{{ playbook_dir | dirname }}/rag/discord_bot"
+# Message « en ligne » posté une seule fois dans le salon (marqueur /var/lib/discord-bot)
+discord_bot_announce: false
