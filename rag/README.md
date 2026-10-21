@@ -78,9 +78,26 @@ par **llama3.2:3b** après comparaison sur un même jeu de questions de test :
       docs/              documents sources (procédures, architecture...)
       ingest.py          indexation des documents dans ChromaDB
       chain.py           chaîne RAG (récupération + génération)
-      app.py             interface de chat Streamlit
+      app.py             interface de chat Streamlit (case « avec l'état du système »)
+      agent.py           agent : documentation + outils de supervision MCP (lecture seule)
+      api.py             API HTTP du bot Discord (POST /ask, jeton Bearer)
       requirements.txt   dépendances Python
       .gitignore         exclut .venv/ et chroma_db/ (régénérables)
+
+## Agent : documentation + état réel du système
+
+`agent.py` donne au modèle des **outils** : `chercher_documentation` (la recherche de
+`chain.py`) et les outils du serveur MCP « supervision » de l'infra (alertes récentes, état de
+la plateforme, IP bannies au WAF, événements de remédiation, requête PromQL), tous en
+**lecture seule** (compte `rag-readonly` limité aux routes de requête de la supervision).
+Boucle bornée (4 appels d'outils, délai global), réponse de 1500 caractères au plus, source
+citée. Si le modèle servi ne sait pas appeler d'outils (secours CPU `llama3.2:3b`) ou si la
+supervision est en erreur, l'agent répond avec `chain.ask` (documentation seule) et le signale.
+
+    python agent.py "quelles alertes ont eu lieu ces 2 dernières heures ?"
+
+`api.py` expose l'agent au bot Discord : `POST /ask` (jeton Bearer), `GET /health`.
+Déploiement, contrat et garde-fous : `infra/docs/rag.md` (branche INFRA).
 
 ## Limites connues
 

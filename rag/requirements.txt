@@ -4,3 +4,8 @@ langchain-ollama
 chromadb
 streamlit
 pypdf
+# Agent (outils MCP de supervision) et API du bot
+mcp
+langchain-mcp-adapters
+fastapi
+uvicorn
