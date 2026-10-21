@@ -212,7 +212,7 @@ doit valoir 1, puis `up{stack="paiement"}` doit valoir 1 pour chaque réplica.
 | 3 LXC de supervision, 3 LXC d'identité | `monitoring`, `identity` | `monitoring.yml`, `identity.yml` (avec `lxc_base`) |
 | 3 hyperviseurs | `pve` | `monitoring.yml`, play « Envoi des logs » |
 | Poste de contrôle (control01 = .110, connexion locale) | `control` | idem |
-| WAF de l'équipe cyber (waf01, .251) | `waf` | idem. **Seul le rôle `alloy`** y est appliqué : la VM et son firewall nftables appartiennent à l'équipe cyber. Alloy y suit les rotations du mot de passe de Loki |
+| WAF de l'équipe cyber (waf01, 10.30.2.251, RA-DMZ) | `waf` | idem. **Seul le rôle `alloy`** y est appliqué : la VM et son firewall nftables appartiennent à l'équipe cyber. Alloy y suit les rotations du mot de passe de Loki |
 
 - **journald** : Alloy lit le journal systemd (groupe `systemd-journal` seulement). Docker
   utilise le driver `journald` : les logs des conteneurs passent par le même chemin, sans accès

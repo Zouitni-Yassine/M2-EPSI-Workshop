@@ -396,7 +396,7 @@ passerelle UniFi (règle `ra-dmz-to-app`, section 3), pas sur les hôtes.
 |---|---|
 | Domain Names | `app.slabreze.fr` |
 | Scheme | `https` |
-| Forward Hostname / IP | `10.30.2.251` (waf01, une fois en RA-DMZ ; aujourd'hui 10.0.1.251) |
+| Forward Hostname / IP | `10.30.2.251` (waf01, en RA-DMZ depuis le 21/10/2026) |
 | Forward Port | `8443` |
 | Cache Assets | non (le frontal gère lui-même le cache : `no-store` sur la page, `immutable` sur `/assets/`) |
 | Block Common Exploits | non : c'est le rôle du WAF, et un double filtrage rend les blocages difficiles à expliquer |
@@ -422,8 +422,11 @@ Support* dans NPM et les en-têtes `Upgrade`/`Connection` dans le WAF.
 
 #### Équipe cyber : WAF
 
-Aujourd'hui `waf01` est en 10.0.1.251 (MANAGEMENT) et relaie vers une page de test
-(`127.0.0.1:18080`). À faire, **avec l'accord du propriétaire** de la VM :
+**Fait le 21/10/2026**, avec l'accord du propriétaire de la VM (détail, tests et retour
+arrière : [waf.md](waf.md)) : `waf01` est en RA-DMZ (10.30.2.251) et relaie vers l'application.
+Écart avec la liste ci-dessous (rédigée avant) : le WAF vise l'**adresse virtuelle**
+`10.30.1.200:5173` (keepalived, [reseau.md](reseau.md)) au lieu d'un upstream des trois workers.
+Liste d'origine, pour mémoire :
 
 1. **Déplacer la VM en RA-DMZ** : carte réseau sur le vnet Proxmox `radmz`, adresse
    `10.30.2.251/24`, passerelle `10.30.2.254`, DNS `10.30.2.254`. Alloy continue d'envoyer ses
@@ -494,7 +497,7 @@ Fichier [`unifi/ra-network.yml`](../unifi/ra-network.yml), appliqué par `vault-
 | Règle | De → vers | Ports | État |
 |---|---|---|---|
 | `ra-dmz-to-app` | `RA-DMZ` → `RA-APP` | tcp 5173 | **Appliquée le 20/10/2026** (second plan : « aucun changement ») |
-| `ra-npm-to-waf` | 172.16.1.10 (zone Internal) → `RA-DMZ` | tcp 8443 | **En commentaire**, à activer quand le WAF sera en RA-DMZ |
+| `ra-npm-to-waf` | 172.16.1.10 (zone Internal) → `RA-DMZ` | tcp 8443 | Active ; WAF en RA-DMZ depuis le 21/10/2026 |
 | `ra-dmz-to-loki` | `RA-DMZ` → 10.0.1.233 | tcp 3100 | En place (logs du WAF) |
 | `ra-mgmt-to-dmz`, `ra-mgmt-to-app` | MANAGEMENT → `RA-DMZ`, `RA-APP` | tous | En place (administration, tests depuis .110) |
 
@@ -525,7 +528,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://10.30.1.221:5173/        # 200 :
 curl -s -o /dev/null -w '%{http_code}\n' http://10.30.1.221:5173/api/health   # 200 : relais vers payment-api
 ```
 
-Depuis `waf01`, une fois en RA-DMZ : les mêmes requêtes vers les trois workers (règle
+Depuis `waf01` (RA-DMZ) : les mêmes requêtes vers les trois workers (règle
 `ra-dmz-to-app`), puis depuis Internet :
 
 ```sh
@@ -541,6 +544,10 @@ pour les blocages, `{stack="paiement", service="paiement_frontend"}` pour le rel
 `/` et `/api/health` répondent 200 sur 10.30.1.221, .222, .223 (et sur le manager .211 : maillage
 ingress). Le WAF est toujours en MANAGEMENT et le proxy host NPM n'est pas créé : le chemin
 public reste à tester de bout en bout.
+
+**État au 21/10/2026** : `waf01` en RA-DMZ (10.30.2.251), relais vers `10.30.1.200:5173` testé
+depuis .110 (page 200, `/api/health` OK, injection SQL 403) : [waf.md](waf.md). Reste à basculer
+le proxy host NPM vers `https://10.30.2.251:8443`.
 
 ## Test de reprise de bout en bout (20/10/2026)
 

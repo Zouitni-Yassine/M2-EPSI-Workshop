@@ -22,7 +22,7 @@ Plan d'adressage (LAN `10.0.1.0/24`, VMID = dernier octet de l'IP) :
 | vmagent01 / vmagent02 | .231 / .232 | ceph02 / ceph03 | Collecte des métriques |
 | monitoring01 | .233 | ceph01 | VictoriaMetrics, vmalert, Alertmanager, Loki, Grafana |
 | iam01 / vault01 / vaultwarden01 | .241 / .242 / .243 | ceph02 / ceph03 / ceph01 | Keycloak, Vault, Vaultwarden |
-| waf01 | .251 | ceph01 | WAF de l'équipe cyber (hors Terraform) |
+| waf01 | 10.30.2.251 (RA-DMZ) | ceph01 | WAF de l'équipe cyber (VM importée dans Terraform, `terraform/waf.tf`) |
 
 Groupes de l'inventaire Ansible (`inventory/hosts.yml`) :
 

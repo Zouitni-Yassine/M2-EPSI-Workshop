@@ -55,7 +55,7 @@ infra/
 | iam01 | LXC 2 vCPU / 3 Go | 10.0.1.241 | Keycloak (SSO), PostgreSQL |
 | vault01 | LXC 1 vCPU / 1 Go | 10.0.1.242 | HashiCorp Vault |
 | vaultwarden01 | LXC 1 vCPU / 1 Go | 10.0.1.243 | Vaultwarden (mots de passe de l'équipe) |
-| waf01 | VM (équipe cyber) | 10.0.1.251 | WAF ; seul l'envoi des logs y est géré par l'infra |
+| waf01 | VM (équipe cyber) | 10.30.2.251 (RA-DMZ) | WAF ; VM importée dans Terraform, seul l'envoi des logs y est géré par Ansible ([docs/waf.md](docs/waf.md)) |
 
 Le Swarm est isolé dans le VLAN `RA-APP` ; le reste est sur `MANAGEMENT` (10.0.1.0/24). Flux autorisés
 et procédure : [docs/reseau.md](docs/reseau.md).

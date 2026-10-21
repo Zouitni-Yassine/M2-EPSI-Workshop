@@ -9,9 +9,9 @@ en défense en profondeur, par le firewall nftables des machines de destination.
 
 | VLAN | Réseau / zone UniFi | Sous-réseau (passerelle .254) | Vnet Proxmox | Machines |
 |---|---|---|---|---|
-| 10 (existant) | `MANAGEMENT` / `Internal` | 10.0.1.0/24 | `vmbr0` (sans tag) | Hyperviseurs, poste de contrôle, supervision, identité, `waf01` (provisoire) |
+| 10 (existant) | `MANAGEMENT` / `Internal` | 10.0.1.0/24 | `vmbr0` (sans tag) | Hyperviseurs, poste de contrôle, supervision, identité |
 | 301 | `RA-APP` / `RA-APP` | 10.30.1.0/24 | `raapp` | Swarm : `dockermgr01-03` (.211-.213), `dockerwrk01-03` (.221-.223) ; assistant RAG `rag01` (.230, [rag.md](rag.md)) |
-| 302 | `RA-DMZ` / `RA-DMZ` | 10.30.2.0/24 | `radmz` | Exposé à Internet : serveur NetBird (à venir), WAF (quand l'équipe cyber le déplacera, .251) |
+| 302 | `RA-DMZ` / `RA-DMZ` | 10.30.2.0/24 | `radmz` | Exposé à Internet : WAF `waf01` (.251, depuis le 21/10/2026, [waf.md](waf.md)), serveur NetBird (à venir) |
 | 303 | `RA-VPN` / `RA-VPN` | 10.30.3.0/24 | `ravpn` | Passerelle NetBird vers le lab (à venir) |
 
 - **Pas de DHCP** : adresses fixes posées par cloud-init (Terraform), dernier octet = VMID.
@@ -47,6 +47,8 @@ de retour). Seules ces règles `ra-*` ouvrent des flux. `MANAGEMENT` désigne to
 | `ra-app-to-monitoring` | `RA-APP` → 10.0.1.233 | 3100, 8428, 9093 | Logs (Loki), métriques (remote write), lecture des alertes par le moteur |
 | `ra-app-to-vault` | `RA-APP` → 10.0.1.242 | 8200 | Secrets de l'application |
 | `ra-app-to-keycloak` | `RA-APP` → 10.0.1.241 | 443 | SSO |
+| `ra-npm-to-waf` | NPM 172.16.1.10 → `RA-DMZ` | 8443 | Publication : NPM vers le WAF ([waf.md](waf.md)) |
+| `ra-dmz-to-app` | `RA-DMZ` → `RA-APP` | 5173 | Le WAF relaie vers le frontal (adresse virtuelle 10.30.1.200) |
 | `ra-dmz-to-loki` | `RA-DMZ` → 10.0.1.233 | 3100 | Logs |
 | `ra-dmz-to-keycloak` | `RA-DMZ` → 10.0.1.241 | 443 | SSO (NetBird) |
 | `ra-vpn-to-mgmt`, `-dmz`, `-app` | `RA-VPN` → `MANAGEMENT`, `RA-DMZ`, `RA-APP` | tous | VPN admin : le filtrage par utilisateur et par groupe Keycloak est fait par NetBird |

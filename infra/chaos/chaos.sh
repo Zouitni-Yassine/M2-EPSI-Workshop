@@ -201,7 +201,7 @@ preflight() {
   done
   [ -z "$busy" ] || die "sauvegarde vzdump en cours sur$busy : attendre la fin"
   health_ok || die "l'application ne répond pas avant le test ($APP/api/health)"
-  [ -n "$(probe_ok_after "$(awk -v t="$(now)" 'BEGIN { print t - 120 }')")" ] \
+  [ -n "$(probe_ok_after "$(( $(date +%s) - 120 ))")" ] \
     || die "aucune transaction réussie de la sonde depuis 2 min : état de départ non nominal"
   say "état de départ : API 200, sonde OK, aucune sauvegarde en cours"
 }

@@ -54,7 +54,7 @@ flowchart TB
 | .221-.223 | Workers Swarm | VMID = dernier octet |
 | .231-.233 | LXC de supervision | VMID = dernier octet |
 | .241-.243 | LXC d'identité : Keycloak, Vault, Vaultwarden | VMID = dernier octet |
-| .251 | WAF de l'équipe cyber (waf01, hors Terraform) | VMID = dernier octet |
+| .251 | WAF de l'équipe cyber (waf01) : **déplacé en RA-DMZ, 10.30.2.251**, le 21/10 ([waf.md](waf.md)) | VMID = dernier octet |
 
 Groupes Ansible hors du socle : `pve` (hyperviseurs : CA interne, SSO, logs), `control` (.110,
 connexion locale : logs) et `waf` (waf01 : **logs seulement**, son firewall appartient à l'équipe
