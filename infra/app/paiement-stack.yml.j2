@@ -189,7 +189,8 @@ services:
       - { source: detector_admin_token, target: detector_admin_token }
     volumes:
       - { type: tmpfs, target: /tmp }
-    networks: [resilience]
+    # monitoring : collecte de /metrics (score ML) par le vmagent du Swarm
+    networks: [resilience, monitoring]
     deploy:
       # Une seule réplica : le modèle vit en mémoire
       replicas: 1

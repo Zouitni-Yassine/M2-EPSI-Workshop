@@ -170,3 +170,35 @@ groups:
           action: none
         annotations:
           summary: "La sonde de transaction (stack probe) ne répond plus : paiements non vérifiés de bout en bout"
+
+      # Détecteur ML (/metrics, collecté toutes les 30 s). Le moteur de remédiation lit le
+      # score directement sur /score, chaque seconde : ces alertes informent les humains et
+      # tracent l'incident (remediation="manual"). Le compteur garde une anomalie plus courte
+      # que l'intervalle de collecte ; l'alerte reste visible 2 min après la fin.
+      - alert: PaiementAnomalieDetectee
+        expr: |
+          max by (stack) (detector_anomaly{service="paiement_detector"}) == 1
+            or max by (stack) (increase(detector_anomalies_total{service="paiement_detector"}[2m])) > 0
+        labels:
+          severity: warning
+          remediation: manual
+          service: paiement_payment-api
+          stack: paiement
+          action: none
+        annotations:
+          summary: "Le détecteur ML a confirmé une anomalie sur payment-api (score au-dessus du seuil) : remédiation automatique en cours"
+
+      # Détecteur muet : plus de détection, donc plus de remédiation automatique.
+      - alert: PaiementDetectorDown
+        expr: |
+          absent(up{service="paiement_detector"} == 1)
+            and on() count(present_over_time(up{service="paiement_detector"}[1h])) > 0
+        for: 2m
+        labels:
+          severity: critical
+          remediation: manual
+          service: paiement_detector
+          stack: paiement
+          action: none
+        annotations:
+          summary: "Le détecteur d'anomalies ne répond plus : la remédiation automatique est aveugle"
