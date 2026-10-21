@@ -78,7 +78,7 @@ par **llama3.2:3b** après comparaison sur un même jeu de questions de test :
       docs/              documents sources (procédures, architecture...)
       ingest.py          indexation des documents dans ChromaDB
       chain.py           chaîne RAG (récupération + génération)
-      app.py             interface de chat Streamlit (case « avec l'état du système »)
+      app.py             interface de chat Streamlit (documentation seule)
       agent.py           agent : documentation + outils de supervision MCP (lecture seule)
       api.py             API HTTP du bot Discord (POST /ask, jeton Bearer)
       requirements.txt   dépendances Python
