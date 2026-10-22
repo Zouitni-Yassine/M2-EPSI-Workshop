@@ -206,7 +206,7 @@ Gouvernance : commencer par [`gouvernance/README.md`](gouvernance/README.md).
 | **Grégoire Mouilleau** | 💻 Développement | Connecteur de paiement **PayPal**, **reconnaissance faciale** des opérateurs |
 | **Yassine Zouitni** | 💻 Développement | Connecteur de paiement **Stripe**, **frontal** React / Tailwind |
 | **Rémi Reze** | 🔐 Cybersécurité | WAF (ModSecurity + CRS), SIEM / SOC, bannissement automatique, durcissement, scénarios Red Team |
-| **Nadège** | 🤖 IA / Data & RAG | Détecteur d'anomalies (IsolationForest, évaluation), assistant RAG des opérateurs |
+| **Nadège Matezere** | 🤖 IA / Data & RAG | Détecteur d'anomalies (IsolationForest, évaluation), assistant RAG des opérateurs |
 
 ---
 
