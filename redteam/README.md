@@ -195,10 +195,12 @@ Vérifier l'accès à l'application depuis une source saine.
 
 ## 7. Versionnement et Code.zip
 
-Sources versionnées dans `CYBER` du fork `brikodepo`, proposées à l'équipe par
-la [PR nº 6](https://github.com/Zouitni-Yassine/M2-EPSI-Workshop/pull/6).
-Une PR ouverte n'est pas une intégration dans `INFRA` ou `main` : l'équipe doit
-intégrer le dossier avant de constituer l'archive finale.
+Sources versionnées dans `CYBER` du fork `brikodepo` et intégrées à `main` du
+dépôt d'équipe par la [PR nº 6](https://github.com/Zouitni-Yassine/M2-EPSI-Workshop/pull/6),
+fusionnée le 22 octobre. Vérifier que la version retenue pour l'archive globale
+contient bien le dossier. Pour reprendre toute la partie cyber/gouvernance,
+voir la [passation](../cyber/README.md), l'[exploitation](../cyber/EXPLOITATION.md)
+et le [guide jury](../cyber/JURY.md).
 
 Paquet partageable des seules sources Red Team :
 
