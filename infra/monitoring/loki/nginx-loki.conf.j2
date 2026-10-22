@@ -21,8 +21,9 @@ map "$remote_user:$uri" $loki_ro_denied {
 }
 
 # Journal des notifications envoyées sur Discord : corps JSON de la copie webhook
-# d'Alertmanager tel quel (une ligne, Alertmanager n'écrit pas de saut de ligne), horodaté.
-log_format am_notify escape=none '{"ts":$msec,"notification":$request_body}';
+# d'Alertmanager dans une chaîne JSON (escape=json : son saut de ligne final et ses guillemets
+# sont échappés), une ligne par envoi, horodatée.
+log_format am_notify escape=json '{"ts":$msec,"body":"$request_body"}';
 
 server {
     listen 3100;
