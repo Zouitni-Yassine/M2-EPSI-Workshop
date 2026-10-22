@@ -405,6 +405,18 @@ Fichier : `monitoring/alertmanager/alertmanager.yml.j2`.
   `/etc/prometheus/discord_webhook_url`, en 0640 root:prometheus), lus via `url_file` et
   `webhook_url_file`. Sans webhook défini, le routage retombe sur le receiver `default`.
 
+### Journal des notifications Discord (panneau Alertes du back-office)
+
+Le récepteur `discord` porte aussi un `webhook_configs` vers `http://127.0.0.1:9097/notify` :
+même groupe, même instant, résolutions comprises. Le nginx de monitoring01 (rôle `loki`, serveur
+local seulement) écrit chaque corps JSON sur une ligne de
+`/var/log/alertmanager-notify/notifications.log` (rotation quotidienne, 7 jours), suivi par
+Alloy (`alloy_log_files`, job `alertmanager-notify`) :
+
+```logql
+{host="monitoring01",job="alertmanager-notify"} | json | notification_status="firing"
+```
+
 ### Brancher le moteur de remédiation
 
 Le receiver `default` est vide et réservé au moteur de remédiation. Pour le brancher :
@@ -423,6 +435,12 @@ Le receiver `default` est vide et réservé au moteur de remédiation. Pour le b
 **Authentification Basic** : un utilisateur, `monitoring`, avec un mot de passe distinct par
 service. Depuis le 21/10/2026, un second compte, `rag-readonly`, limité aux routes de requête de
 VictoriaMetrics et de Loki, sert aux outils de l'assistant RAG (voir [rag.md](rag.md), section 8).
+Depuis le 22/10/2026, un troisième, `app-ops`, sert à la page Supervision du back-office
+([application.md](application.md)) : vmauth `/api/v1/query` seulement ; nginx de Loki : `query`,
+`query_range` et `/alertmanager/alerts`, relais `GET` vers `/api/v2/alerts` (Alertmanager ne sait
+pas restreindre un compte : tout compte y peut créer alertes et silences, d'où ce relais ; nginx
+s'y présente avec le compte Alertmanager `app-ops`, en-tête dans
+`/etc/nginx/alertmanager-app-ops.auth`, 0600). Secret Vault `secret/infra/app-ops`.
 
 | Service | Mécanisme | Mot de passe partagé avec |
 |---|---|---|

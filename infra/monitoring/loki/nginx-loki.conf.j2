@@ -12,8 +12,17 @@ map $http_upgrade $connection_upgrade {
 map "$remote_user:$uri" $loki_ro_denied {
     "~^{{ rag_readonly_user }}:/loki/api/v1/(query|query_range|labels|label/[^/]+/values|series)$" 0;
     "~^{{ rag_readonly_user }}:" 1;
+    # Page Supervision du back-office (frontal de la stack paiement) : requêtes Loki et lecture
+    # des alertes d'Alertmanager (location /alertmanager/alerts ci-dessous), rien d'autre.
+    "~^{{ app_ops_user }}:/loki/api/v1/(query|query_range)$" 0;
+    "~^{{ app_ops_user }}:/alertmanager/alerts$" 0;
+    "~^{{ app_ops_user }}:" 1;
     default 0;
 }
+
+# Journal des notifications envoyées sur Discord : corps JSON de la copie webhook
+# d'Alertmanager tel quel (une ligne, Alertmanager n'écrit pas de saut de ligne), horodaté.
+log_format am_notify escape=none '{"ts":$msec,"notification":$request_body}';
 
 server {
     listen 3100;
@@ -31,6 +40,21 @@ server {
     client_max_body_size 16m;   # lots de logs poussés par Alloy
     proxy_read_timeout 300s;    # requêtes longues depuis Grafana
 
+    # Alertes actives d'Alertmanager en LECTURE SEULE pour {{ app_ops_user }} : Alertmanager
+    # n'a pas de droits par compte (tout compte peut créer des alertes ou des silences), d'où ce
+    # relais : GET seulement, sans paramètre, vers /api/v2/alerts. nginx présente le compte
+    # Alertmanager {{ app_ops_user }} (en-tête dans /etc/nginx/alertmanager-app-ops.auth, 0600).
+    location = /alertmanager/alerts {
+        if ($remote_user != "{{ app_ops_user }}") { return 403; }
+        if ($args) { return 400; }
+        limit_except GET { deny all; }
+        proxy_pass_request_headers off;
+        proxy_set_header Accept "application/json";
+        include /etc/nginx/alertmanager-app-ops.auth;
+        proxy_read_timeout 10s;
+        proxy_pass http://127.0.0.1:9093/api/v2/alerts;
+    }
+
     location / {
         if ($loki_ro_denied) { return 403; }
         proxy_pass http://127.0.0.1:3101;
@@ -46,5 +70,25 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_read_timeout 1h;
+    }
+}
+
+# Copie webhook des notifications Discord d'Alertmanager (récepteur discord), en local
+# seulement. Le corps n'est connu de nginx qu'une fois lu : relais vers /ok du même serveur.
+server {
+    listen 127.0.0.1:{{ alertmanager_notify_port }};
+    server_name _;
+    access_log off;
+
+    location = /notify {
+        limit_except POST { deny all; }
+        client_max_body_size 256k;
+        client_body_buffer_size 256k;
+        access_log {{ alertmanager_notify_log_dir }}/notifications.log am_notify;
+        proxy_pass http://127.0.0.1:{{ alertmanager_notify_port }}/ok;
+    }
+
+    location = /ok {
+        return 204;
     }
 }

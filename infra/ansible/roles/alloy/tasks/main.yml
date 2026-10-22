@@ -21,6 +21,19 @@
     state: present
   when: alloy_log_files | default([]) | length > 0
 
+# Répertoire créé ici quand le journal n'existe pas encore (mkdir: true dans alloy_log_files),
+# ex. le journal des notifications d'Alertmanager, écrit par nginx après ce rôle
+- name: Répertoires de logs à créer
+  ansible.builtin.file:
+    path: "{{ item.path | dirname }}"
+    state: directory
+    owner: root
+    group: adm
+    mode: "0750"
+  loop: "{{ alloy_log_files | default([]) | selectattr('mkdir', 'defined') | selectattr('mkdir') | list }}"
+  loop_control:
+    label: "{{ item.path | dirname }}"
+
 - name: ACL des répertoires de logs suivis
   ansible.posix.acl:
     path: "{{ item.0 }}"

@@ -15,3 +15,8 @@ vmauth_readonly_paths:
   - /api/v1/label/[^/]+/values
   - /api/v1/status/buildinfo
 vmauth_readonly_max_concurrent: 2
+
+# Compte app-ops (page Supervision du back-office) : requêtes instantanées seulement
+vmauth_app_ops_paths:
+  - /api/v1/query
+vmauth_app_ops_max_concurrent: 4

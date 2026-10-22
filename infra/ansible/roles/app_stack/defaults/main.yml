@@ -82,8 +82,15 @@ app_secret_values:
   auth_password_client: "{{ lookup('ansible.builtin.env', 'PAIEMENT_AUTH_PASSWORD_CLIENT') }}"
   stripe_secret_key: "{{ lookup('ansible.builtin.env', 'STRIPE_SECRET_KEY') }}"
   paypal_client_secret: "{{ lookup('ansible.builtin.env', 'PAYPAL_CLIENT_SECRET') }}"
-# Secrets facultatifs : absents de Vault = pas de secret Swarm (fonction désactivée)
-app_optional_secrets: [stripe_secret_key, paypal_client_secret]
+  # Page Supervision du back-office : ligne nginx incluse par le frontal (frontend/ops-proxy.conf)
+  # dans ses routes fixes /ops/m/*, en-tête Authorization du compte en LECTURE SEULE app-ops
+  # (vmauth et nginx de Loki sur monitoring01). Secret Vault secret/infra/app-ops.
+  ops_monitoring_auth: >-
+    {{ ('proxy_set_header Authorization "Basic ' ~ (app_ops_user ~ ':' ~ app_ops_read_password) | b64encode ~ '";')
+       if app_ops_read_password | length > 0 else '' }}
+# Secrets facultatifs : absents de Vault = pas de secret Swarm (fonction désactivée ; sans
+# ops_monitoring_auth, la page Supervision affiche « n/d » pour la supervision de la plateforme)
+app_optional_secrets: [stripe_secret_key, paypal_client_secret, ops_monitoring_auth]
 
 app_registry_username: "{{ lookup('ansible.builtin.env', 'REGISTRY_USERNAME') }}"
 app_registry_password: "{{ lookup('ansible.builtin.env', 'REGISTRY_PASSWORD') }}"

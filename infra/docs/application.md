@@ -578,6 +578,45 @@ retour arrière `RETOUR-ARRIERE.txt`).
 - **Version majeure de PostgreSQL** : changement par dump/restauration (pas de `pg_upgrade`
   automatisé).
 
+## Page Supervision du back-office (22/10/2026)
+
+La vue `ops` du frontal (`frontend/src/ops/OpsPage.tsx`, mode `VITE_DATA_SOURCE=api`) mélange
+deux sources :
+
+- **direct, chaque seconde** (inchangé) : bandeau d'état, ruban de transactions, courbe du
+  détecteur (`/detector/score`), frise du moteur (`/remediation/state`), tuiles de services ;
+- **supervision de la plateforme, 10 à 15 s** (`frontend/src/data/opsSource.ts`) : débit,
+  taux d'erreur et p95, blocages WAF et IP bannies, ligne **Infrastructure**, panneau
+  **Alertes**. Une source muette affiche « n/d », le reste de la page continue.
+
+**Routes fixes du relais nginx** (`frontend/nginx.conf`, fragment commun
+`frontend/ops-proxy.conf`) : session d'opérateur (`auth_request /_operator`), `GET` seulement,
+tout paramètre refusé (400). La requête PromQL/LogQL est écrite en dur dans la route et envoyée
+en corps POST ; aucun en-tête du navigateur (cookie, jeton) ne part vers la supervision. Micro
+cache de 5 s partagé entre opérateurs.
+
+| Route | Source | Requête (résumé) |
+|---|---|---|
+| `/ops/m/traffic` | VictoriaMetrics | `rate(http_requests_total{service="paiement_payment-api"}[2m])` : débit, part de `code=~"5.."`, `histogram_quantile(0.95, …)` : toutes les requêtes de payment-api |
+| `/ops/m/infra` | VictoriaMetrics | `pve_up{id=~"node/.*"}`, `swarm_manager_nodes{state="ready"}`, `app_vip_master == 1`, `ceph_health_status`, `vault_core_unsealed` (absente = scellé), `paiement_probe_last_success_timestamp_seconds{check="transaction"}`, `time()` |
+| `/ops/m/waf_blocks` | Loki | 403 du WAF sur 15 min (`{host="waf01",container="resilience-waf"} \|= "status":403`), bannies comprises |
+| `/ops/m/waf_bans` | Loki | décisions de `waf-ban` (`ban`, `expiration`, `deban`) sur 30 min : IP encore bannies et fin du bannissement |
+| `/ops/m/alerts` | Alertmanager | `GET /api/v2/alerts` (Watchdog écarté par la page) : nom, gravité, domaine, depuis, résumé, `action="ban"` |
+| `/ops/m/notifications` | Loki | journal des notifications envoyées sur Discord, 6 h (voir [supervision.md](supervision.md), section 7) |
+
+**Compte** : `app-ops`, en lecture seule (vmauth : `/api/v1/query` ; nginx de Loki : requêtes
+Loki et `/alertmanager/alerts` en GET). Mots de passe dans Vault `secret/infra/app-ops`
+(`APP_OPS_READ_PASSWORD`, `APP_OPS_AM_PASSWORD`), créés par `infra/app/app-ops-credentials.py`.
+Le frontal reçoit l'en-tête `Authorization` dans le **secret Swarm** `ops_monitoring_auth`
+(`/run/secrets/ops_monitoring_auth.conf`, inclus par nginx), jamais dans l'image ni dans la spec.
+Flux : `ra-app-to-monitoring` (RA-APP → 10.0.1.233, 3100 et 8428) existait déjà, rien d'ouvert.
+
+Limites : débit et p95 sont ceux de payment-api, sondes de supervision comprises (le frontal
+nginx n'expose pas de métriques) ; fenêtre de 2 min et scrape de 30 s, donc moins réactifs que
+la sonde directe (si payment-api ne répond plus, la page affiche 100 % d'erreurs) ; le champ
+`wafBlocks` de `/api/status` reste à 0 côté backend (la page ne l'utilise plus) ; l'historique
+des notifications commence au 22/10/2026 (mise en place du journal).
+
 ## Moteur de remédiation en mode SSH
 
 Le moteur de Resilience Pay (`remediation/app/main.py`) redémarrait sa cible par le socket

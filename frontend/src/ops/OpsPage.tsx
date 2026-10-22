@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { createDataSource } from '../data'
 import type { Snapshot } from '../types'
+import { AlertsPanel } from '../components/AlertsPanel'
 import { AnomalyChart } from '../components/AnomalyChart'
 import { CanaryRibbon } from '../components/CanaryRibbon'
+import { InfraRow } from '../components/InfraRow'
 import { MetricsRow } from '../components/MetricsRow'
 import { ServiceGrid } from '../components/ServiceGrid'
 import { StatusBand } from '../components/StatusBand'
@@ -40,11 +42,19 @@ export function OpsPage() {
       <div className="flex flex-col gap-5 lg:col-span-8">
         <AnomalyChart points={snapshot.anomaly} threshold={snapshot.threshold} detector={snapshot.detector} />
         <ServiceGrid services={snapshot.services} />
-        <MetricsRow metrics={snapshot.metrics} />
+        <MetricsRow metrics={snapshot.metrics} waf={snapshot.waf} />
       </div>
 
-      <div className="lg:col-span-4">
-        <Timeline events={snapshot.events} />
+      {/* Colonne de droite : les alertes d'abord (ce qui est parti sur Discord), puis la chronologie du moteur. */}
+      <div className="flex flex-col gap-5 lg:col-span-4">
+        <AlertsPanel alerts={snapshot.alerts} />
+        <div className="min-h-0 flex-1">
+          <Timeline events={snapshot.events} />
+        </div>
+      </div>
+
+      <div className="lg:col-span-12">
+        <InfraRow infra={snapshot.infra} />
       </div>
     </main>
   )
