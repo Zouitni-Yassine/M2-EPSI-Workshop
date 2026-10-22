@@ -26,14 +26,14 @@ from typing import Any
 
 import jwt
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import OperationalError
 
-from . import mail, tokens, users
+from . import face, mail, tokens, users
 
 load_dotenv()
 
@@ -57,8 +57,11 @@ SIGNUPS = Counter("auth_signup_total", "Créations de compte, par issue", ["resu
 RESETS = Counter("auth_reset_total", "Réinitialisations de mot de passe, par issue", ["result"])
 RESET_TTL_MINUTES = int(os.getenv("RESET_TTL_MINUTES", "15"))
 APP_URL = os.getenv("APP_URL", "http://localhost:5173")
+FACES = Counter("auth_face_total", "Vérifications faciales du back-office, par issue", ["result"])
 for _result in ("success", "failure", "locked"):
     LOGINS.labels(_result)
+for _result in ("recognized", "rejected", "locked", "enrolled"):
+    FACES.labels(_result)
 
 
 class _Json(logging.Formatter):
@@ -128,6 +131,9 @@ throttle = Throttle()
 class _State:
     store: users.Store
     signer: tokens.Signer
+    faces: face.FaceStore
+    engine: face.Engine = face.Engine()
+    gate: face.Gate = face.Gate()
 
 
 state = _State()
@@ -146,7 +152,8 @@ async def lifespan(_: FastAPI):
             time.sleep(2)
     else:
         raise RuntimeError("base injoignable après une minute")
-    state.signer = tokens.Signer(tokens.load_key(data_dir), ttl_seconds=int(os.getenv("TOKEN_TTL_MINUTES", "120")) * 60)
+    state.faces = face.FaceStore(state.store.engine)
+    state.signer =tokens.Signer(tokens.load_key(data_dir), ttl_seconds=int(os.getenv("TOKEN_TTL_MINUTES", "120")) * 60)
     users.seed_from_env(state.store, audit)
     audit("info", "service d'authentification prêt", event="start", kid=state.signer.kid)
     yield
@@ -189,6 +196,39 @@ class Credentials(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     # Plafonné : un mot de passe de plusieurs mégaoctets ne doit pas occuper le CPU.
     password: str = Field(min_length=1, max_length=256)
+    # Back-office : l'identification dont le visage vient d'être reconnu (POST /auth/identify).
+    challenge: str | None = Field(default=None, max_length=64)
+
+
+class Identify(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+
+
+class NewAccount(BaseModel):
+    username: str = Field(min_length=2, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+    role: str = "operator"
+    firstName: str = Field(default="", max_length=64)
+    lastName: str = Field(default="", max_length=64)
+
+
+class AccountChange(BaseModel):
+    role: str | None = None
+    disabled: bool | None = None
+    serviceAccount: bool | None = None
+
+
+class NewPassword(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+
+
+def _ip(request: Request) -> str:
+    return request.client.host if request.client else "inconnue"
+
+
+def _wait_text(seconds: int) -> str:
+    minutes, rest = divmod(seconds, 60)
+    return f"{minutes} min {rest:02d} s" if minutes else f"{rest} s"
 
 
 def _claims(request: Request, cred: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> dict[str, Any]:
@@ -259,15 +299,188 @@ def _open_session(response: Response, username: str, role: str) -> int:
     return expires
 
 
+def _face_required(username: str, ip: str) -> bool:
+    """Ce compte doit-il passer la caméra depuis cette adresse ? (back-office, hors compte de service interne)"""
+    user = state.store.get(username)
+    return user is not None and face.requires_face(user, ip, state.faces.service_accounts())
+
+
+@app.post("/auth/identify")
+def identify(body: Identify, request: Request) -> dict[str, Any]:
+    """
+    Première étape de la connexion. Un client, ou un identifiant inconnu, passe directement au
+    mot de passe : la réponse ne dit pas quels comptes existent. Un compte du back-office passe
+    d'abord la caméra du poste ; la saisie du mot de passe ne s'ouvre qu'à un visage reconnu.
+    """
+    ip = _ip(request)
+    username = body.username.strip().lower()
+    if not _face_required(username, ip):
+        return {"step": "password"}
+
+    wait = throttle.wait(ip, MAX_FAILURES_PER_IP)
+    kind = "ip" if wait else ""
+    if not wait:
+        kind, wait = state.gate.wait(username)
+    if wait:
+        if kind == "locked":
+            message = f"Identifiant bloqué après deux essais ratés. Réessayez dans {_wait_text(wait)}."
+        elif kind == "retry":
+            message = f"Visage non reconnu. Nouvel essai possible dans {wait} s."
+        else:
+            message = f"Trop de tentatives. Réessayez dans {wait} s."
+        raise HTTPException(status_code=429, detail=message, headers={"Retry-After": str(wait), "X-Auth-Lock": kind})
+
+    if not state.faces.templates(username):
+        audit("warning", "identification impossible : aucun visage enrôlé", event="face", result="no_template", username=username, ip=ip)
+        raise HTTPException(
+            status_code=409,
+            detail="Aucun visage enregistré pour ce compte : un administrateur doit l'enrôler depuis les habilitations.",
+        )
+
+    challenge = state.gate.start(username, ip)
+    audit("info", "identification : caméra demandée", event="face", result="started", username=username, ip=ip)
+    return {"step": "face", "challenge": challenge.id, "frames": 5, "captureSeconds": face.CAPTURE_SECONDS}
+
+
+def _read_frames(frames: list[UploadFile]) -> list[bytes]:
+    if not frames or len(frames) > face.MAX_FRAMES:
+        raise HTTPException(status_code=422, detail=f"Envoyer entre 1 et {face.MAX_FRAMES} images.")
+    data = []
+    for upload in frames:
+        content = upload.file.read(face.MAX_FRAME_BYTES + 1)
+        if len(content) > face.MAX_FRAME_BYTES:
+            raise HTTPException(status_code=413, detail="Image trop lourde.")
+        data.append(content)
+    return data
+
+
+def _embeddings(frames: list[bytes]) -> tuple[list, list[str]]:
+    """Vecteurs des images où l'on voit un seul visage, et pourquoi les autres sont écartées."""
+    vectors, reasons = [], []
+    for data in frames:
+        try:
+            vector, why = state.engine.embed(data)
+        except face.EngineUnavailable as exc:
+            audit("error", "reconnaissance faciale indisponible", event="face", result="unavailable", error=str(exc))
+            raise HTTPException(status_code=503, detail="Reconnaissance faciale indisponible côté serveur.") from exc
+        if vector is None:
+            reasons.append(why)
+        else:
+            vectors.append(vector)
+    return vectors, reasons
+
+
+def _locate(frame: UploadFile) -> dict[str, Any]:
+    """Où est le visage dans une image de la caméra, et les angles attendus, pour guider la personne."""
+    [data] = _read_frames([frame])
+    try:
+        located = state.engine.locate(data)
+    except face.EngineUnavailable as exc:
+        audit("error", "reconnaissance faciale indisponible", event="face", result="unavailable", error=str(exc))
+        raise HTTPException(status_code=503, detail="Reconnaissance faciale indisponible côté serveur.") from exc
+    return {**located, "frontMaxYaw": face.FRONT_MAX_YAW, "sideMinYaw": face.SIDE_MIN_YAW}
+
+
+@app.post("/auth/identify/{challenge_id}/probe")
+def identify_probe(challenge_id: str, request: Request, frame: UploadFile = File(...)) -> dict[str, Any]:
+    """
+    Guidage pendant la capture : le navigateur n'envoie ses images au jugement qu'une fois le
+    visage bien placé dans l'ovale. Détection seule, rien n'est comparé ni conservé, aucun échec compté.
+    """
+    if state.gate.probe(challenge_id, _ip(request)) is None:
+        raise HTTPException(
+            status_code=410,
+            detail="Identification expirée : saisissez de nouveau votre identifiant.",
+            headers={"X-Auth-Restart": "identify"},
+        )
+    return _locate(frame)
+
+
+@app.post("/auth/identify/{challenge_id}/frames")
+def identify_frames(challenge_id: str, request: Request, frames: list[UploadFile] = File(...)) -> dict[str, Any]:
+    """
+    Les images prises par le navigateur juste après l'identifiant. Le visage est comparé au
+    gabarit du compte ; aucune image n'est conservée. Un refus compte comme un cycle raté.
+    """
+    ip = _ip(request)
+    challenge = state.gate.capturing(challenge_id, ip)
+    if challenge is None:
+        raise HTTPException(
+            status_code=410,
+            detail="Identification expirée : saisissez de nouveau votre identifiant.",
+            headers={"X-Auth-Restart": "identify"},
+        )
+    username = challenge.username
+    vectors, reasons = _embeddings(_read_frames(frames))
+    enough = len(vectors) >= face.MIN_FRAMES
+    recognized, score = face.match(vectors, state.faces.templates(username)) if enough else (False, 0.0)
+
+    if recognized:
+        state.gate.recognize(challenge)
+        FACES.labels("recognized").inc()
+        audit("info", "visage reconnu", event="face", result="recognized", username=username, ip=ip, score=score)
+        state.faces.event("face_ok", username, None, ip, f"visage reconnu (similarité {score})")
+        return {"status": "recognized", "passwordSeconds": face.PASSWORD_SECONDS}
+
+    state.gate.close(challenge, "failed")
+    throttle.fail(ip)
+    why = "visage différent du gabarit" if enough else (reasons[0] if reasons else "aucun visage")
+    outcome, wait = state.gate.fail(username, cooldown=True)
+    FACES.labels("locked" if outcome == "locked" else "rejected").inc()
+    audit("warning", "visage non reconnu", event="face", result="rejected", username=username, ip=ip, reason=why, score=score)
+    state.faces.event("face_ko", username, None, ip, f"visage non reconnu : {why} (similarité {score})")
+    if outcome == "locked":
+        state.faces.event("locked", username, None, ip, f"identifiant bloqué {_wait_text(wait)} après deux cycles ratés")
+    return {"status": "locked" if outcome == "locked" else "rejected", "retryAfter": wait, "reason": why}
+
+
 @app.post("/auth/login")
 def login(body: Credentials, request: Request, response: Response) -> dict[str, Any]:
-    user = _authenticate(body, request)
+    ip = _ip(request)
+    username = body.username.strip().lower()
+    if not _face_required(username, ip):
+        user = _authenticate(body, request)
+        return {"expiresAt": _open_session(response, user.username, user.role), "user": user.payload()}
+
+    # Back-office : sans visage reconnu juste avant, le mot de passe n'est même pas vérifié.
+    challenge = state.gate.recognized(body.challenge, username, ip)
+    if challenge is None:
+        audit("warning", "connexion refusée : visage non vérifié", event="login", result="face_required", username=username, ip=ip)
+        raise HTTPException(
+            status_code=403,
+            detail="Vérification du visage requise : saisissez d'abord votre identifiant.",
+            headers={"X-Auth-Restart": "identify"},
+        )
+    try:
+        user = _authenticate(body, request)
+    except HTTPException as exc:
+        if exc.status_code != 401:
+            raise
+        # Mauvais mot de passe : on recommence toute l'identification, et le cycle compte.
+        state.gate.close(challenge, "failed")
+        outcome, wait = state.gate.fail(username, cooldown=False)
+        state.faces.event("password_ko", username, None, ip, "mot de passe refusé après un visage reconnu")
+        detail = "Mot de passe incorrect : recommencez l'identification."
+        if outcome == "locked":
+            FACES.labels("locked").inc()
+            state.faces.event("locked", username, None, ip, f"identifiant bloqué {_wait_text(wait)} après deux cycles ratés")
+            detail = f"Mot de passe incorrect. Identifiant bloqué {_wait_text(wait)}."
+        raise HTTPException(status_code=401, detail=detail, headers={"X-Auth-Restart": "identify"}) from exc
+
+    state.gate.close(challenge, "used")
+    state.gate.success(username)
+    state.faces.event("login_ok", username, None, ip, "connexion au back-office : visage puis mot de passe")
     return {"expiresAt": _open_session(response, user.username, user.role), "user": user.payload()}
 
 
 @app.post("/auth/token")
 def issue_token(body: Credentials, request: Request) -> dict[str, Any]:
     """Pour les scripts et les services (transaction de contrôle, Swagger) : jeton à envoyer en Authorization: Bearer."""
+    if _face_required(body.username.strip().lower(), _ip(request)):
+        raise HTTPException(
+            status_code=403,
+            detail="Ce compte du back-office exige la reconnaissance faciale : connectez-vous par la page de connexion.",
+        )
     user = _authenticate(body, request)
     token, expires = state.signer.issue(user.username, user.role)
     return {"token": token, "expiresAt": expires, "user": user.payload()}
@@ -343,7 +556,12 @@ def forgot(body: Forgot, request: Request) -> dict[str, str]:
         return {"detail": "Si un compte existe avec cette adresse, un e-mail vient de partir."}
 
     user = state.store.get(email)
-    if user is not None:
+    if user is not None and user.role == "operator":
+        # Un lien par e-mail ouvrirait une session sans passer la caméra : le back-office
+        # ne se réinitialise que par un administrateur, depuis les habilitations.
+        RESETS.labels("backoffice").inc()
+        audit("warning", "réinitialisation par e-mail refusée : compte du back-office", event="reset", result="backoffice", username=email, ip=ip)
+    elif user is not None:
         token = state.signer.issue_reset(email, RESET_TTL_MINUTES, state.store.password_stamp(email) or "")
         link = APP_URL.rstrip("/") + "/?reset=" + token
         try:
@@ -377,6 +595,10 @@ def reset(body: Reset, request: Request, response: Response) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="Ce lien a déjà servi. Redemandez un e-mail.")
     if len(body.password) < users.MIN_PASSWORD:
         raise HTTPException(status_code=422, detail=f"Mot de passe trop court (au moins {users.MIN_PASSWORD} caractères).")
+    target = state.store.get(claims["sub"])
+    if target is not None and target.role == "operator":
+        RESETS.labels("backoffice").inc()
+        raise HTTPException(status_code=403, detail="Les comptes du back-office ne se réinitialisent pas par e-mail : demandez à un administrateur.")
 
     if not state.store.set_password(claims["sub"], body.password):
         RESETS.labels("gone").inc()
@@ -397,3 +619,175 @@ def me(claims: dict[str, Any] = Depends(_claims)) -> dict[str, Any]:
     if user is None:
         raise HTTPException(status_code=401, detail="Compte désactivé ou supprimé", headers={"WWW-Authenticate": "Bearer"})
     return {**user.payload(), "expiresAt": claims["exp"]}
+
+
+# ---------------------------------------------------------------- habilitations du back-office
+#
+# Toutes les modifications passent par POST : le WAF (OWASP CRS) refuse PATCH et DELETE.
+
+
+def _operator(claims: dict[str, Any] = Depends(_claims)) -> dict[str, Any]:
+    if claims.get("role") != "operator":
+        raise HTTPException(status_code=403, detail="Réservé au back-office.")
+    if state.store.get(claims["sub"]) is None:
+        raise HTTPException(status_code=401, detail="Compte désactivé ou supprimé", headers={"WWW-Authenticate": "Bearer"})
+    return claims
+
+
+def _target(username: str) -> str:
+    username = username.strip().lower()
+    if not state.store.exists(username):
+        raise HTTPException(status_code=404, detail="Compte introuvable.")
+    return username
+
+
+@app.get("/auth/admin/accounts")
+def admin_accounts(claims: dict[str, Any] = Depends(_operator)) -> dict[str, Any]:
+    counts = state.faces.counts()
+    service = state.faces.service_accounts()
+    accounts = []
+    for account in state.store.accounts():
+        name = account["username"]
+        accounts.append({
+            **account,
+            "faces": counts.get(name, 0),
+            "serviceAccount": name in service,
+            "serviceFromConfig": name in face.EXEMPT_USERS,
+            "faceRequired": account["role"] == "operator" and name not in service,
+            "self": name == claims["sub"],
+        })
+    return {"accounts": accounts, "threshold": face.THRESHOLD}
+
+
+@app.post("/auth/admin/accounts", status_code=201)
+def admin_create(body: NewAccount, request: Request, claims: dict[str, Any] = Depends(_operator)) -> dict[str, Any]:
+    username = body.username.strip().lower()
+    problem = users.check(username, body.role, body.password)
+    if problem:
+        raise HTTPException(status_code=422, detail=problem.capitalize())
+    if not state.store.create(username, body.password, body.role, body.firstName.strip(), body.lastName.strip()):
+        raise HTTPException(status_code=409, detail="Cet identifiant existe déjà.")
+    state.faces.event("account_created", username, claims["sub"], _ip(request), f"compte créé, rôle {body.role}")
+    audit("info", "compte créé par le back-office", event="admin", result="created", username=username, role=body.role, actor=claims["sub"])
+    return {"username": username}
+
+
+@app.post("/auth/admin/accounts/{username}")
+def admin_update(username: str, body: AccountChange, request: Request, claims: dict[str, Any] = Depends(_operator)) -> dict[str, Any]:
+    username = _target(username)
+    if username == claims["sub"] and (body.role is not None or body.disabled is not None or body.serviceAccount is not None):
+        raise HTTPException(status_code=409, detail="Vous ne pouvez pas modifier vos propres habilitations.")
+    if body.role is not None and body.role not in users.ROLES:
+        raise HTTPException(status_code=422, detail=f"Rôle inconnu (attendu : {', '.join(users.ROLES)}).")
+    if body.serviceAccount is False and username in face.EXEMPT_USERS:
+        raise HTTPException(status_code=409, detail="Compte de service défini par la configuration (FACE_EXEMPT_USERS).")
+    state.store.update(username, role=body.role, disabled=body.disabled)
+    if body.serviceAccount is not None:
+        state.faces.set_service_account(username, body.serviceAccount, claims["sub"])
+    changes = [
+        *([f"rôle {body.role}"] if body.role is not None else []),
+        *(["compte désactivé" if body.disabled else "compte réactivé"] if body.disabled is not None else []),
+        *(["compte de service" if body.serviceAccount else "visage exigé"] if body.serviceAccount is not None else []),
+    ]
+    state.faces.event("account_updated", username, claims["sub"], _ip(request), ", ".join(changes) or "aucun changement")
+    audit("info", "habilitations modifiées", event="admin", result="updated", username=username, actor=claims["sub"], changes=changes)
+    return {"ok": True}
+
+
+@app.post("/auth/admin/accounts/{username}/password")
+def admin_password(username: str, body: NewPassword, request: Request, claims: dict[str, Any] = Depends(_operator)) -> dict[str, Any]:
+    username = _target(username)
+    if len(body.password) < users.MIN_PASSWORD:
+        raise HTTPException(status_code=422, detail=f"Mot de passe trop court (au moins {users.MIN_PASSWORD} caractères).")
+    if not state.store.set_password(username, body.password):
+        raise HTTPException(status_code=409, detail="Compte désactivé : réactivez-le d'abord.")
+    state.faces.event("password_set", username, claims["sub"], _ip(request), "mot de passe défini par un administrateur")
+    audit("info", "mot de passe défini par le back-office", event="admin", result="password", username=username, actor=claims["sub"])
+    return {"ok": True}
+
+
+@app.post("/auth/admin/accounts/{username}/face")
+def admin_enroll(
+    username: str, request: Request, frames: list[UploadFile] = File(...), claims: dict[str, Any] = Depends(_operator)
+) -> dict[str, Any]:
+    """Enrôle le visage de la personne devant la caméra du poste : un gabarit de plus pour ce compte."""
+    username = _target(username)
+    vectors, reasons = _embeddings(_read_frames(frames))
+    if len(vectors) < face.ENROLL_MIN_FRAMES:
+        why = reasons[0] if reasons else "aucun visage"
+        raise HTTPException(
+            status_code=422,
+            detail=f"Visage trouvé sur {len(vectors)} image(s) seulement ({why}). Placez-vous seul face à la caméra, bien éclairé.",
+        )
+    total = state.faces.add_template(username, face.template_from(vectors), claims["sub"])
+    FACES.labels("enrolled").inc()
+    state.faces.event("face_enrolled", username, claims["sub"], _ip(request), f"gabarit ajouté ({total} au total)")
+    audit("info", "visage enrôlé", event="admin", result="enrolled", username=username, actor=claims["sub"], templates=total)
+    return {"faces": total}
+
+
+def _analyze(frames: list[bytes]) -> tuple[list[tuple[Any, float]], list[str]]:
+    """(vecteur, orientation) des images où l'on voit un seul visage, et pourquoi les autres sont écartées."""
+    shots, reasons = [], []
+    for data in frames:
+        try:
+            vector, why, angle = state.engine.analyze(data)
+        except face.EngineUnavailable as exc:
+            audit("error", "reconnaissance faciale indisponible", event="face", result="unavailable", error=str(exc))
+            raise HTTPException(status_code=503, detail="Reconnaissance faciale indisponible côté serveur.") from exc
+        if vector is None:
+            reasons.append(why)
+        else:
+            shots.append((vector, angle))
+    return shots, reasons
+
+
+@app.post("/auth/admin/accounts/{username}/face/scan")
+def admin_scan(
+    username: str,
+    request: Request,
+    front: list[UploadFile] = File(..., alias="face"),
+    left: list[UploadFile] = File(..., alias="gauche"),
+    right: list[UploadFile] = File(..., alias="droite"),
+    claims: dict[str, Any] = Depends(_operator),
+) -> dict[str, Any]:
+    """
+    Scan guidé sous trois angles (de face, tête tournée d'un côté puis de l'autre). Chaque angle
+    est vérifié sur les repères du visage, et les trois doivent montrer la même personne. Le scan
+    remplace les gabarits du compte ; s'il ne convient pas, rien n'est enregistré.
+    """
+    username = _target(username)
+    poses, reasons = {}, {}
+    for pose, uploads in zip(face.SCAN_POSES, (front, left, right)):
+        poses[pose], reasons[pose] = _analyze(_read_frames(uploads))
+    try:
+        templates, angles = face.check_scan(poses, reasons)
+    except face.ScanRefused as exc:
+        audit("info", "scan du visage refusé", event="admin", result="scan_refused", username=username, actor=claims["sub"], reason=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    total = state.faces.replace_templates(username, templates, claims["sub"])
+    FACES.labels("enrolled").inc()
+    detail = "scan sous 3 angles : " + ", ".join(f"{p} {a:+.2f}" for p, a in angles.items())
+    state.faces.event("face_enrolled", username, claims["sub"], _ip(request), detail)
+    audit("info", "visage scanné sous trois angles", event="admin", result="scanned", username=username, actor=claims["sub"], angles=angles)
+    return {"faces": total, "angles": angles}
+
+
+@app.post("/auth/admin/face/probe")
+def admin_face_probe(frame: UploadFile = File(...), claims: dict[str, Any] = Depends(_operator)) -> dict[str, Any]:
+    """Guidage du scan : position et orientation de la tête, image par image, sans rien enregistrer."""
+    return _locate(frame)
+
+
+@app.post("/auth/admin/accounts/{username}/face/delete")
+def admin_face_delete(username: str, request: Request, claims: dict[str, Any] = Depends(_operator)) -> dict[str, Any]:
+    username = _target(username)
+    deleted = state.faces.delete_templates(username)
+    state.faces.event("face_deleted", username, claims["sub"], _ip(request), f"{deleted} gabarit(s) supprimé(s)")
+    audit("info", "visage supprimé", event="admin", result="face_deleted", username=username, actor=claims["sub"], templates=deleted)
+    return {"deleted": deleted}
+
+
+@app.get("/auth/admin/events")
+def admin_events(limit: int = 50, claims: dict[str, Any] = Depends(_operator)) -> dict[str, Any]:
+    return {"events": state.faces.events(min(max(limit, 1), 200))}

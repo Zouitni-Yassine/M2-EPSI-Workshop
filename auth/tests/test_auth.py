@@ -33,7 +33,8 @@ def env(tmp_path, monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def client(env) -> Iterator[TestClient]:
-    with TestClient(main.app) as c:
+    # Depuis le réseau interne : « operateur », compte de service de la sonde, n'y passe pas la caméra.
+    with TestClient(main.app, client=("127.0.0.1", 50000)) as c:
         yield c
 
 

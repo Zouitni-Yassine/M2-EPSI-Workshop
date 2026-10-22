@@ -8,5 +8,6 @@ dist/
 __pycache__/
 .venv/
 auth/data/
+auth/models/
 secrets/
 backend/data/

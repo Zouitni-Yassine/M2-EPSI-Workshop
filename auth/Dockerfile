@@ -6,6 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 AUTH_DATA_DIR=/data
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Modèles de la reconnaissance faciale (YuNet + SFace), téléchargés au build : l'image est
+# autonome, rien n'est écrit au démarrage (conteneur en lecture seule).
+COPY scripts/fetch_models.py scripts/fetch_models.py
+RUN python scripts/fetch_models.py /srv/models
+ENV FACE_MODELS_DIR=/srv/models
+
 COPY app ./app
 
 # Utilisateur non privilégié. /data ne sert que hors Docker Compose / Swarm (SQLite et

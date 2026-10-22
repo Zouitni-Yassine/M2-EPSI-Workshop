@@ -4,11 +4,12 @@ import { useCart } from './cart'
 import { SECTIONS } from './catalog'
 import { openCart, setCategory, setQuery, useShopUI } from './ui'
 
-export type AdminView = 'ledger' | 'ops'
+export type AdminView = 'ledger' | 'ops' | 'access'
 
 const ADMIN_TABS: { id: AdminView; label: string }[] = [
   { id: 'ledger', label: 'Transactions' },
   { id: 'ops', label: 'Supervision' },
+  { id: 'access', label: 'Habilitations' },
 ]
 
 interface Props {
