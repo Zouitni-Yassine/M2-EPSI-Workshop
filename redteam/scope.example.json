@@ -1,16 +1,12 @@
 {
-  "name": "Laboratoire autorisé - à renseigner",
+  "name": "RESILIENCE-ALPHA - entrée publique autorisée",
   "allowed_origins": [
-    "https://10.0.0.10:8443"
+    "https://app.slabreze.fr"
   ],
-  "default_origin": "https://10.0.0.10:8443",
-  "ca_file": "ca-interne.crt",
+  "default_origin": "https://app.slabreze.fr",
+  "ca_file": null,
   "max_requests": 40,
   "max_rate": 2,
-  "timeout_seconds": 5,
-  "ssh_relay": {
-    "host": "10.0.0.5",
-    "user": "redteam-operator",
-    "known_hosts": "ssh-known-hosts"
-  }
+  "timeout_seconds": 3,
+  "burst_max_requests": 800
 }

@@ -1,11 +1,13 @@
 """Bounded, reproducible WAF tests for the explicitly scoped workshop lab."""
 import argparse
+import concurrent.futures as futures
 import datetime as dt
 import hashlib
 import getpass
 import http.client
 import ipaddress
 import json
+import math
 import os
 import pathlib
 import socket
@@ -31,8 +33,6 @@ def validate_origin(value, allowed):
         raise ValueError("Cible HTTPS sans identifiants requise")
     if p.path not in ("", "/") or p.query or p.fragment:
         raise ValueError("La cible doit être une origine, sans chemin ni paramètres")
-    if not ipaddress.ip_address(p.hostname).is_private:
-        raise ValueError("Seules les IP littérales privées du laboratoire sont acceptées")
     normalized = value.rstrip("/")
     if normalized not in allowed:
         raise ValueError("Cible absente du périmètre scope.json")
@@ -45,7 +45,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def build_opener(ca, relay_port=None):
-    context = ssl.create_default_context(cafile=str(ca))
+    context = ssl.create_default_context(cafile=str(ca) if ca else None)
     if relay_port is None:
         handler = urllib.request.HTTPSHandler(context=context)
     else:
@@ -100,7 +100,7 @@ def send(opener, origin, case, run_id, timeout):
             raise ValueError("Cookie de session invalide")
         headers["Cookie"] = cookie
     data = None
-    if name == "invalid_payment":
+    if name in ("invalid_payment", "burst_probe", "burst"):
         headers["Content-Type"] = "application/json"
         data = b'{"amount":-1,"holder":"RedTeam-laboratoire"}'
     request = urllib.request.Request(origin + path, headers=headers, data=data)
@@ -153,9 +153,86 @@ def execute(opener, origin, plan, run_id, timeout, rate, log):
     return results, reason
 
 
+def validate_burst(rate, duration, concurrency, budget):
+    if not math.isfinite(rate) or not 0 < rate <= 40:
+        raise ValueError("Charge : débit positif limité à 40 requêtes/s")
+    if not math.isfinite(duration) or not 0 < duration <= 30:
+        raise ValueError("Charge : durée positive limitée à 30 secondes")
+    if not 1 <= concurrency <= 10 or not 1 <= budget <= 1200:
+        raise ValueError("Charge : maximum 10 connexions et 1200 requêtes")
+    if math.ceil(rate * duration) + 2 > budget:
+        raise ValueError("Charge : budget insuffisant, réduire durée ou débit")
+
+
+def execute_burst(origin, ca, run_id, timeout, rate, duration, concurrency, budget, log):
+    """One fixed-rate window. No retries, no automatic escalation or valid payment."""
+    validate_burst(rate, duration, concurrency, budget)
+    results = []
+
+    def save(result):
+        results.append(result)
+        log.write(json.dumps(result, ensure_ascii=False) + "\n")
+        log.flush()
+
+    # A public health response alone cannot prove the payment route is protected.
+    opener = build_opener(ca)
+    expected = 422 if os.environ.get("REDTEAM_SESSION_COOKIE") else 401
+    for case in [("mode_check", "/api/health", 200),
+                 ("burst_probe", "/api/payment_intents", expected)]:
+        record = send(opener, origin, case, run_id, timeout)
+        save(record)
+        if not record["pass"]:
+            return results, "Prérequis TEST ou refus du montant négatif non confirmé : charge annulée"
+
+    deadline = time.monotonic() + duration
+    next_send = time.monotonic()
+    pending = set()
+    submitted = 0
+    limit = min(math.ceil(rate * duration), budget - 2)
+    reason = None
+    failures = 0
+    pool = futures.ThreadPoolExecutor(max_workers=concurrency)
+
+    def request():
+        return send(build_opener(ca), origin,
+                    ("burst", "/api/payment_intents", [expected, 500, 502, 503, 504]),
+                    run_id, timeout)
+
+    try:
+        while pending or (submitted < limit and time.monotonic() < deadline and reason is None):
+            now = time.monotonic()
+            if (reason is None and now < deadline and submitted < limit
+                    and len(pending) < concurrency and now >= next_send):
+                pending.add(pool.submit(request))
+                submitted += 1
+                # Do not catch up missed slots by emitting a burst of requests.
+                next_send = now + 1 / rate
+            if pending:
+                done, pending = futures.wait(pending, timeout=0.01, return_when=futures.FIRST_COMPLETED)
+                for task in done:
+                    record = task.result()
+                    save(record)
+                    failures = failures + 1 if record.get("status") is None else 0
+                    status = record.get("status")
+                    if status in (403, 429):
+                        reason = "Confinement ou limitation observé : arrêt de la charge"
+                    elif status is not None and not record["pass"]:
+                        reason = "Réponse inattendue (dont succès de paiement ou redirection) : arrêt"
+                    elif failures >= 3:
+                        reason = "Trois échecs de transport consécutifs : arrêt"
+            else:
+                time.sleep(min(0.01, max(0, next_send - time.monotonic())))
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+    print(json.dumps({"burst_sent": submitted, "stop_reason": reason}, ensure_ascii=False), flush=True)
+    return results, reason
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scenario", choices=["preflight", "waf", "soc", "all", "ml", "ml-auth"], default="waf")
+    parser.add_argument("--scenario", choices=["preflight", "waf", "soc", "all", "ml", "ml-auth", "burst"], default="waf")
+    parser.add_argument("--duration", type=float, default=25, help="Charge : secondes, maximum 30")
+    parser.add_argument("--concurrency", type=int, default=8, help="Charge : connexions, maximum 10")
     parser.add_argument("--ssh-relay", action="store_true", help="Relais administrateur temporaire, local uniquement")
     parser.add_argument("--ssh-user", help="Compte dédié autorisé sur le relais")
     parser.add_argument("--session-cookie", action="store_true", help="Saisir en masqué la session d'un compte client TEST")
@@ -170,24 +247,33 @@ def main(argv=None):
     scope = json.loads(args.scope.read_text(encoding="utf-8"))
     origin = validate_origin(args.target or scope["default_origin"], scope["allowed_origins"])
     is_ml = args.scenario.startswith("ml")
+    is_burst = args.scenario == "burst"
+    if args.ssh_relay and urllib.parse.urlsplit(origin).hostname == "app.slabreze.fr":
+        raise ValueError("La cible publique se teste directement, sans relais ni contournement de segmentation")
     if args.execute and args.session_cookie:
         os.environ['REDTEAM_SESSION_COOKIE'] = getpass.getpass('Cookie du compte client TEST (saisie masquée) : ')
     if args.execute and args.scenario == 'ml-auth' and not os.environ.get('REDTEAM_SESSION_COOKIE'):
         raise ValueError('ml-auth exige une session de compte client TEST dans REDTEAM_SESSION_COOKIE')
-    args.rate = args.rate if args.rate is not None else (5 if is_ml else 1)
+    args.rate = args.rate if args.rate is not None else (30 if is_burst else 5 if is_ml else 1)
+    if is_burst:
+        budget = min(int(scope.get("burst_max_requests", 800)), 1200)
+        validate_burst(args.rate, args.duration, args.concurrency, budget)
     rate_limit = 5 if is_ml else min(2, scope["max_rate"])
-    if not 0 < args.rate <= rate_limit:
+    if not is_burst and not 0 < args.rate <= rate_limit:
         raise ValueError("Débit hors limite du scénario : " + str(rate_limit) + " requêtes/s maximum")
     run_id = str(uuid.uuid4())
-    plan = make_plan(args.scenario, run_id)
-    budget = 110 if is_ml else min(scope["max_requests"], 40)
+    plan = [("burst", "/api/payment_intents", None)] * (math.ceil(args.rate * args.duration) + 2) if is_burst else make_plan(args.scenario, run_id)
+    if not is_burst:
+        budget = 110 if is_ml else min(scope["max_requests"], 40)
     if len(plan) > budget:
         raise ValueError("Budget de requêtes dépassé")
     print(json.dumps({"run_id": run_id, "target": origin, "scenario": args.scenario,
-                      "requests": len(plan), "rate": args.rate, "execute": args.execute}), flush=True)
+                      "requests": len(plan), "rate": args.rate, "execute": args.execute,
+                      "duration": args.duration if is_burst else None,
+                      "concurrency": args.concurrency if is_burst else 1}), flush=True)
     if not args.execute:
         return 0
-    ca = args.scope.parent / scope["ca_file"]
+    ca = args.scope.parent / scope["ca_file"] if scope.get("ca_file") else None
     relay = None
     relay_host = None
     build_opener(ca)  # Validate trust before requesting any SSH credentials.
@@ -206,18 +292,26 @@ def main(argv=None):
     summary = {"run_id": run_id, "started_at": utc(), "source_hostname": socket.gethostname(),
                "target": origin, "scenario": args.scenario, "rate": args.rate,
                "planned_requests": len(plan), "scope_sha256": hashlib.sha256(args.scope.read_bytes()).hexdigest(),
-               "ca_sha256": hashlib.sha256(ca.read_bytes()).hexdigest(),
+               "ca_sha256": hashlib.sha256(ca.read_bytes()).hexdigest() if ca else None,
+               "tls_trust": "custom_ca" if ca else "system_ca",
                "soc_alert": "not_verified", "ml_detection": "not_verified",
                "automatic_remediation": "not_verified", "new_business_transaction": "not_verified"}
-    summary["transport"] = {"type": "ssh_relay" if relay else "direct_vpn", "relay": relay_host,
+    summary["transport"] = {"type": "ssh_relay" if relay else "direct_https", "relay": relay_host,
                             "note": "L'adresse source vue par le WAF est celle du relais" if relay else "Connexion directe"}
     results = []
     reason = None
     interrupted = False
     try:
         with (dest / "requests.jsonl").open("w", encoding="utf-8") as log:
-            results, reason = execute(opener, origin, plan, run_id,
-                                      min(10, max(1, scope["timeout_seconds"])), args.rate, log)
+            if is_burst:
+                summary.update({"duration_limit_seconds": args.duration,
+                                "concurrency_limit": args.concurrency, "request_budget": budget})
+                results, reason = execute_burst(origin, ca, run_id,
+                    min(3, max(1, scope["timeout_seconds"])), args.rate,
+                    args.duration, args.concurrency, budget, log)
+            else:
+                results, reason = execute(opener, origin, plan, run_id,
+                                          min(10, max(1, scope["timeout_seconds"])), args.rate, log)
     except KeyboardInterrupt:
         interrupted = True
         reason = "Interruption opérateur"
@@ -228,9 +322,9 @@ def main(argv=None):
             relay.close()
         if args.session_cookie:
             os.environ.pop('REDTEAM_SESSION_COOKIE', None)
-    ok = not interrupted and len(results) == len(plan) and all(x["pass"] for x in results)
+    ok = not interrupted and reason is None and len(results) >= 2 and all(x["pass"] for x in results) if is_burst else not interrupted and len(results) == len(plan) and all(x["pass"] for x in results)
     summary.update({"finished_at": utc(), "sent": len(results), "passed": sum(x["pass"] for x in results),
-                    "waf_test_passed": ok if not is_ml else None, "stop_reason": reason,
+                    "waf_test_passed": ok if not (is_ml or is_burst) else None, "stop_reason": reason,
                     "scenario_passed": ok,
                     "attacker_ban_observed": any(x['case']=='containment' and x.get('status')==403 for x in results),
                     "full_subject_sequence_passed": False})

@@ -1,20 +1,14 @@
-# Red Team - démarrer en 5 minutes
+# Red Team — tests reproductibles et répétition du clip
 
-Ce dossier permet de rejouer les tests de RESILIENCE-ALPHA depuis un **PC
-attaquant distinct du serveur**. Commencer par le scénario `waf` ; le scénario
-`soc` peut bannir l'adresse source pendant la durée configurée par l'équipe.
+Cible autorisée : **https://app.slabreze.fr/**, par Internet → NPM → WAF →
+application. Ne pas viser l'IP interne du WAF et ne pas ouvrir VPN → DMZ.
+Le VPN « PC admin compromis » sert à une démonstration de segmentation
+distincte ; il n'est pas nécessaire pour le trajet public.
 
-Les scripts envoient de vraies requêtes vers le laboratoire. Sans `--execute`,
-ils affichent seulement le plan et n'établissent aucune connexion.
+Python 3.10+, sans dépendance pour les tests publics. Sans `--execute`,
+le script affiche le plan **sans connexion réseau**.
 
-## 1. Préparer le poste
-
-- Windows ou Linux, Python 3.10 ou plus récent.
-- Un profil VPN propre à ce poste et un accès réseau autorisé au WAF.
-- L'adresse HTTPS du WAF et son certificat d'autorité public, fournis par
-  l'équipe. Aucune clé privée, aucun mot de passe administrateur n'est requis
-  pour les tests WAF directs.
-- Un membre de l'équipe observe Grafana pendant le test.
+## 1. Installer
 
 ```powershell
 git clone --branch CYBER https://github.com/brikodepo/M2-EPSI-Workshop.git
@@ -23,182 +17,213 @@ python --version
 Copy-Item scope.example.json scope.json
 ```
 
-Sous Linux : remplacer la dernière commande par `cp scope.example.json scope.json`
-et utiliser `python3` si nécessaire. Sous Windows, `py -3` peut remplacer `python`.
-Les scénarios directs utilisent uniquement la bibliothèque standard de Python.
+Linux : `python3` et `cp scope.example.json scope.json`. Windows : `py -3` peut
+remplacer `python`. Pour une copie existante : `git pull --ff-only`, puis
+adapter le scope local, sans écraser une configuration déjà personnalisée.
 
-## 2. Renseigner la cible autorisée
+Le scope exemple contient déjà l'origine publique exacte dans `allowed_origins`
+et `default_origin`. `ca_file: null` utilise les autorités du système, sans
+certificat interne à copier. TLS et le nom du certificat sont vérifiés ; les
+redirections sont refusées et les proxys d'environnement sont ignorés. Une
+autre origine, un autre port ou une URL avec identifiants/chemin est refusé.
 
-Éditer **scope.json** : remplacer l'origine HTTPS dans `allowed_origins` ET
-`default_origin` par l'adresse exacte donnée par l'équipe. Conserver le bon port.
-Les IP de `scope.example.json` sont fictives et ne désignent pas le laboratoire.
+**Avant tout test offensif :** PC attaquant distinct, sur une **autre IP publique
+de sortie** que le PC de présentation, par exemple la 4G. Deux profils VPN ne
+garantissent pas deux sorties différentes. Si le VPN impose une sortie par le
+laboratoire, vérifier avec l'administrateur. Un ban pourrait sinon couper aussi
+l'application du présentateur.
 
-Copier le certificat public reçu dans `ca-interne.crt`, à côté du script.
-Vérifier son empreinte avec l'administrateur via le canal d'équipe. Le programme
-contrôle TLS et le nom/IP du certificat ; ne pas désactiver cette vérification.
-
-Les routes du VPN et le pare-feu doivent autoriser le poste vers ce port du WAF.
-Chaque poste doit utiliser ses propres clés et sa propre adresse VPN.
-
-**scope.json, certificats, clés d'hôte SSH et preuves restent locaux** : ils
-sont ignorés par Git. Les mots de passe, profils VPN et cookies ne doivent pas
-être ajoutés au dépôt.
-
-## 3. Vérifier, puis lancer
+## 2. Contrôle normal et tests WAF/SOC
 
 ```powershell
-# Préparer : aucun trafic émis.
+# Plan seulement, aucun trafic.
 python run.py --scenario waf
-
-# Une requête normale : HTTPS valide et HTTP 200 attendus.
+# Une requête normale, HTTP 200 attendu.
 python run.py --scenario preflight --execute
-
-# Test WAF : 12 requêtes, environ 12 secondes à 1 requête/s.
+# Filtrage SQL/XSS et contrôles normaux.
 python run.py --scenario waf --execute
+# Bannissement : attendre sa fin avant un nouvel essai.
+python run.py --scenario soc --execute
 ```
 
-Sous Windows, **Lancer-RedTeam.cmd** lance le scénario WAF après la configuration.
-Le wrapper PowerShell est également disponible :
+Windows : `Lancer-RedTeam.cmd` joue `waf`.
+`./run-waf.ps1 -Scenario waf -Execute` est aussi disponible.
+
+| Scénario | Budget | Attendu |
+| --- | --- | --- |
+| `preflight` | 1 requête | 200 |
+| `waf` | 12, 1 req/s par défaut | 3 normales 200, 6 injections 403, 3 normales 200 |
+| `soc` | 26, 1 req/s et attente de 20 s | normales 200, injections 403, contrôles de confinement 403 |
+| `all` | 38 | WAF puis SOC, hors clip de 60 s |
+| `ml` | 102, au plus 5 req/s | lectures 200/401, sans garantie de détection |
+| `ml-auth` | 102, au plus 5 req/s | TEST confirmé, montants négatifs refusés en 422 |
+| `burst` | 752 par défaut, fenêtre de 25 s | stimulus de charge ; résultat ML à observer séparément |
+
+WAF : plafonds 40 requêtes et 2 req/s. ML historique : 110 requêtes et 5 req/s.
+Le faible débit des anciens scénarios n'a pas déclenché le modèle en recette
+interne. Les lectures `/api/health` et `/api/status` sont en outre exclues du
+débit applicatif dans le code actuel. Utiliser `burst` pour la répétition.
+Un statut inattendu arrête les tests WAF ; ne pas les lancer depuis une IP déjà
+bannie. Les délais des alertes restent ceux de la configuration déployée.
+
+## 3. Charge bornée pour la répétition ML
 
 ```powershell
-./run-waf.ps1 -Scenario waf -Execute
+# Préparer seulement : 25 s, 30 req/s, 8 connexions, au plus 752 requêtes.
+python run.py --scenario burst
+# Lors du créneau convenu, sur la sortie attaquante séparée uniquement.
+python run.py --scenario burst --execute
 ```
 
-### Résultats attendus
+Prérequis automatiques : `/api/health` doit annoncer `mode=test`, puis un POST
+à `/api/payment_intents` contenant **amount=-1** doit être refusé. Sans session,
+le refus attendu est 401 ; avec session client TEST, 422. Sinon la charge est
+annulée. Le script ne soumet aucun montant valide et ne vise pas directement
+Stripe/PayPal. Un 5xx pendant la charge est enregistré, sans prouver un verdict ML.
 
-| Scénario | Stimulus | Attendu |
-| --- | --- | --- |
-| `preflight` | 1 requête normale | HTTP 200 |
-| `waf` | 3 normales, 6 essais SQL/XSS, 3 normales | 200, puis 403, puis 200 |
-| `soc` | 3 normales, 20 essais XSS, attente de 20 s, 3 contrôles | source bannie, contrôles finaux en 403 |
-| `all` | WAF puis SOC : 38 requêtes | filtrage et bannissement de la source |
-| `ml` | 102 lectures, au plus 5 req/s | mode TEST confirmé ; réponses 200/401 et service disponible |
-| `ml-auth` | mode TEST, 100 demandes de montant négatif, contrôle final | demandes refusées en 422 ; disponibilité finale |
+Cette route est comptabilisée dans le débit du code actuel de l'API. Confirmer
+sa réception et les métriques sur la version déployée : une interception en
+amont peut empêcher le détecteur de la voir. Le script ne contourne pas le WAF.
 
-Les scénarios WAF sont limités à 2 requêtes/s et 40 requêtes ; les stimuli ML
-à 5 requêtes/s et 110 requêtes. Aucun parallélisme ni augmentation automatique
-du débit. Un statut inattendu arrête la séquence. **Ctrl+C** arrête l'émetteur
-et conserve les observations déjà écrites.
+Garde-fous par défaut : fenêtre d'émission **25 s**, cadence de soumission
+**30 req/s**, **8 appels simultanés** au plus, **752 requêtes** avec les deux
+prérequis, timeout réseau **3 s**. Les appels déjà partis se terminent après
+la fenêtre. Aucun rattrapage des créneaux perdus, nouvelle tentative ni
+escalade automatique. 403/429, redirection, succès inattendu du paiement ou
+trois échecs de transport consécutifs arrêtent les nouvelles émissions.
+**Ctrl+C** interrompt les émissions et conserve les observations déjà écrites.
 
-**Code de sortie 0** : les réponses HTTP attendues ont été observées.
-**Code 2** : contrôle échoué, interruption ou prérequis manquant. Le détail
-figure dans le terminal et dans le bilan. Un code 0 ne valide pas à lui seul
-la détection ML, une alerte SOC ou une nouvelle transaction.
+Options `--rate`, `--duration`, `--concurrency` pour réduire la charge. Plafonds
+absolus : 40 req/s, 30 s, 10 connexions, 1200 requêtes ; le scope exemple impose
+un budget plus bas de **800**. Une combinaison dépassant le budget est refusée.
+Ne pas augmenter ces paramètres en cours de prise pour obtenir un score.
 
-## 4. Observer Grafana et conserver les preuves
+Session client TEST facultative, demandée en masqué :
 
-Ouvrir le dashboard Cyber du laboratoire sur les 5 ou 15 dernières minutes.
-Dans Explore, sélectionner Loki et utiliser :
-
-```logql
-{host="waf01",container="resilience-waf"}
-  | json | __error__="" | event_type="http_access"
+```powershell
+python run.py --scenario burst --session-cookie --execute
 ```
 
-Adapter les labels si la configuration de l'équipe a changé. Pour corréler une
-requête, recopier son `request_id` depuis `requests.jsonl` :
+Utiliser un cookie client de test obtenu dans l'application, sous la forme
+`nom=valeur`. Ne pas l'afficher dans une commande, une capture ou Git. Il peut
+aussi être fourni en mémoire par `REDTEAM_SESSION_COOKIE`. Aucun compte admin
+n'est requis. `--ssh-relay` est refusé pour `app.slabreze.fr`, afin de conserver
+le trajet public sans contournement de la segmentation.
+
+## 4. Répétition et clip continu de 60 s
+
+**État au 22 octobre :** contrôle normal public réussi en 200 avec TLS vérifié.
+La charge publique et la chaîne complète restent **à valider** sur une sortie
+séparée. Les valeurs d'environ 4 s de détection et 13 s de remédiation viennent
+d'une autre recette sur l'adresse virtuelle interne ; elles ne sont pas garanties
+sur le trajet public. La recette WAF/SOC précédente utilisait un relais interne.
+
+Avant de filmer, l'opérateur infra suit `infra/demo/demo-check.sh` de la branche
+INFRA : détecteur prêt, moteur en veille, quota disponible, sonde active, absence
+de sauvegarde proche et d'alerte parasite. Entre répétitions, attendre le retour
+nominal et la reconstitution des quotas. Ne pas réinitialiser le modèle pour
+forcer une réussite.
+
+| Phase continue | Preuve à montrer et conserver |
+| --- | --- |
+| Avant | service nominal, horloge UTC, score bas, moteur en veille |
+| Attaque | commande `burst --execute` et UUID du run |
+| Détection | vrai verdict ML, heure, score et métriques |
+| Réaction | décision et action automatiques, cible et résultat |
+| Reprise | **nouvelle transaction fictive réussie après l'action**, identifiant, cohérence en base et retour nominal |
+
+Après le lancement, laisser agir la plateforme : aucun redémarrage, relancement
+de playbook ou débannissement pendant la prise. Filmer une seule séquence de
+60 s maximum après une répétition réussie. WAF/SOC peut être montré à part ;
+`all` n'est pas conçu pour tenir dans le clip.
+
+Une sonde interne prouve une transaction interne. Pour prouver aussi le trajet
+public, prévoir une sonde de paiement via l'entrée publique depuis une source
+saine. Un GET 200, une ancienne transaction ou un simple redémarrage ne prouve
+pas la reprise métier. Ne pas afficher de cookie, carte ou secret.
+
+Si le WAF bloque avant le verdict ML, conserver le résultat comme preuve de
+confinement, **sans annoncer la chaîne ML/remédiation validée**. Si le modèle
+ne réagit pas, garder aussi cet échec et analyser les métriques hors clip.
+
+## 5. Grafana et preuves
+
+Ouvrir les dashboards Cyber et Démo / Remédiation sur 5 ou 15 minutes.
+Dans Explore / Loki, adapter les labels à la version déployée :
 
 ```logql
+{host="waf01",container="resilience-waf"} | json | __error__="" | event_type="http_access"
 {host="waf01",container="resilience-waf"} |= "IDENTIFIANT_REQUETE"
-```
-
-Pour le bannissement, vérifier l'alerte active et le journal de décision :
-
-```logql
 {host="waf01",identifier="waf-ban"}
+{stack="probe",service="probe_transactions"} |= "type=etat"
+{stack="probe",service="probe_transactions"} |= "type=evenement"
+{stack="probe",service="probe_transactions"} |= "type=transaction" |= "result=ok"
 ```
 
-Le seuil et la période d'évaluation sont ceux des règles réellement déployées.
-Une suite de 403 ne prouve pas à elle seule qu'un bannissement a eu lieu :
-vérifier aussi la décision et l'accès d'un client sain utilisant une autre IP.
+Relever l'IP source **réellement journalisée au WAF**, le `request_id` et la
+fenêtre UTC du run. Ne pas simuler l'IP avec un en-tête client. NPM et WAF doivent
+préserver la source avec une chaîne de proxies de confiance correcte : si le
+WAF voit seulement NPM, suspendre le test de ban et faire corriger avant la démo.
 
-Chaque exécution crée `evidence/<date-UTC>-<UUID>/` :
+Chaque exécution écrit `evidence/<date-UTC>-<UUID>/` :
 
-- `requests.jsonl` : heure UTC, cas, statut, durée et identifiant de requête ;
-- `summary.json` : résultat HTTP et limites de la vérification ;
+- `requests.jsonl` : heures, cas, chemins, statuts, durées et request IDs ;
+- `summary.json` : budgets, trajet, résultats HTTP et limites ;
 - `SHA256SUMS.txt` : empreintes des deux fichiers précédents.
 
-Les corps sont remplacés par une empreinte des 4096 premiers octets. Les cookies
-et mots de passe ne sont pas exportés. Les preuves contiennent néanmoins des
-adresses, un nom de poste et des identifiants techniques : les partager dans
-l'espace privé de l'équipe, sans les publier sur un dépôt public.
+Les corps sont remplacés par une empreinte des 4096 premiers octets. Aucun
+cookie ou mot de passe n'est exporté. Les preuves techniques restent privées.
 
-## 5. Après le scénario SOC
+Code **0** : stimulus terminé selon les contraintes et attentes HTTP.
+Code **2** : prérequis, arrêt de protection, interruption ou contrôle échoué.
+Un 5xx ne vaut pas un verdict ML. Les champs détection/remédiation/transaction
+restent `not_verified` et `full_subject_sequence_passed` reste `false` :
+rapprocher les preuves externes avant de déclarer la séquence complète réussie.
 
-Une requête normale de la **source attaquante bannie** doit rester en 403.
-La disponibilité du service se teste depuis une autre source saine.
+## 6. Nettoyer après la prise
 
-Pour répéter, attendre l'expiration du ban ou demander à l'administrateur de
-retirer uniquement le ban de l'IP utilisée. Le nettoyage est manuel, effectué
-**après conservation des preuves et hors séquence filmée**. Ne pas le présenter
-comme une reprise autonome. Le programme ne modifie pas les règles du WAF.
+Le ban expire normalement après **15 min**. Depuis un accès admin autorisé
+sur `waf01`, retirer uniquement l'IP concernée si nécessaire :
 
-## Relais SSH : réservé à un opérateur autorisé
-
-Si le réseau direct n'est pas disponible, l'administrateur peut renseigner
-`ssh_relay` dans scope.json et fournir une clé d'hôte vérifiée dans
-`ssh-known-hosts`. Utiliser un compte dédié dont les droits de transfert sont
-limités à la destination WAF ; ne pas distribuer un compte root aux participants.
-
-```powershell
-python -m pip install -r requirements-relay.txt
-python run.py --scenario waf --execute --ssh-relay
+```bash
+sudo waf-ban unban <ip-publique-de-l-attaquant>
 ```
 
-Le mot de passe du relais est demandé en saisie masquée. Le relais écoute
-uniquement sur la boucle locale, sur un port éphémère, et se ferme après le
-test. TLS reste vérifié pour la vraie cible. **Le WAF voit l'IP du relais** :
-ce trajet apparaît dans le bilan et doit être annoncé dans la démonstration.
+Conserver les preuves avant nettoyage. Ce débannissement manuel a lieu **hors
+prise** et ne constitue pas une reprise automatique. Préserver les autres bans.
+Vérifier l'accès à l'application depuis une source saine.
 
-## Stimulus applicatif authentifié
+## 7. Versionnement et Code.zip
 
-Pour `ml-auth`, utiliser une session d'un **compte client de test**, obtenue
-dans l'application du laboratoire. Copier la valeur de l'en-tête Cookie de
-cette session, sous la forme `nom=valeur`, puis la saisir en masqué :
+Sources versionnées dans `CYBER` du fork `brikodepo`, proposées à l'équipe par
+la [PR nº 6](https://github.com/Zouitni-Yassine/M2-EPSI-Workshop/pull/6).
+Une PR ouverte n'est pas une intégration dans `INFRA` ou `main` : l'équipe doit
+intégrer le dossier avant de constituer l'archive finale.
+
+Paquet partageable des seules sources Red Team :
 
 ```powershell
-python run.py --scenario ml-auth --session-cookie --execute
+python package.py --output Code-RedTeam.zip
 ```
 
-Ne pas coller le cookie dans la commande, dans Git ou dans une capture vidéo.
-Une session peut aussi être fournie en mémoire via REDTEAM_SESSION_COOKIE.
-Le script exige `mode=test` et envoie `amount=-1` : une réponse autre que 422
-arrête les demandes. Il ne crée aucun paiement avec un montant valide.
+Inclut le dossier `redteam/`, le scope **exemple** et un manifeste d'empreintes.
+Exclut configuration locale, preuves, pycache, cookies, clés, certificats et VPN.
+Intégrer ce dossier au **Code.zip global du projet**, avec les autres sources
+demandées ; le paquet Red Team seul ne remplace pas le rendu complet.
+Le destinataire reprend les étapes 1–3 depuis le dossier extrait.
 
-Ce stimulus peut **ne pas déclencher le modèle** : des routes exclues des
-métriques, une session refusée ou la normale apprise influencent le résultat.
-Vérifier le score, le verdict et la chronologie du moteur. Ne pas modifier le
-seuil pendant la prise pour faire apparaître artificiellement une réussite.
+La suite fournit les scripts d'attaque, le périmètre, le mode d'emploi et les
+observations reproductibles. Pour répondre entièrement au sujet, ajouter la
+recette réelle attaque → détection → réaction → nouvelle transaction et le
+clip continu. Ne pas les annoncer réussis avant observation.
 
-## Correspondance avec le sujet et limites
-
-La suite couvre le stimulus depuis un poste distinct, le WAF, l'observation SOC,
-le confinement d'une source et la collecte de preuves reproductibles.
-
-La recette de développement a observé 38/38 contrôles WAF/SOC réussis, un
-bannissement automatique et des paiements de test réussis par la sonde interne.
-Elle a également observé que le stimulus applicatif borné ne déclenchait pas
-le verdict ML. Ces constats ne garantissent pas le même résultat sur une autre
-configuration. Les preuves détaillées et les paramètres de ce laboratoire ne
-sont pas publiés dans cette branche.
-
-Pour la démonstration complète : montrer le service avant, l'incident, la
-détection réelle, l'action automatique et une **nouvelle transaction fictive
-réussie**, avec vérification des données. La sonde interne ne prouve pas le
-chemin public WAF. Le clip doit rester continu, de 60 s maximum, sans correction
-manuelle masquée. Un redémarrage de conteneur seul ne suffit pas.
-
-La branche IA propose aussi `evaluation/attaque.py` (250 threads / 45 s, cible
-locale) ; ce script n'est pas lancé automatiquement par cette suite. Les
-scénarios actuels utilisent des budgets explicites adaptés au laboratoire.
-
-## Vérifier les scripts sans attaquer de serveur
+## 8. Tests locaux
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
 
-Les tests des garde-fous sont locaux. Ils ne remplacent pas la recette réseau.
-Les redirections sont refusées, les proxys de l'environnement sont ignorés et
-seules les IP privées HTTPS inscrites dans scope.json sont acceptées. Les autres
-groupes, le réseau du campus et les services tiers sont hors périmètre.
+Scope exact, TLS public, redirections, absence de trafic sans `--execute`,
+budgets, cadence de soumission, parallélisme et arrêts sont couverts localement.
+Ils ne remplacent pas la répétition réseau. Les autres équipes, le campus et
+les services tiers sont hors périmètre.
