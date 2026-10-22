@@ -1,147 +1,228 @@
-# M2 EPSI Workshop — Project RESILIENCE-ALPHA
+<div align="center">
 
-Démonstrateur de cyber-résilience : une plateforme de paiement qui détecte une
-anomalie et se répare seule, sans intervention humaine.
+# 🛡️ PROJECT RESILIENCE-ALPHA
+
+### Cyber-résilience et reprise autonome — Plateforme de paiement *Resilience Pay*
+
+**Workshop National EPSI — BAC+5 — Session Octobre 2026**
+Consortium **M2 · Groupe G\<n\>**
+
+*« Un conteneur qui redémarre n'est pas une preuve : notre preuve, c'est un paiement réussi. »*
+
+</div>
+
+---
+
+> **La mission.** Démontrer qu'un système d'information critique — ici une plateforme de paiement
+> fictive — peut **encaisser un incident de sécurité et retrouver son fonctionnement sans qu'un
+> opérateur intervienne pour le réparer**. Pas sur le papier : sur un environnement conçu,
+> développé, installé et testé par l'équipe.
+
+De l'attaque au paiement vérifié, **sans humain dans la boucle** :
 
 ```
-                 seul port publié (:5173)
-navigateur ──► frontend : nginx, relais ──/auth/──► auth (jetons Ed25519, cookie httpOnly) ──┐
-                    │                    ──/api/───► payment-api ──► PostgreSQL (réseau interne)
-                    │ supervision (opérateurs)            ▲    └──► Stripe (test), PayPal (sandbox)
-                    ▼                                     │ redémarrage, via proxy Docker à droits réduits
-               detector (IsolationForest) ──► remediation (décide, agit, vérifie)
+Attaque ─▶ Collecte (métriques + journaux) ─▶ Détection ML (2–4 s) ─▶ Décision
+   │                                                                      │
+   │                                                       Moteur de remédiation
+   │                                                   (passerelle à liste fermée)
+   ▼                                                                      ▼
+WAF : IP bannie (27 s)                         Service redémarré ─▶ Paiement de contrôle ✅
 ```
 
-| Dossier | Rôle | Doc |
-| --- | --- | --- |
-| `frontend/` | Boutique, connexion, paiement, journal, supervision ; son nginx est le relais unique | [README](frontend/README.md) |
-| `auth/` | Comptes, rôles client / opérateur, jetons signés, freinage de la force brute | [README](auth/README.md) |
-| `backend/` | API de paiement, porte la clé Stripe, vérifie les jetons, journal en base, expose métriques et sonde | [README](backend/README.md) |
-| `db/` | PostgreSQL : une base et un rôle par service, secrets Docker | [README](db/README.md) |
-| `detector/` | Score d'anomalie chaque seconde, appris sur le trafic normal | [README](detector/README.md) |
-| Mailpit | Boîte mail de démonstration (réinitialisation de mot de passe), UI sur `http://localhost:8025` | — |
-| `remediation/` | Écoute le verdict, redémarre la cible, vérifie la reprise | [README](remediation/README.md) |
+---
 
-## Lancer le démonstrateur
+## Sommaire
+
+- [Les cinq piliers](#les-cinq-piliers)
+- [Démarrage rapide](#démarrage-rapide)
+- [Architecture en bref](#architecture-en-bref)
+- [Résultats mesurés](#résultats-mesurés)
+- [Navigation du dépôt](#navigation-du-dépôt)
+- [Documentation](#documentation)
+- [Contributions de l'équipe](#contributions-de-léquipe)
+- [Livrables & sécurité](#livrables--sécurité)
+
+---
+
+## Les cinq piliers
+
+La solution réunit cinq domaines complémentaires, tous obligatoires.
+
+| | Domaine | Ce qui a été construit | Dossier |
+|---|---|---|---|
+| 💻 | **Développement** | Microservices (auth, API de paiement, détecteur, moteur de remédiation), frontal React/Tailwind, reconnaissance faciale des opérateurs | [`auth/`](auth) · [`backend/`](backend) · [`frontend/`](frontend) · [`remediation/`](remediation) |
+| 🏗️ | **Infrastructure** | Cluster Proxmox + Ceph (HA), Docker Swarm, tout en code (Packer/Terraform/Ansible), observabilité, base répliquée, chaos engineering | [`infra/`](infra) |
+| 🤖 | **IA / Data** | Détecteur d'anomalies (IsolationForest), assistant RAG des opérateurs (Ollama + LangChain) | [`detector/`](detector) · [`rag/`](rag) · [`evaluation/`](evaluation) |
+| 🔐 | **Cybersécurité** | WAF (ModSecurity + CRS), SIEM/SOC, bannissement automatique, Vault, SSO + TOTP, scénarios Red Team | [`cyber/`](cyber) · [`redteam/`](redteam) |
+| 🧭 | **Gouvernance** | EBIOS RM, PCA/PRA, analyse NIS2/DORA, arbitrages et recommandations | [`gouvernance/`](gouvernance) |
+
+---
+
+## Démarrage rapide
+
+> Le détail pas à pas, les prérequis et le dépannage sont dans
+> [`infra/docs/deploiement.md`](infra/docs/deploiement.md).
+
+**Application seule** (microservices, pour le développement) :
 
 ```bash
-# 1. Secrets, jamais commités
-python scripts/init-secrets.py               # mots de passe PostgreSQL, clé de signature des jetons (secrets/)
-cp backend/.env.example backend/.env         # STRIPE_SECRET_KEY, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET
-cp auth/.env.example auth/.env               # AUTH_PASSWORD_OPERATEUR, AUTH_PASSWORD_CLIENT (8 caractères min.)
-cp detector/.env.example detector/.env       # DETECTOR_ADMIN_TOKEN
-echo "VITE_STRIPE_PUBLISHABLE_KEY=pk_test_..." > .env
-echo "VITE_PAYPAL_CLIENT_ID=..." >> .env     # facultatif : même client ID que dans backend/.env
+python scripts/init-secrets.py          # secrets locaux (jamais commités)
+cp backend/.env.example backend/.env    # clés Stripe / PayPal (mode test)
+cp auth/.env.example auth/.env          # mots de passe de départ
+cp detector/.env.example detector/.env  # jeton d'administration du détecteur
+docker compose up --build -d            # db, auth, payment-api, detector, remediation, frontend
+```
+Interface : http://localhost:5173 · API : http://localhost:5173/api
 
-# 2. Tout monter
-docker compose up --build -d
+**Plateforme complète** (infrastructure reproductible) : chaîne *Packer → Terraform → Ansible*
+depuis le poste de contrôle. Les applications restent décrites en fichiers Compose et sont
+déployées sur Docker Swarm. Voir [`infra/README.md`](infra/README.md).
 
-# 3. Tout arrêter : « down », pas « stop » — les services redémarreraient au prochain lancement de Docker
-docker compose down
+---
+
+## Architecture en bref
+
+Internet n'atteint **jamais** l'application en direct : tout passe par le reverse-proxy TLS,
+le WAF en DMZ, puis l'adresse virtuelle du cluster.
+
+```
+Internet ─443─▶ NPM (TLS) ─8443─▶ WAF ModSecurity [DMZ] ─5173─▶ VIP keepalived
+                                                                    │
+                 ┌──────────────── Docker Swarm [VLAN applicatif] ──┴────────────────┐
+                 │  frontal ×3 ─▶ auth ─▶ payment-api ─▶ PostgreSQL (Patroni ×3)      │
+                 │  détecteur ML · moteur de remédiation · sonde de transaction       │
+                 └────────────────────────────────────────────────────────────────────┘
 ```
 
-Puis http://localhost:5173 — ou `http://<ip-de-l'hôte>:5173` depuis une autre machine, par exemple
-`http://192.168.137.1:5173` sur le point d'accès —, connexion avec `operateur` (accès à la
-supervision) ou `client` (boutique). Le détecteur apprend la normale pendant `WARMUP_SECONDS`
-(60 par défaut, réglable dans `.env`) avant de scorer.
+- **Socle** : 3 hyperviseurs **Proxmox VE 9 + Ceph**, haute disponibilité avec fencing.
+- **Orchestration** : **Docker Swarm** (3 managers drainés, 3 workers), secrets, mises à jour
+  avec retour arrière.
+- **Observabilité** : **VictoriaMetrics** (compatible Prometheus), vmalert, Alertmanager (Discord),
+  **Loki**, **Grafana**, Alloy ; une sonde paie comme un vrai client toutes les 30 s.
+- **Identités & secrets** : **Keycloak** (SSO + TOTP), **HashiCorp Vault**, Vaultwarden.
 
-## Déployer sur le Swarm
+Décisions détaillées : [`infra/docs/architecture.md`](infra/docs/architecture.md) ·
+Réseau et segmentation : [`infra/docs/reseau.md`](infra/docs/reseau.md).
 
-Le même `docker-compose.yml` sert au Swarm et suit le
-[contrat de déploiement](infra/docs/contrat-deploiement.md) : image à tag figé pour chaque
-service, secrets et configs Docker, conteneurs en lecture seule avec `tmpfs`, section `deploy`
-(ressources, politique de redémarrage, retour arrière), aucun `depends_on`.
+---
 
-```bash
-export REGISTRY=ghcr.io/<org>                 # registre joignable par tous les nœuds
-docker compose build
-docker compose push auth payment-api detector remediation frontend
-PAYMENT_API_RESTART=on-failure DOCKER_SOCKET_PROXY_REPLICAS=0 \
-  docker stack deploy -c docker-compose.yml paiement
-```
+## Résultats mesurés
 
-| Variable | Local (défaut) | Swarm | Pourquoi |
-| --- | --- | --- | --- |
-| `PAYMENT_API_RESTART` | `none` | `on-failure` | En local, seule la remédiation relance l'API : c'est la démo. Sur le Swarm, un crash est relancé, un arrêt volontaire reste à la remédiation. |
-| `DOCKER_SOCKET_PROXY_REPLICAS` | `1` | `0` | Le contrat interdit de monter `docker.sock` ; sur le Swarm, le moteur passe par la passerelle SSH (`infra/docs/remediation.md`). |
+Référence : la **panne vue par la sonde** (un vrai client qui paie), pas un simple
+`/api/health`. Source : [`infra/docs/tests-resilience.md`](infra/docs/tests-resilience.md).
 
-Reste à faire pour une démo sur le Swarm : brancher le moteur de remédiation sur la passerelle
-SSH, épingler la base sur un nœud. Publier le frontal en mode `host` pour que le relais voie
-l'adresse réelle des clients (le maillage de routage la masque).
+| Scénario provoqué | Qui répare | Panne vue par un client |
+|---|---|---|
+| API de paiement arrêtée | détecteur ML → moteur → passerelle | **10 à 16 s**, 0 intervention |
+| Rafale (40 requêtes parallèles) | détecteur, moteur | **0 s** (anomalie à +4 s) |
+| Force brute sur la connexion | bannissement au WAF | **IP bannie en 27 s** |
+| PostgreSQL tué | Patroni / Swarm | **0 paiement perdu** |
+| Perte de la VM portant la base | réplication Patroni | **92 s → 0 s** |
+| Frontal tué (3 réplicas) | Swarm, maillage de routage | **0 s** |
+| Hyperviseur entier coupé | quorum, Ceph, Swarm | application disponible |
 
-## Rejouer la séquence de résilience
+> 15+ pannes provoquées, **toutes réparées sans intervention humaine** (hors restauration et
+> descellement de Vault, manuels par nature). Détecteur ML : **F1 0,86 · rappel 0,92**.
 
-1. Onglet **Supervision** : bandeau vert, score d'anomalie bas.
-2. Provoquer l'incident — par exemple arrêter le conteneur visé depuis le PC attaquant.
-3. En quelques secondes : barres rouges, score qui franchit le seuil, « anomalie confirmée ».
-4. Le bandeau passe au **bleu** : le moteur de remédiation redémarre `payment-api`.
-5. Transaction de contrôle passée, bandeau **vert**, « Service rétabli en N s — 0 intervention humaine ».
+---
 
-Pendant toute la séquence, personne ne touche au clavier. C'est le point que le jury note.
+## Navigation du dépôt
 
-## Séquence mesurée pendant le développement
+### Application (racine)
 
-Panne provoquée par `docker stop payment-api` à 14:35:02, puis plus aucune action humaine :
+| Dossier | Rôle |
+|---|---|
+| [`auth/`](auth) | Service d'authentification (comptes, JWT, anti force brute, **reconnaissance faciale**) |
+| [`backend/`](backend) | API de paiement (Stripe & PayPal en mode test) |
+| [`detector/`](detector) | Détecteur d'anomalies ML (IsolationForest), exposé en `/metrics` |
+| [`remediation/`](remediation) | Moteur de remédiation (décide, puis appelle la passerelle à liste fermée) |
+| [`frontend/`](frontend) | Frontal React + Tailwind : boutique, back-office, supervision, scénario de démo |
+| [`db/`](db) | Schéma et initialisation PostgreSQL |
+| [`docker-compose.yml`](docker-compose.yml) | Définition des microservices (sert aussi au déploiement Swarm) |
+| [`docs/`](docs) | Schémas d'architecture de référence (PDF, PPTX, PNG) |
+| [`scripts/`](scripts) | Outils locaux (génération des secrets de développement) |
 
-| Délai | Événement | Acteur |
-| --- | --- | --- |
-| +12 s | Anomalie confirmée par le détecteur (score 0.78 ≥ 0.55) | détecteur ML |
-| +12 s | Décision : recréer payment-api → échec, proxy trop restrictif (403) | moteur |
-| +1 min 42 | Deuxième tentative → échec, proxy mal configuré (502), « escalade nécessaire » | moteur |
-| +3 min 13 | Troisième tentative : redémarrage via le proxy Docker | moteur |
-| +3 min 15 | Transaction de contrôle passée — API et Stripe joignables | moteur |
-| +3 min 19 | **Service rétabli en 5 s — 0 intervention humaine** | moteur |
+### Infrastructure — [`infra/`](infra)
 
-Les deux premiers échecs venaient du proxy Docker, corrigé entre-temps. Le moteur ne les a
-pas cachés et n'a pas bouclé : il a attendu sa temporisation et réessayé tant que le verdict
-du détecteur persistait. Détecteur seul, avant la distance robuste : une panne totale obtenait
-0.50, à la frontière du seuil — voir `detector/README.md`.
+| Dossier | Rôle |
+|---|---|
+| [`infra/packer/`](infra/packer) | Images de VM (Debian + Docker) |
+| [`infra/terraform/`](infra/terraform) | VM, LXC, SDN, haute disponibilité Proxmox |
+| [`infra/ansible/`](infra/ansible) | Configuration : Swarm, firewall, observabilité, application, assistant |
+| [`infra/app/`](infra/app) | Stack Swarm `paiement`, base répliquée (Patroni + etcd) |
+| [`infra/monitoring/`](infra/monitoring) | VictoriaMetrics, vmalert, Alertmanager, Loki, Grafana, dashboards |
+| [`infra/waf/`](infra/waf) | Configuration du WAF (ModSecurity) et bannissement automatique |
+| [`infra/pki/`](infra/pki) | Autorité de certification interne |
+| [`infra/chaos/`](infra/chaos) | Chaos engineering : injection de pannes, mesure de la reprise |
+| [`infra/demo/`](infra/demo) | Scénario de démonstration et vérifications pré-démo |
+| [`infra/rag/`](infra/rag) | Hébergement de l'assistant (relais Ollama, outils de supervision MCP, bot Discord) |
+| [`infra/roadmap/`](infra/roadmap) | Feuille de route du projet |
+| [`infra/unifi/`](infra/unifi) | Réseau déclaratif (VLAN, règles de filtrage) |
+| [`infra/docs/`](infra/docs) | **Documentation technique complète** (voir ci-dessous) |
 
-## Sécurité vérifiée
+### IA, Cyber, Gouvernance
 
-Depuis le conteneur du moteur de remédiation, vers le proxy Docker :
+| Dossier | Rôle |
+|---|---|
+| [`rag/`](rag) | Assistant des opérateurs (Ollama + LangChain), corpus et chaîne de recherche |
+| [`evaluation/`](evaluation) | Évaluation du détecteur : scénario, scores, notebook, courbes |
+| [`cyber/`](cyber) | Dispositifs défensifs, exploitation, note pour le jury |
+| [`redteam/`](redteam) | Scénarios d'attaque reproductibles (périmètre borné au SI fictif) |
+| [`gouvernance/`](gouvernance) | BIA, EBIOS RM, PCA/PRA, NIS2/DORA, arbitrages |
 
-| Requête | Réponse |
-| --- | --- |
-| `GET /containers/json` | 200 |
-| `POST /containers/payment-api/restart` | autorisé |
-| `POST /containers/create` | 403 |
-| `POST /containers/payment-api/exec` | 403 |
-| `POST /containers/payment-api/stop` | 403 |
-| `POST /containers/detector/restart` | 403 |
-| `GET /images/json` | 403 |
+---
 
-- Le proxy (`proxy/nginx.conf`) n'accepte que ces deux requêtes, en lecture seule, sans
-  capacité, sur un réseau Docker interne.
-- Le moteur n'expose aucune route d'écriture ; seul le verdict du détecteur le déclenche.
-- `POST /reset` du détecteur exige un jeton (`DETECTOR_ADMIN_TOKEN`), CORS limité en `GET`.
-- Un détecteur injoignable **dégrade** l'état (« Surveillance interrompue ») au lieu de laisser
-  le bandeau vert.
-- Les clés Stripe ne sont lues que depuis l'environnement ; aucun `.env` n'est commité.
-- Paiements et transactions exigent un jeton délivré par `auth/` ; un client ne voit et ne
-  confirme que ses paiements, le solde marchand est réservé aux opérateurs. Jetons Ed25519
-  vérifiés localement par l'API (algorithme figé), mots de passe en argon2id, `429` après
-  5 échecs depuis une adresse. Détail dans [auth/README.md](auth/README.md).
-- PostgreSQL n'est joignable que depuis `auth` et `payment-api` (réseau interne, aucun port
-  publié) ; une base et un rôle par service, mots de passe en secrets Docker.
-- Un seul port publié, le frontal nginx (`frontend/nginx.conf`). Il relaie `/auth/` et `/api/` ;
-  `/api/status`, `/detector/score` et `/remediation/state` exigent une session d'opérateur,
-  vérifiée par le service d'authentification (`auth_request`). Ni `/metrics`, ni `/reset` du
-  détecteur, ni la base, ni le proxy Docker ne sont joignables de l'extérieur.
-- La session est un cookie `httpOnly`, `SameSite=Strict` : le JavaScript ne voit jamais le jeton,
-  un autre site ne peut pas s'en servir. Les scripts obtiennent un jeton par `POST /auth/token`.
+## Documentation
 
-## État par pilier
+Toute la documentation technique de l'infrastructure est dans [`infra/docs/`](infra/docs) :
 
-| Pilier | Fait | Reste à faire |
-| --- | --- | --- |
-| **DEV** | Tunnel Stripe test, journal en PostgreSQL, dashboard, moteur de remédiation, service d’authentification et rôles, métriques Prometheus et logs JSON | Playbooks supplémentaires (bannir une IP, restaurer la base) |
-| **IA** | Détecteur IsolationForest + distance robuste, verdict qui déclenche l'action | Assistant RAG Ollama + LangChain, réapprentissage continu, variables CPU/RAM |
-| **INFRA** | `docker compose` complet (db, auth, payment-api compatibles Swarm), proxy Docker à liste blanche | Ansible, Prometheus, Grafana, Loki |
-| **CYBER** | Droits du moteur réduits, `/reset` protégé, état dégradé si aveugle | WAF, SIEM/SOC, Vault ou SOPS, scénario d'attaque depuis le PC attaquant |
-| **GOUV** | — | EBIOS RM, PCA/PRA, analyse NIS2/DORA |
+| Document | Contenu |
+|---|---|
+| [`architecture.md`](infra/docs/architecture.md) | Décisions, alternatives écartées, limites |
+| [`reseau.md`](infra/docs/reseau.md) | VLAN, flux autorisés, adresse virtuelle |
+| [`application.md`](infra/docs/application.md) | Stack Swarm, exposition publique, sonde, reconnaissance faciale |
+| [`supervision.md`](infra/docs/supervision.md) | Métriques, logs, alertes, dashboards |
+| [`waf.md`](infra/docs/waf.md) | WAF en DMZ, bannissement automatique |
+| [`remediation.md`](infra/docs/remediation.md) | Passerelle : actions, garde-fous, tests |
+| [`identites.md`](infra/docs/identites.md) | Keycloak, Vault, Vaultwarden, CA interne |
+| [`tests-resilience.md`](infra/docs/tests-resilience.md) | Méthode et résultats du chaos engineering |
+| [`pca-pra-technique.md`](infra/docs/pca-pra-technique.md) | Services critiques, RTO/RPO, sauvegardes |
+| [`rag.md`](infra/docs/rag.md) | Assistant des opérateurs, hébergement isolé |
+| [`demo.md`](infra/docs/demo.md) | Scénario de démonstration, check-list, plan B |
+| [`api/`](infra/docs/api) | Documentation des API (OpenAPI) |
 
-## Développer sans Docker
+Gouvernance : commencer par [`gouvernance/README.md`](gouvernance/README.md).
 
-Chaque service se lance seul (voir son README). Le frontend fonctionne même sans
-backend : il bascule sur une simulation locale et l'affiche.
+---
+
+## Contributions de l'équipe
+
+> Chaque membre assume une contribution clairement identifiable ; les décisions d'architecture
+> sont restées partagées.
+
+| Membre | Domaine | Apports principaux |
+|---|---|---|
+| **Samuel Labreze** | 🏗️ Infrastructure & 🧭 Gouvernance | Socle Proxmox/Ceph (HA), Swarm, IaC complet, observabilité, base répliquée, chaos engineering, WAF en DMZ, hébergement de l'assistant · EBIOS RM, PCA/PRA, analyse NIS2/DORA, arbitrages |
+| **Grégoire Mouilleau** | 💻 Développement | Connecteur de paiement **PayPal**, **reconnaissance faciale** des opérateurs |
+| **Yassine Zouitni** | 💻 Développement | Connecteur de paiement **Stripe**, **frontal** React / Tailwind |
+| **Rémi Reze** | 🔐 Cybersécurité | WAF (ModSecurity + CRS), SIEM / SOC, bannissement automatique, durcissement, scénarios Red Team |
+| **Nadège** | 🤖 IA / Data & RAG | Détecteur d'anomalies (IsolationForest, évaluation), assistant RAG des opérateurs |
+
+---
+
+## Livrables & sécurité
+
+- **Déploiement reproductible** : la plateforme se réinstalle et se relance depuis ce dépôt ;
+  les playbooks sont idempotents.
+- **Aucun secret en clair** : tous les secrets sont dans HashiCorp Vault, lus à l'exécution ;
+  aucun `.env` réel, aucune clé versionnée. Le diff sortant est scanné avant chaque *commit*.
+- **Périmètre** : environnement, opérations et données **entièrement fictifs** ; aucune donnée
+  bancaire réelle. Les actions offensives sont limitées au SI fictif de l'équipe.
+
+<div align="center">
+
+---
+
+*EPSI — Direction Pédagogique Nationale — Workshop BAC+5 2026-27*
+
+</div>
