@@ -158,9 +158,10 @@ panels += [
          [tgt(unwrap("score"), ds=LOKI)],
          (12, y, 4, H), ds=LOKI, interval="5s", decimals=2, minv=0,
          thresholds=steps(("green", None), ("red", THRESHOLD)),
-         desc=f"Score courant du détecteur ML (IsolationForest), seuil {THRESHOLD}. Le détecteur "
-              "n'expose pas de /metrics : la sonde lit /detector/score (session opérateur, "
-              "lecture seule) toutes les 5 s et le recopie tel quel."),
+         desc=f"Score courant du détecteur ML (IsolationForest), seuil {THRESHOLD}. La sonde lit "
+              "/detector/score toutes les 5 s et le recopie dans son journal (précision 5 s) ; "
+              "le détecteur expose aussi /metrics (detector_*, à 30 s près) : détail dans le "
+              "dashboard Modèle ML."),
     stat("Moteur de remédiation",
          [tgt(unwrap("remediation") + " or vector(2)", ds=LOKI)],
          (16, y, 4, H), ds=LOKI, interval="5s",
@@ -170,8 +171,10 @@ panels += [
          desc="État du moteur (/remediation/state) : EN ACTION entre la décision et la "
               "déclaration de reprise."),
     stat("Dernier temps de reprise",
-         [tgt(unwrap("duree_s", window="24h",
-                     selector=PROBE + ' |= "type=incident" |= "phase=fin"'),
+         # by (stack) : la dernière fin de panne toutes répliques de la sonde confondues
+         # (chaque conteneur de la sonde est un flux ; max() seul rendrait la plus longue)
+         [tgt(f'max(last_over_time({PROBE} |= "type=incident" |= "phase=fin" | logfmt '
+              '| __error__="" | unwrap duree_s [24h]) by (stack))',
               "vu par la sonde", ds=LOKI, instant=True),
           tgt('max(paiement_probe_remediation_last_recovery_seconds) > 0', "mesuré par le moteur",
               "B", instant=True)],
@@ -220,7 +223,7 @@ panels += [
                                                    "value": {"fill": "dash", "dash": [10, 10]}},
                                                   {"id": "custom.fillOpacity", "value": 0}])],
                desc="Au-dessus du seuil pendant 3 s de suite : anomalie confirmée, le moteur "
-                    "agit. Valeurs recopiées de /detector/score par la sonde."),
+                    "agit. Valeurs recopiées de /detector/score par la sonde (5 s)."),
     timeseries("Transactions de test (client « Sonde », 1,00 €)",
                [tgt(f'sum(count_over_time({PROBE} |= "type=transaction" |= "result=ok" [$__interval]))',
                     "réussies", ds=LOKI),
@@ -398,6 +401,86 @@ panels += [
 y += H
 
 
+# Base répliquée (Patroni, un nœud par worker), frontal à 3 répliques, adresse virtuelle,
+# réponse à l'attaque (bannissement au WAF) et passerelle remediate des managers
+PAIEMENT = 'stack="paiement"'
+DB_SVC = 'container_label_com_docker_swarm_service_name=~"paiement_db[0-9]+"'
+DB_PRIMARY = (
+    'max by (name, host) (label_replace(max by (host, container_label_com_docker_swarm_service_name) '
+    f'(container_last_seen{{{DB_SVC}}}), "service", "$1", '
+    '"container_label_com_docker_swarm_service_name", "(.*)") '
+    f'* on (service) group_left (name) max by (service, name) (patroni_primary{{{PAIEMENT}}} == 1))')
+GATEWAY_OK = ('{identifier="remediate"} |= "code=0" '
+              '| regexp "code=(?P<code>[0-9]+) (?P<payload>.*)" | line_format "{{.payload}}" '
+              '| json duration_s | __error__=""')
+H = 5
+panels += [
+    stat("Base : primaire", [tgt(DB_PRIMARY, "{{name}} · {{host}}", instant=True)],
+         (0, y, 5, H), text_mode="name", no_value="AUCUN",
+         thresholds=steps(("green", None)),
+         desc="Nœud PostgreSQL primaire (Patroni + etcd) et worker qui l'héberge. Si ce worker "
+              "tombe, un réplica est promu en quelques secondes (0 s de panne vue par la sonde)."),
+    stat("Réplicas en flux",
+         [tgt(f'count(patroni_replica{{{PAIEMENT}}} == 1 and on (instance) '
+              f'patroni_postgres_streaming{{{PAIEMENT}}} == 1) or vector(0)', instant=True)],
+         (5, y, 4, H), unit="suffix: / 2",
+         thresholds=steps(("red", None), ("orange", 1), ("green", 2)),
+         desc="Réplicas qui reçoivent le flux de réplication du primaire (copie à jour des "
+              "paiements sur un autre worker)."),
+    stat("Frontal",
+         [tgt('count(container_last_seen{container_label_com_docker_swarm_service_name='
+              '"paiement_frontend"}) or vector(0)', instant=True)],
+         (9, y, 4, H), unit="suffix: / 3",
+         thresholds=steps(("red", None), ("orange", 1), ("green", 3)),
+         desc="Répliques du frontal (une par worker) : la perte d'un worker ne coupe pas "
+              "l'entrée de l'application."),
+    stat("IP bannies au WAF",
+         [tgt('max(last_over_time({host="waf01", identifier="waf-ban"} |~ "^(ban|expiration) " '
+              '| logfmt | unwrap actifs [20m]) by (host)) or vector(0)', ds=LOKI, instant=True)],
+         (13, y, 4, H), ds=LOKI, decimals=0, color_mode="value",
+         thresholds=steps(("green", None), ("red", 1)),
+         desc="Bannissements actifs (15 min) posés automatiquement sur waf01 : alerte Loki "
+              "(rafale, force brute, attaques bloquées) -> Alertmanager -> récepteur waf-ban."),
+    stat("Dernière action de la passerelle",
+         [tgt(f'max(last_over_time({GATEWAY_OK} | unwrap duration_s [24h]) by (identifier))',
+              ds=LOKI, instant=True)],
+         (17, y, 7, H), ds=LOKI, unit="s", decimals=1, color_mode="value",
+         no_value="aucune (24 h)",
+         thresholds=steps(("green", None), ("orange", 30), ("red", 60)),
+         desc="Durée du dernier redémarrage demandé par le moteur à la passerelle remediate des "
+              "managers (SSH, commande forcée), dernières 24 h."),
+]
+y += H
+H = 6
+panels += [
+    panel("state-timeline", "Base PostgreSQL : rôle des nœuds",
+          [tgt(f'max by (name) (3 * patroni_primary{{{PAIEMENT}}} + patroni_replica{{{PAIEMENT}}} '
+               f'* (1 + patroni_postgres_streaming{{{PAIEMENT}}}))', "{{name}}")],
+          (0, y, 12, H),
+          mappings=[text_map(3, "PRIMAIRE", "blue"), text_map(2, "réplica en flux", "green"),
+                    text_map(1, "réplica sans flux", "orange")],
+          thresholds=steps(("orange", None)),
+          custom={"lineWidth": 0, "fillOpacity": 85},
+          options={"showValue": "auto", "mergeValues": True, "rowHeight": 0.8,
+                   "alignValue": "center", "legend": {"showLegend": False},
+                   "tooltip": {"mode": "single"}},
+          desc="db1, db2, db3 (un par worker). Une bascule se voit au passage d'un réplica en "
+               "PRIMAIRE (worker-crash du porteur de la base)."),
+    panel("state-timeline", "Adresse virtuelle 10.30.1.200 : porteur",
+          [tgt('max by (host) (app_vip_master)', "{{host}}")],
+          (12, y, 12, H),
+          mappings=[text_map(1, "PORTEUR", "green"), text_map(0, "secours", "transparent")],
+          thresholds=steps(("green", None)),
+          custom={"lineWidth": 0, "fillOpacity": 85},
+          options={"showValue": "auto", "mergeValues": True, "rowHeight": 0.8,
+                   "alignValue": "center", "legend": {"showLegend": False},
+                   "tooltip": {"mode": "single"}},
+          desc="keepalived sur les 3 workers : l'adresse passe sur un autre worker quand son "
+               "porteur tombe (1 requête perdue mesurée)."),
+]
+y += H
+
+
 # ---- Back-office : reconnaissance faciale des opérateurs (service auth) ------------
 # Compteur auth_face_total{result} (/metrics :8300, vmagent du Swarm) : recognized, rejected,
 # locked (identifiant bloqué après deux cycles ratés), enrolled. Le cas « indisponible »
@@ -478,9 +561,12 @@ dashboard = {
     "liveNow": False,
     "schemaVersion": 39,
     "version": 1,
-    "links": [{"title": "Vue centrale", "type": "link", "url": "/d/central", "icon": "dashboard",
+    "links": [{"title": t, "type": "link", "url": f"/d/{u}", "icon": "dashboard",
                "keepTime": True, "includeVars": False, "targetBlank": False,
-               "asDropdown": False, "tags": [], "tooltip": "Plateforme - vue centrale"}],
+               "asDropdown": False, "tags": [], "tooltip": tip}
+              for t, u, tip in (("Vue centrale", "central", "Plateforme - vue centrale"),
+                                ("Modèle ML", "ml-detecteur", "Détecteur d'anomalies"),
+                                ("Cyber", "resilience-cyber", "WAF, attaques, bannissements"))],
     "annotations": {"list": [
         {"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"},
          "enable": True, "hide": True, "iconColor": "rgba(0, 211, 255, 1)",

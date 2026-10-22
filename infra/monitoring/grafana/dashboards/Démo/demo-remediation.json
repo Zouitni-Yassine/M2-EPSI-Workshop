@@ -40,6 +40,30 @@
       "asDropdown": false,
       "tags": [],
       "tooltip": "Plateforme - vue centrale"
+    },
+    {
+      "title": "Modèle ML",
+      "type": "link",
+      "url": "/d/ml-detecteur",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Détecteur d'anomalies"
+    },
+    {
+      "title": "Cyber",
+      "type": "link",
+      "url": "/d/resilience-cyber",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "WAF, attaques, bannissements"
     }
   ],
   "annotations": {
@@ -369,7 +393,7 @@
       "id": 3,
       "type": "stat",
       "title": "Score d'anomalie",
-      "description": "Score courant du détecteur ML (IsolationForest), seuil 0.55. Le détecteur n'expose pas de /metrics : la sonde lit /detector/score (session opérateur, lecture seule) toutes les 5 s et le recopie tel quel.",
+      "description": "Score courant du détecteur ML (IsolationForest), seuil 0.55. La sonde lit /detector/score toutes les 5 s et le recopie dans son journal (précision 5 s) ; le détecteur expose aussi /metrics (detector_*, à 30 s près) : détail dans le dashboard Modèle ML.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -562,7 +586,7 @@
             "uid": "loki"
           },
           "refId": "A",
-          "expr": "max(last_over_time({stack=\"probe\", service=\"probe_transactions\"} |= \"type=incident\" |= \"phase=fin\" | logfmt duree_s | __error__=\"\" | unwrap duree_s [24h]))",
+          "expr": "max(last_over_time({stack=\"probe\", service=\"probe_transactions\"} |= \"type=incident\" |= \"phase=fin\" | logfmt | __error__=\"\" | unwrap duree_s [24h]) by (stack))",
           "legendFormat": "vu par la sonde",
           "editorMode": "code",
           "queryType": "instant"
@@ -839,7 +863,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "Score d'anomalie du détecteur",
-      "description": "Au-dessus du seuil pendant 3 s de suite : anomalie confirmée, le moteur agit. Valeurs recopiées de /detector/score par la sonde.",
+      "description": "Au-dessus du seuil pendant 3 s de suite : anomalie confirmée, le moteur agit. Valeurs recopiées de /detector/score par la sonde (5 s).",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -2435,19 +2459,562 @@
     },
     {
       "id": 25,
+      "type": "stat",
+      "title": "Base : primaire",
+      "description": "Nœud PostgreSQL primaire (Patroni + etcd) et worker qui l'héberge. Si ce worker tombe, un réplica est promu en quelques secondes (0 s de panne vue par la sonde).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 5,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max by (name, host) (label_replace(max by (host, container_label_com_docker_swarm_service_name) (container_last_seen{container_label_com_docker_swarm_service_name=~\"paiement_db[0-9]+\"}), \"service\", \"$1\", \"container_label_com_docker_swarm_service_name\", \"(.*)\") * on (service) group_left (name) max by (service, name) (patroni_primary{stack=\"paiement\"} == 1))",
+          "legendFormat": "{{name}} · {{host}}",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "AUCUN",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Réplicas en flux",
+      "description": "Réplicas qui reçoivent le flux de réplication du primaire (copie à jour des paiements sur un autre worker).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 56,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "count(patroni_replica{stack=\"paiement\"} == 1 and on (instance) patroni_postgres_streaming{stack=\"paiement\"} == 1) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 2
+              }
+            ]
+          },
+          "unit": "suffix: / 2",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 27,
+      "type": "stat",
+      "title": "Frontal",
+      "description": "Répliques du frontal (une par worker) : la perte d'un worker ne coupe pas l'entrée de l'application.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 56,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "count(container_last_seen{container_label_com_docker_swarm_service_name=\"paiement_frontend\"}) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 3
+              }
+            ]
+          },
+          "unit": "suffix: / 3",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 28,
+      "type": "stat",
+      "title": "IP bannies au WAF",
+      "description": "Bannissements actifs (15 min) posés automatiquement sur waf01 : alerte Loki (rafale, force brute, attaques bloquées) -> Alertmanager -> récepteur waf-ban.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 13,
+        "y": 56,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "max(last_over_time({host=\"waf01\", identifier=\"waf-ban\"} |~ \"^(ban|expiration) \" | logfmt | unwrap actifs [20m]) by (host)) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "Dernière action de la passerelle",
+      "description": "Durée du dernier redémarrage demandé par le moteur à la passerelle remediate des managers (SSH, commande forcée), dernières 24 h.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 17,
+        "y": 56,
+        "w": 7,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "max(last_over_time({identifier=\"remediate\"} |= \"code=0\" | regexp \"code=(?P<code>[0-9]+) (?P<payload>.*)\" | line_format \"{{.payload}}\" | json duration_s | __error__=\"\" | unwrap duration_s [24h]) by (identifier))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 60
+              }
+            ]
+          },
+          "unit": "s",
+          "decimals": 1,
+          "noValue": "aucune (24 h)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 30,
+      "type": "state-timeline",
+      "title": "Base PostgreSQL : rôle des nœuds",
+      "description": "db1, db2, db3 (un par worker). Une bascule se voit au passage d'un réplica en PRIMAIRE (worker-crash du porteur de la base).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 61,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max by (name) (3 * patroni_primary{stack=\"paiement\"} + patroni_replica{stack=\"paiement\"} * (1 + patroni_postgres_streaming{stack=\"paiement\"}))",
+          "legendFormat": "{{name}}",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "3": {
+                  "text": "PRIMAIRE",
+                  "color": "blue",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "2": {
+                  "text": "réplica en flux",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "réplica sans flux",
+                  "color": "orange",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 85
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "auto",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "alignValue": "center",
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 31,
+      "type": "state-timeline",
+      "title": "Adresse virtuelle 10.30.1.200 : porteur",
+      "description": "keepalived sur les 3 workers : l'adresse passe sur un autre worker quand son porteur tombe (1 requête perdue mesurée).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 61,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max by (host) (app_vip_master)",
+          "legendFormat": "{{host}}",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "PORTEUR",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "secours",
+                  "color": "transparent",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 85
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "auto",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "alignValue": "center",
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 32,
       "type": "row",
       "title": "Back-office : reconnaissance faciale",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 67,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 26,
+      "id": 33,
       "type": "stat",
       "title": "Visages reconnus",
       "description": "Opérateurs reconnus par la caméra avant la saisie du mot de passe (auth_face_total{result=\"recognized\"}), sur la période affichée.",
@@ -2457,7 +3024,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 57,
+        "y": 68,
         "w": 5,
         "h": 4
       },
@@ -2514,7 +3081,7 @@
       }
     },
     {
-      "id": 27,
+      "id": 34,
       "type": "stat",
       "title": "Visages refusés",
       "description": "Cycles d'identification ratés (visage différent du gabarit, aucun visage, plusieurs visages). Beaucoup de refus en peu de temps : alerte AuthFaceRejectBurst.",
@@ -2524,7 +3091,7 @@
       },
       "gridPos": {
         "x": 5,
-        "y": 57,
+        "y": 68,
         "w": 5,
         "h": 4
       },
@@ -2589,7 +3156,7 @@
       }
     },
     {
-      "id": 28,
+      "id": 35,
       "type": "stat",
       "title": "Identifiants bloqués",
       "description": "Identifiants opérateur bloqués après deux cycles ratés (visage ou mot de passe).",
@@ -2599,7 +3166,7 @@
       },
       "gridPos": {
         "x": 10,
-        "y": 57,
+        "y": 68,
         "w": 4,
         "h": 4
       },
@@ -2660,7 +3227,7 @@
       }
     },
     {
-      "id": 29,
+      "id": 36,
       "type": "stat",
       "title": "Reconnaissance indisponible",
       "description": "Réponses 503 : modèles de reconnaissance absents ou illisibles côté serveur (journaux event=face result=unavailable). Alerte AuthFaceUnavailable.",
@@ -2670,7 +3237,7 @@
       },
       "gridPos": {
         "x": 14,
-        "y": 57,
+        "y": 68,
         "w": 5,
         "h": 4
       },
@@ -2729,7 +3296,7 @@
       }
     },
     {
-      "id": 30,
+      "id": 37,
       "type": "stat",
       "title": "Taux de reconnaissance",
       "description": "Reconnus / (reconnus + refusés + bloqués) sur la période affichée.",
@@ -2739,7 +3306,7 @@
       },
       "gridPos": {
         "x": 19,
-        "y": 57,
+        "y": 68,
         "w": 5,
         "h": 4
       },

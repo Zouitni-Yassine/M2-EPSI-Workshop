@@ -1,0 +1,1350 @@
+{
+  "id": null,
+  "uid": "logs-controle",
+  "title": "Logs - Sauvegardes et poste de contrôle",
+  "description": "Sauvegardes de la base (pg_dump, tests de restauration) et des VM (vzdump vers le PBS), connexions SSH et exécutions Ansible depuis le poste de contrôle control01.",
+  "tags": [
+    "logs"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "links": [
+    {
+      "title": "Accueil des logs",
+      "type": "link",
+      "url": "/d/logs-accueil",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Page d'accueil des dashboards de logs"
+    },
+    {
+      "title": "Vue centrale",
+      "type": "link",
+      "url": "/d/central",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Plateforme - vue centrale"
+    },
+    {
+      "title": "Proxmox & Ceph (métriques)",
+      "type": "link",
+      "url": "/d/proxmox",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Métriques du cluster et des sauvegardes"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "host",
+        "label": "Machine",
+        "type": "custom",
+        "query": "control01,ceph01,ceph02,ceph03",
+        "multi": true,
+        "includeAll": true,
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          {
+            "selected": false,
+            "text": "control01",
+            "value": "control01"
+          },
+          {
+            "selected": false,
+            "text": "ceph01",
+            "value": "ceph01"
+          },
+          {
+            "selected": false,
+            "text": "ceph02",
+            "value": "ceph02"
+          },
+          {
+            "selected": false,
+            "text": "ceph03",
+            "value": "ceph03"
+          }
+        ],
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "source",
+        "label": "Programme (source)",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "description": "Programmes (SYSLOG_IDENTIFIER) du journal : sauvegardes, SSH, planificateur Proxmox, cron, collecteur Alloy.",
+        "query": {
+          "type": 1,
+          "label": "identifier",
+          "stream": "{host=~\"$host\", job=\"journal\"}",
+          "refId": "LokiVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values({host=~\"$host\", job=\"journal\"},identifier)",
+        "regex": "/^(?:paiement-db-backup|sshd|sshd-session|pvescheduler|pvedaemon|systemd-logind|CRON|cron|sudo|su|alloy-wrapper)$/",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "recherche",
+        "label": "Recherche (texte ou regex)",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0,
+        "description": "Filtre appliqué à tous les panneaux de logs, sans distinction de casse (expression régulière). Vide = tout."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "En un coup d'œil",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Lignes de logs",
+      "description": "Lignes retenues (variables host et source) sur la période.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", job=\"journal\", identifier=~\"$source\", identifier!~\"ansible-.*\"} |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Erreurs (24 h)",
+      "description": "Lignes d'erreur (error, échec, fail, denied…) : sauvegarde en échec, connexion SSH refusée… Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", job=\"journal\", identifier=~\"$source\", identifier!~\"ansible-.*\"} |~ `(?i)$recherche` |~ `(?i)(error|erreur|err=|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception|unable|cannot)` !~ `level=info` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Sauvegardes de la base réussies",
+      "description": "Dumps pg_dump réussis (bases payments et auth, toutes les 15 min, depuis le primaire Patroni) sur la période : 8 attendus par heure.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "count(sum by (fichier) (count_over_time({host=\"control01\", identifier=\"paiement-db-backup\"} |= `ok base=` | logfmt [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Échecs de sauvegarde (24 h)",
+      "description": "Sauvegardes en échec : dump de la base (primaire introuvable…) et sauvegardes vzdump des VM. 0 attendu (chaque échec de dump est journalisé deux fois). Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({host=\"control01\", identifier=\"paiement-db-backup\"} |= `echec` [$__range])) or vector(0)) + (sum(count_over_time({host=~\"$host\", job=\"journal\"} |~ `Backup of (VM|CT) [0-9]+ failed|Backup job failed` [$__range])) or vector(0))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Sauvegardes de VM réussies (24 h)",
+      "description": "VM et conteneurs sauvegardés vers le PBS (jobs 13h00 et 21h00). Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", job=\"journal\"} |~ `Finished Backup of (VM|CT)` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Connexions SSH acceptées",
+      "description": "Sessions SSH ouvertes (clé publique) sur les machines retenues : poste de contrôle et hyperviseurs.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"sshd.*\"} |~ `Accepted \\S+ for|Failed \\S+ for|Invalid user` |= `Accepted` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Volume de logs par source",
+      "description": "Lignes par programme et par intervalle (barres empilées) : sshd-session et systemd-logind suivent les connexions SSH (Ansible, scripts), paiement-db-backup les dumps, pvescheduler les sauvegardes des VM.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (identifier) (count_over_time({host=~\"$host\", job=\"journal\", identifier=~\"$source\", identifier!~\"ansible-.*\"} |~ `(?i)$recherche` [$__interval]))",
+          "legendFormat": "{{identifier}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Erreurs et avertissements",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "Erreurs et avertissements (24 h)",
+      "description": "Lignes d'erreur ou d'avertissement du poste de contrôle et des hyperviseurs (source choisie) : « echec : primaire PostgreSQL introuvable » = dump impossible pendant une bascule ou au démarrage du lab ; « Failed publickey » = clé SSH refusée. Exclu : lignes level=info du collecteur Alloy. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", job=\"journal\", identifier=~\"$source\", identifier!~\"ansible-.*\"} |~ `(?i)$recherche` |~ `(?i)(error|erreur|err=|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception|unable|cannot)|(\\bwarn(ing)?\\b|\\[warn\\])` !~ `level=info` | line_format `{{.host}} [{{.identifier}}] {{ regexReplaceAll \"@pam![^ \\\\[]+\" (regexReplaceAll \"@pve![^ \\\\[]+\" (regexReplaceAll \"hmac-sha256:[0-9a-f]+\" (regexReplaceAll \"hvs\\\\.[A-Za-z0-9_-]+\" (regexReplaceAll \"eyJ[A-Za-z0-9_-]+\\\\.[A-Za-z0-9_-]+\\\\.?[A-Za-z0-9_-]*\" (regexReplaceAll \"(?i)bearer [A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"\\\\brole_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccessor=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\blease_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsession_state=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsessionId=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bupdated_refresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btotp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\botp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpasswd=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpassword=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_secret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bid_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccess_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" __line__ \"access_token=***\") \"refresh_token=***\") \"id_token=***\") \"client_secret=***\") \"password=***\") \"passwd=***\") \"secret=***\") \"token=***\") \"otp=***\") \"totp=***\") \"code=***\") \"code_id=***\") \"token_id=***\") \"refresh_token_id=***\") \"updated_refresh_token_id=***\") \"sessionId=***\") \"session_state=***\") \"lease_id=***\") \"accessor=***\") \"client_token=***\") \"secret_id=***\") \"role_id=***\") \"Bearer ***\") \"***jwt***\") \"hvs.***\") \"hmac-sha256:***\") \"@pve!(jeton)\") \"@pam!(jeton)\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Événements clés",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "Sauvegardes de la base (pg_dump) et tests de restauration",
+      "description": "Dumps logiques toutes les 15 min (timer paiement-db-backup sur control01, /var/backups/paiement) : base, nœud du primaire Patroni, taille, durée. « TEST DE RESTAURATION » : paiement-db-restore-test (restauration dans une base jetable, comparaison au nombre de paiements en production). « echec » = dump impossible. Les doublons (journal + logger) sont repliés.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=\"control01\", identifier=\"paiement-db-backup\"} |~ `(?i)$recherche` | logfmt | line_format `{{ if .base }}OK      {{.base}} depuis {{.noeud}} : {{.taille}} octets en {{.duree_s}} s{{ else if .restaures }}TEST DE RESTAURATION : {{.restaures}} paiements restaurés (production : {{.production}}) en {{.duree_s}} s, dump de {{.dump_age_s}} s{{ else }}{{ __line__ }}{{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "exact",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Taille des dumps de la base",
+      "description": "Taille de chaque dump (octets), lue dans le journal de la sauvegarde : elle croît avec le nombre de paiements ; une chute ou un trou signale un dump vide ou manqué.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "max by (base) (max_over_time({host=\"control01\", identifier=\"paiement-db-backup\"} |= `ok base=` | logfmt | __error__=\"\" | unwrap taille [15m]))",
+          "legendFormat": "{{base}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "showPoints": "auto",
+            "spanNulls": true,
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "5m"
+    },
+    {
+      "id": 14,
+      "type": "logs",
+      "title": "Sauvegardes vzdump des VM vers le PBS (24 h)",
+      "description": "Sauvegardes des VM et conteneurs vers le PBS (workshop-local-pbs) : début du job (liste des VM), début et fin de chaque VM avec sa durée (hh:mm:ss), erreurs « Backup of VM … failed » et fin du job. Jobs planifiés 13h00 et 21h00 (heure de Paris) ; une sauvegarde gèle chaque VM environ 45 s. La taille transférée n'est pas journalisée par Proxmox (elle se lit dans le PBS). Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", job=\"journal\"} |~ `(Starting|Finished) Backup of (VM|CT)|Backup of (VM|CT) [0-9]+ failed|Backup job finished|starting new backup job|ERROR: Backup` |~ `(?i)$recherche` | line_format `{{.host}}  {{ regexReplaceAll \" --.*$\" (regexReplaceAll \"^(INFO|ERROR): \" __line__ \"\") \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 15,
+      "type": "logs",
+      "title": "Sessions SSH",
+      "description": "Connexions SSH sur le poste de contrôle et les hyperviseurs : utilisateur, IP source, méthode (publickey). « REFUS » = mot de passe ou clé refusés, utilisateur inconnu. 10.10.0.3 = poste d'administration (VPN), 10.0.1.110 = poste de contrôle (Ansible, scripts de chaos).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 29,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"sshd.*\"} |~ `Accepted \\S+ for|Failed \\S+ for|Invalid user` |~ `(?i)$recherche` | regexp `(?P<resultat>Accepted|Failed|Invalid user)( (?P<methode>\\S+) for)?( invalid user)? (?P<utilisateur>\\S+) from (?P<ip>\\S+)` | line_format `{{.host}}  {{ if eq .resultat \"Accepted\" }}Connexion{{ else }}REFUS{{ end }} {{.utilisateur}} depuis {{.ip}}{{ if .methode }} ({{.methode}}){{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Sessions SSH par utilisateur et IP source",
+      "description": "Nombre de connexions SSH par machine, résultat, utilisateur et IP source sur la période.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (host, resultat, utilisateur, ip) (count_over_time({host=~\"$host\", identifier=~\"sshd.*\"} |~ `Accepted \\S+ for|Failed \\S+ for|Invalid user` | regexp `(?P<resultat>Accepted|Failed|Invalid user)( (?P<methode>\\S+) for)?( invalid user)? (?P<utilisateur>\\S+) from (?P<ip>\\S+)` [$__range]))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Connexions",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {}
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "host": 0,
+              "utilisateur": 1,
+              "ip": 2,
+              "resultat": 3,
+              "Value": 4
+            },
+            "renameByName": {
+              "host": "Machine",
+              "resultat": "Résultat",
+              "utilisateur": "Utilisateur",
+              "ip": "IP source",
+              "Value": "Connexions"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Exécutions Ansible vues sur les machines (modules par minute)",
+      "description": "Modules Ansible exécutés sur chaque machine gérée (journal des cibles, toutes machines, indépendamment de la variable host) : chaque barre = un passage de playbook lancé depuis control01 par vault-env ansible-playbook. Terraform ne journalise rien côté machines.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 39,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (host) (count_over_time({identifier=~\"ansible-.*\"} [$__interval]))",
+          "legendFormat": "{{host}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "logs",
+      "title": "Modules Ansible exécutés (nom du module seulement)",
+      "description": "Un module Ansible par ligne et par machine cible. Les paramètres des modules (qui peuvent contenir des contenus de fichiers) ne sont pas affichés.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{identifier=~\"ansible-.*\"} |~ `(?i)$recherche` | line_format `{{.host}}  {{ regexReplaceAll \"^ansible-\" .identifier \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "Tous les logs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 55,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "logs",
+      "title": "Journal du poste de contrôle et des hyperviseurs (source choisie)",
+      "description": "Toutes les lignes des programmes choisis dans « source », plus récentes en haut, valeurs sensibles masquées. Les invocations de modules Ansible sont exclues (panneau dédié ci-dessus).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", job=\"journal\", identifier=~\"$source\", identifier!~\"ansible-.*\"} |~ `(?i)$recherche` | line_format `{{.host}} [{{.identifier}}] {{ regexReplaceAll \"@pam![^ \\\\[]+\" (regexReplaceAll \"@pve![^ \\\\[]+\" (regexReplaceAll \"hmac-sha256:[0-9a-f]+\" (regexReplaceAll \"hvs\\\\.[A-Za-z0-9_-]+\" (regexReplaceAll \"eyJ[A-Za-z0-9_-]+\\\\.[A-Za-z0-9_-]+\\\\.?[A-Za-z0-9_-]*\" (regexReplaceAll \"(?i)bearer [A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"\\\\brole_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccessor=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\blease_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsession_state=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsessionId=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bupdated_refresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btotp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\botp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpasswd=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpassword=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_secret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bid_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccess_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" __line__ \"access_token=***\") \"refresh_token=***\") \"id_token=***\") \"client_secret=***\") \"password=***\") \"passwd=***\") \"secret=***\") \"token=***\") \"otp=***\") \"totp=***\") \"code=***\") \"code_id=***\") \"token_id=***\") \"refresh_token_id=***\") \"updated_refresh_token_id=***\") \"sessionId=***\") \"session_state=***\") \"lease_id=***\") \"accessor=***\") \"client_token=***\") \"secret_id=***\") \"role_id=***\") \"Bearer ***\") \"***jwt***\") \"hvs.***\") \"hmac-sha256:***\") \"@pve!(jeton)\") \"@pam!(jeton)\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

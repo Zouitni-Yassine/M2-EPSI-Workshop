@@ -1,0 +1,1314 @@
+{
+  "id": null,
+  "uid": "logs-virtualisation",
+  "title": "Logs - Virtualisation (Proxmox / Ceph)",
+  "description": "Journaux des hyperviseurs ceph01-03 : haute disponibilité, quorum corosync, Ceph, sauvegardes vzdump, connexions à l'interface Proxmox.",
+  "tags": [
+    "logs"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "links": [
+    {
+      "title": "Accueil des logs",
+      "type": "link",
+      "url": "/d/logs-accueil",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Page d'accueil des dashboards de logs"
+    },
+    {
+      "title": "Proxmox & Ceph (métriques)",
+      "type": "link",
+      "url": "/d/proxmox",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Métriques du cluster Proxmox et de Ceph"
+    },
+    {
+      "title": "Vue centrale",
+      "type": "link",
+      "url": "/d/central",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Plateforme - vue centrale"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "host",
+        "label": "Hyperviseur",
+        "type": "custom",
+        "query": "ceph01,ceph02,ceph03",
+        "multi": true,
+        "includeAll": true,
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          {
+            "selected": false,
+            "text": "ceph01",
+            "value": "ceph01"
+          },
+          {
+            "selected": false,
+            "text": "ceph02",
+            "value": "ceph02"
+          },
+          {
+            "selected": false,
+            "text": "ceph03",
+            "value": "ceph03"
+          }
+        ],
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "source",
+        "label": "Unité (source)",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "description": "Unités systemd Proxmox et Ceph des hyperviseurs.",
+        "query": {
+          "type": 1,
+          "label": "unit",
+          "stream": "{host=~\"$host\", job=\"journal\"}",
+          "refId": "LokiVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values({host=~\"$host\", job=\"journal\"},unit)",
+        "regex": "/^(?:pve.*|qmeventd|corosync|watchdog-mux|spiceproxy|ceph-.*|lxcfs)\\.service$/",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "recherche",
+        "label": "Recherche (texte ou regex)",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0,
+        "description": "Filtre appliqué à tous les panneaux de logs, sans distinction de casse (expression régulière). Vide = tout."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "En un coup d'œil",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Lignes de logs",
+      "description": "Nombre de lignes du journal des unités Proxmox / Ceph retenues (variables host et source) sur la période affichée.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", job=\"journal\", unit=~\"$source\", identifier!=\"sudo\"} |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Erreurs",
+      "description": "Lignes contenant un mot-clé d'erreur (error, fail, denied, timeout…), bruit connu exclu (voir le panneau « Erreurs et avertissements »). 0 attendu en temps normal.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", job=\"journal\", unit=~\"$source\", identifier!=\"sudo\"} |~ `(?i)$recherche` |~ `(?i)(error|erreur|err=|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception|unable|cannot)` !~ `Hangup|/proc/[0-9]+/cmdline|ObjectNotFound|Connection reset by peer|Loading module|set_numa_affinity` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Avertissements",
+      "description": "Lignes de niveau WARN / warning (rares : Proxmox ne préfixe pas le niveau).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", job=\"journal\", unit=~\"$source\", identifier!=\"sudo\"} |~ `(?i)$recherche` |~ `(?i)(\\bwarn(ing)?\\b|\\[warn\\])` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Actions HA (24 h)",
+      "description": "Changements d'état des services HA (VM démarrée, arrêtée, migrée, relancée sur un autre nœud, nœud isolé « fence »). Non nul après un incident ou un redémarrage du lab. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", unit=~\"pve-ha-(crm|lrm).service\"} |~ `state changed|starting service|stopping service|fence|recover|migrat|relocat` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Sauvegardes de VM réussies (24 h)",
+      "description": "VM ou conteneurs sauvegardés avec succès vers le PBS sur la période (jobs vzdump). Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", job=\"journal\"} |~ `Finished Backup of (VM|CT)` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Sauvegardes de VM en échec (24 h)",
+      "description": "Sauvegardes vzdump en erreur (VM ou job entier). 0 attendu. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", job=\"journal\"} |~ `Backup of (VM|CT) [0-9]+ failed|Backup job failed` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Volume de logs par unité",
+      "description": "Lignes par unité systemd et par intervalle (barres empilées). Un pic signale une activité : démarrage du lab (tous les services), sauvegarde (pvescheduler), incident HA (pve-ha-*), panne réseau (corosync).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (unit) (count_over_time({host=~\"$host\", job=\"journal\", unit=~\"$source\", identifier!=\"sudo\"} |~ `(?i)$recherche` [$__interval]))",
+          "legendFormat": "{{unit}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Erreurs et avertissements",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "Erreurs et avertissements des hyperviseurs (24 h)",
+      "description": "Lignes d'erreur ou d'avertissement, plus récentes en haut. Bruit exclu : signaux SIGHUP envoyés par logrotate aux démons Ceph, « ObjectNotFound » de ceph-crash au démarrage, « Connection reset by peer » de qmeventd à l'arrêt d'une VM, chargement des modules du mgr, smartctl lancé par sudo. « invalid PVE ticket » : session de l'interface expirée (sans gravité). « heartbeat_check: no reply » : un OSD ne répond plus (nœud ou réseau Ceph en panne). Au démarrage du lab, pve-cluster signale « cpg_initialize failed » tant que corosync n'est pas prêt (normal). Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", job=\"journal\", unit=~\"$source\", identifier!=\"sudo\"} |~ `(?i)$recherche` |~ `(?i)(error|erreur|err=|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception|unable|cannot)|(\\bwarn(ing)?\\b|\\[warn\\])` !~ `Hangup|/proc/[0-9]+/cmdline|ObjectNotFound|Connection reset by peer|Loading module|set_numa_affinity` | line_format `{{.host}} [{{.unit}}] {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Événements clés",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "Haute disponibilité : actions sur les VM (24 h)",
+      "description": "Décisions du gestionnaire HA (pve-ha-crm, un seul nœud « master ») et actions des agents locaux (pve-ha-lrm) : service ajouté, démarré, arrêté, migré, relancé ailleurs (« recover ») ou nœud isolé (« fence ») après la perte d'un hyperviseur. « status change slave => master » : bascule du gestionnaire. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", unit=~\"pve-ha-(crm|lrm).service\"} |~ `state changed|adding new service|removing stale|fence|recover|migrat|relocat|status change|acquired lock|starting service|stopping service|started with PID|starting CT|lost` !~ `still active` |~ `(?i)$recherche` | line_format `{{.host}}  {{ regexReplaceAll \": UPID:[^ ]+\" (regexReplaceAll \" using pve-qemu-kvm[^ ]*\" __line__ \"\") \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 13,
+      "type": "logs",
+      "title": "Cluster : quorum corosync et pmxcfs (24 h)",
+      "description": "Appartenance au cluster : « Members[3]: 1 2 3 » = les trois nœuds sont présents ; « This node is within the primary component » = quorum atteint ; « left », « lost » ou « link down » = nœud ou lien perdu. pve-cluster (pmxcfs) : base de configuration partagée (synchronisation, erreurs critiques). Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", unit=~\"corosync.service|pve-cluster.service\"} |~ `(?i)quorum|member|joined|left|lost|link|crit|failed` |~ `(?i)$recherche` | line_format `{{.host}} [{{.unit}}] {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 14,
+      "type": "logs",
+      "title": "Sauvegardes vzdump vers le PBS (24 h)",
+      "description": "Sauvegardes des VM et conteneurs vers le PBS (workshop-local-pbs) : début du job (liste des VM), début et fin de chaque VM avec sa durée (hh:mm:ss), erreurs « Backup of VM … failed » et fin du job. Jobs planifiés 13h00 et 21h00 (heure de Paris) ; une sauvegarde gèle chaque VM environ 45 s. La taille transférée n'est pas journalisée par Proxmox (elle se lit dans le PBS). Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", job=\"journal\"} |~ `(Starting|Finished) Backup of (VM|CT)|Backup of (VM|CT) [0-9]+ failed|Backup job finished|starting new backup job|ERROR: Backup` |~ `(?i)$recherche` | line_format `{{.host}}  {{ regexReplaceAll \" --.*$\" (regexReplaceAll \"^(INFO|ERROR): \" __line__ \"\") \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 15,
+      "type": "logs",
+      "title": "Ceph : OSD, moniteurs, gestionnaire (24 h)",
+      "description": "Messages des démons Ceph (bruit des signaux de logrotate exclu) : « heartbeat_check: no reply from … osd.N » = OSD injoignable, « marked down / boot » = OSD sorti ou revenu. L'état de santé global (HEALTH_OK / WARN) est dans le journal du cluster (/var/log/ceph/ceph.log, non collecté) : le lire dans le dashboard Proxmox & Ceph. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", unit=~\"ceph-(osd|mon|mgr)@.*|ceph-crash.service\", identifier!=\"sudo\"} !~ `Hangup|/proc/[0-9]+/cmdline|ObjectNotFound|Connection reset by peer|Loading module|set_numa_affinity` |~ `(?i)$recherche` | line_format `{{.host}} [{{.unit}}] {{ regexReplaceAll \"^[0-9T:.+-]+ [0-9a-f]+ +-?[0-9]+ \" __line__ \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 16,
+      "type": "logs",
+      "title": "Connexions à l'interface Proxmox (24 h)",
+      "description": "Authentifications sur l'interface web / API Proxmox : « successful openid auth » = connexion SSO Keycloak (TOTP), « successful auth » = renouvellement du ticket (toutes les 15 min tant que l'onglet est ouvert), « authentication failure » = échec (utilisateur, IP source). « invalid PVE ticket » : session expirée. Aucun jeton ni mot de passe n'apparaît. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 14,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", unit=~\"pvedaemon.service|pveproxy.service\"} |~ `successful (openid )?auth for user|authentication failure` |~ `(?i)$recherche` | line_format `{{.host}}  {{ regexReplaceAll \"^<[^>]+> \" (regexReplaceAll \"msg=.*$\" __line__ \"\") \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 17,
+      "type": "table",
+      "title": "Connexions par utilisateur (24 h)",
+      "description": "Nombre d'authentifications par utilisateur et par résultat sur la période. « successful auth » inclut les renouvellements automatiques de ticket. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 40,
+        "w": 10,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (resultat, utilisateur) (count_over_time({host=~\"$host\", unit=~\"pvedaemon.service|pveproxy.service\"} |~ `successful (openid )?auth for user|authentication failure` | regexp `(?P<resultat>successful (?:openid )?auth|authentication failure).*user[ =]'?(?P<utilisateur>[^' ;]+)` [$__range]))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Nombre",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {}
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "utilisateur": 0,
+              "resultat": 1,
+              "Value": 2
+            },
+            "renameByName": {
+              "resultat": "Résultat",
+              "utilisateur": "Utilisateur",
+              "Value": "Nombre"
+            }
+          }
+        }
+      ],
+      "timeFrom": "24h"
+    },
+    {
+      "id": 18,
+      "type": "row",
+      "title": "Tous les logs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 49,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 19,
+      "type": "logs",
+      "title": "Journal des hyperviseurs (unités Proxmox / Ceph)",
+      "description": "Toutes les lignes des unités choisies dans « source », plus récentes en haut. Lignes de sudo (smartctl lancé par ceph-mon) exclues.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", job=\"journal\", unit=~\"$source\", identifier!=\"sudo\"} |~ `(?i)$recherche` | line_format `{{.host}} [{{.unit}}] {{ regexReplaceAll \"@pam![^ \\\\[]+\" (regexReplaceAll \"@pve![^ \\\\[]+\" (regexReplaceAll \"hmac-sha256:[0-9a-f]+\" (regexReplaceAll \"hvs\\\\.[A-Za-z0-9_-]+\" (regexReplaceAll \"eyJ[A-Za-z0-9_-]+\\\\.[A-Za-z0-9_-]+\\\\.?[A-Za-z0-9_-]*\" (regexReplaceAll \"(?i)bearer [A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"\\\\brole_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccessor=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\blease_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsession_state=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsessionId=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bupdated_refresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btotp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\botp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpasswd=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpassword=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_secret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bid_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccess_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" __line__ \"access_token=***\") \"refresh_token=***\") \"id_token=***\") \"client_secret=***\") \"password=***\") \"passwd=***\") \"secret=***\") \"token=***\") \"otp=***\") \"totp=***\") \"code=***\") \"code_id=***\") \"token_id=***\") \"refresh_token_id=***\") \"updated_refresh_token_id=***\") \"sessionId=***\") \"session_state=***\") \"lease_id=***\") \"accessor=***\") \"client_token=***\") \"secret_id=***\") \"role_id=***\") \"Bearer ***\") \"***jwt***\") \"hvs.***\") \"hmac-sha256:***\") \"@pve!(jeton)\") \"@pam!(jeton)\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 20,
+      "type": "logs",
+      "title": "Journal d'accès de l'interface web (pveproxy, hors comptes de service)",
+      "description": "Requêtes HTTP sur l'interface web Proxmox (port 8006) : IP source, utilisateur, requête, code de retour. Les appels des jetons d'API (supervision, Terraform) et des comptes de service svc_* sont exclus (plusieurs milliers par heure). Code 401 sur /access/ticket = échec de connexion.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", job=\"pveproxy\"} !~ `![^ ]+ \\[` !~ `svc_` |~ `(?i)$recherche` | line_format `{{.host}} {{ regexReplaceAll \"@pam![^ \\\\[]+\" (regexReplaceAll \"@pve![^ \\\\[]+\" (regexReplaceAll \"hmac-sha256:[0-9a-f]+\" (regexReplaceAll \"hvs\\\\.[A-Za-z0-9_-]+\" (regexReplaceAll \"eyJ[A-Za-z0-9_-]+\\\\.[A-Za-z0-9_-]+\\\\.?[A-Za-z0-9_-]*\" (regexReplaceAll \"(?i)bearer [A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"\\\\brole_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccessor=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\blease_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsession_state=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsessionId=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bupdated_refresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btotp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\botp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpasswd=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpassword=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_secret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bid_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccess_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" __line__ \"access_token=***\") \"refresh_token=***\") \"id_token=***\") \"client_secret=***\") \"password=***\") \"passwd=***\") \"secret=***\") \"token=***\") \"otp=***\") \"totp=***\") \"code=***\") \"code_id=***\") \"token_id=***\") \"refresh_token_id=***\") \"updated_refresh_token_id=***\") \"sessionId=***\") \"session_state=***\") \"lease_id=***\") \"accessor=***\") \"client_token=***\") \"secret_id=***\") \"role_id=***\") \"Bearer ***\") \"***jwt***\") \"hvs.***\") \"hmac-sha256:***\") \"@pve!(jeton)\") \"@pam!(jeton)\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

@@ -1,0 +1,1449 @@
+{
+  "id": null,
+  "uid": "logs-supervision",
+  "title": "Logs - Supervision",
+  "description": "Logs de la chaîne de supervision : collecte (Alloy, vmagent), stockage (Loki, VictoriaMetrics), alertes (vmalert, Alertmanager, notifications Discord) et Grafana.",
+  "tags": [
+    "logs",
+    "supervision"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "links": [
+    {
+      "title": "Logs - Accueil",
+      "type": "link",
+      "url": "/d/logs-accueil",
+      "icon": "doc",
+      "tooltip": "Page d'entrée des logs : toutes les parties",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "Autres logs",
+      "type": "dashboards",
+      "tags": [
+        "logs"
+      ],
+      "asDropdown": true,
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "icon": "external link",
+      "tooltip": "",
+      "url": ""
+    },
+    {
+      "title": "VictoriaMetrics",
+      "type": "link",
+      "url": "/d/victoriametrics",
+      "icon": "dashboard",
+      "tooltip": "Supervision - VictoriaMetrics",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "vmagent",
+      "type": "link",
+      "url": "/d/vmagent",
+      "icon": "dashboard",
+      "tooltip": "Supervision - vmagent",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "vmalert",
+      "type": "link",
+      "url": "/d/vmalert",
+      "icon": "dashboard",
+      "tooltip": "Supervision - vmalert",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "Vue centrale",
+      "type": "link",
+      "url": "/d/central",
+      "icon": "dashboard",
+      "tooltip": "Plateforme - vue centrale",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "host",
+        "label": "Machine",
+        "description": "monitoring01 et vmagent01-02 ; Alloy tourne sur toutes les machines, le vmagent du Swarm sur un worker.",
+        "query": "ceph01,ceph02,ceph03,control01,dockermgr01,dockermgr02,dockermgr03,dockerwrk01,dockerwrk02,dockerwrk03,iam01,monitoring01,rag01,vault01,vaultwarden01,vmagent01,vmagent02,waf01",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "ceph01",
+            "value": "ceph01",
+            "selected": false
+          },
+          {
+            "text": "ceph02",
+            "value": "ceph02",
+            "selected": false
+          },
+          {
+            "text": "ceph03",
+            "value": "ceph03",
+            "selected": false
+          },
+          {
+            "text": "control01",
+            "value": "control01",
+            "selected": false
+          },
+          {
+            "text": "dockermgr01",
+            "value": "dockermgr01",
+            "selected": false
+          },
+          {
+            "text": "dockermgr02",
+            "value": "dockermgr02",
+            "selected": false
+          },
+          {
+            "text": "dockermgr03",
+            "value": "dockermgr03",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk01",
+            "value": "dockerwrk01",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk02",
+            "value": "dockerwrk02",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk03",
+            "value": "dockerwrk03",
+            "selected": false
+          },
+          {
+            "text": "iam01",
+            "value": "iam01",
+            "selected": false
+          },
+          {
+            "text": "monitoring01",
+            "value": "monitoring01",
+            "selected": false
+          },
+          {
+            "text": "rag01",
+            "value": "rag01",
+            "selected": false
+          },
+          {
+            "text": "vault01",
+            "value": "vault01",
+            "selected": false
+          },
+          {
+            "text": "vaultwarden01",
+            "value": "vaultwarden01",
+            "selected": false
+          },
+          {
+            "text": "vmagent01",
+            "value": "vmagent01",
+            "selected": false
+          },
+          {
+            "text": "vmagent02",
+            "value": "vmagent02",
+            "selected": false
+          },
+          {
+            "text": "waf01",
+            "value": "waf01",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "custom",
+        "name": "source",
+        "label": "Composant",
+        "description": "Label identifier du journal.",
+        "query": "Loki : loki,Grafana : grafana,Alertmanager : prometheus-alertmanager,vmalert,VictoriaMetrics : victoria-metrics,vmauth,vmagent (VM) : vmagent,vmagent du Swarm : monitoring_vmagent,Exportateur Proxmox : pve_exporter,Alloy : alloy-wrapper",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "Loki",
+            "value": "loki",
+            "selected": false
+          },
+          {
+            "text": "Grafana",
+            "value": "grafana",
+            "selected": false
+          },
+          {
+            "text": "Alertmanager",
+            "value": "prometheus-alertmanager",
+            "selected": false
+          },
+          {
+            "text": "vmalert",
+            "value": "vmalert",
+            "selected": false
+          },
+          {
+            "text": "VictoriaMetrics",
+            "value": "victoria-metrics",
+            "selected": false
+          },
+          {
+            "text": "vmauth",
+            "value": "vmauth",
+            "selected": false
+          },
+          {
+            "text": "vmagent (VM)",
+            "value": "vmagent",
+            "selected": false
+          },
+          {
+            "text": "vmagent du Swarm",
+            "value": "monitoring_vmagent",
+            "selected": false
+          },
+          {
+            "text": "Exportateur Proxmox",
+            "value": "pve_exporter",
+            "selected": false
+          },
+          {
+            "text": "Alloy",
+            "value": "alloy-wrapper",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "recherche",
+        "label": "Recherche (regex)",
+        "description": "Filtre texte appliqué aux panneaux de logs (expression régulière, insensible à la casse). Vide = tout.",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "En un coup d'œil",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Lignes de logs",
+      "description": "Lignes reçues pour les sources sélectionnées. Loki journalise chacune de ses requêtes : c'est la source la plus bavarde.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"loki|grafana|prometheus-alertmanager|vmalert|victoria-metrics|vmauth|vmagent|monitoring_vmagent.*|pve_exporter|alloy-wrapper\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Erreurs",
+      "description": "Lignes de niveau error/fatal (format level=... ou tabulé de VictoriaMetrics), cibles injoignables et échecs d'envoi (remote write).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"loki|grafana|prometheus-alertmanager|vmalert|victoria-metrics|vmauth|vmagent|monitoring_vmagent.*|pve_exporter|alloy-wrapper\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" |~ `level=error|level=eror|level=crit|level=fatal|\\terror\\t|\\tfatal\\t|\\tpanic\\t|panic:|Traceback|cannot scrape|couldn't send` |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Avertissements",
+      "description": "Lignes de niveau warn.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"loki|grafana|prometheus-alertmanager|vmalert|victoria-metrics|vmauth|vmagent|monitoring_vmagent.*|pve_exporter|alloy-wrapper\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" |~ `level=warn|\twarn\t` |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Notifications envoyées",
+      "description": "Notifications d'alerte envoyées par Alertmanager vers Discord (déclenchées et résolues), lues dans le journal de notification de monitoring01.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"alertmanager-notify\"} |= `\"body\":` | json body | line_format `{{.body}}` | json status, receiver, alertname=\"alerts[0].labels.alertname\", severity=\"alerts[0].labels.severity\", summary=\"alerts[0].annotations.summary\" | __error__=\"\" [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Alertes déclenchées",
+      "description": "Notifications « firing » sur la période (une alerte qui reste active n'est renotifiée qu'après le délai de répétition d'Alertmanager).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"alertmanager-notify\"} |= `\"body\":` | json body | line_format `{{.body}}` | json status, receiver, alertname=\"alerts[0].labels.alertname\", severity=\"alerts[0].labels.severity\", summary=\"alerts[0].annotations.summary\" | __error__=\"\" | status=\"firing\" [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Erreurs de collecte",
+      "description": "Cibles que vmagent n'a pas pu interroger, blocs non envoyés à VictoriaMetrics, erreurs de découverte DNS du vmagent du Swarm, règles vmalert en échec.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"vmagent|monitoring_vmagent.*|alloy-wrapper|vmalert\"} |~ `cannot scrape|couldn't send|cannot send|error in .* lookup|failed to execute|level=(error|warn)` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Volume de logs par source",
+      "description": "Nombre de lignes de logs par intervalle, empilées par source. Un pic isolé = un événement (redémarrage, attaque, rafale d'erreurs) ; une source qui disparaît = service arrêté ou collecte (Alloy) en panne.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (src) (count_over_time({host=~\"$host\", identifier=~\"loki|grafana|prometheus-alertmanager|vmalert|victoria-metrics|vmauth|vmagent|monitoring_vmagent.*|pve_exporter|alloy-wrapper\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" |~ `(?i)$recherche` [$__interval]))",
+          "legendFormat": "{{src}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Erreurs et avertissements",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "Erreurs et avertissements",
+      "description": "Erreurs et avertissements des composants de supervision. À savoir : « error notifying scheduler » de Loki et « context canceled » de Grafana = requête annulée par le navigateur (bénin) ; « cannot scrape target » = machine ou exportateur injoignable (souvent pendant un test de chaos).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"loki|grafana|prometheus-alertmanager|vmalert|victoria-metrics|vmauth|vmagent|monitoring_vmagent.*|pve_exporter|alloy-wrapper\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" |~ `level=error|level=eror|level=crit|level=fatal|\\terror\\t|\\tfatal\\t|\\tpanic\\t|panic:|Traceback|cannot scrape|couldn't send|level=warn|\twarn\t` |~ `(?i)$recherche` | line_format `{{.host}} · {{.src}} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Événements clés",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "Notifications d'alerte (Discord) (24 h)",
+      "description": "Chaque notification envoyée par Alertmanager : statut, nom de l'alerte, gravité, destinataire et résumé. L'URL du webhook Discord n'est pas dans ce journal. Si plusieurs alertes sont groupées, seule la première est nommée.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 14,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{job=\"alertmanager-notify\"} |= `\"body\":` | json body | line_format `{{.body}}` | json status, receiver, alertname=\"alerts[0].labels.alertname\", severity=\"alerts[0].labels.severity\", summary=\"alerts[0].annotations.summary\" | __error__=\"\" |~ `(?i)$recherche` | line_format `{{ if eq .status \"firing\" }}DÉCLENCHÉE{{ else }}RÉSOLUE   {{ end }}  {{.alertname}}  ({{.severity}})  → {{.receiver}} : {{.summary}}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Notifications par alerte (24 h)",
+      "description": "Nombre de notifications par alerte et par statut (firing = déclenchée, resolved = résolue).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 23,
+        "w": 10,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (alertname, severity, status) (count_over_time({job=\"alertmanager-notify\"} |= `\"body\":` | json body | line_format `{{.body}}` | json status, receiver, alertname=\"alerts[0].labels.alertname\", severity=\"alerts[0].labels.severity\", summary=\"alerts[0].annotations.summary\" | __error__=\"\" [$__range]))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Notifications"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "labelsToFields": true,
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Field": true
+            },
+            "indexByName": {
+              "alertname": 0,
+              "severity": 1,
+              "status": 2,
+              "Last *": 3
+            },
+            "renameByName": {
+              "alertname": "Alerte",
+              "severity": "Gravité",
+              "status": "Statut",
+              "Last *": "Notifications"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Notifications",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "timeFrom": "24h"
+    },
+    {
+      "id": 14,
+      "type": "logs",
+      "title": "Erreurs de collecte (vmagent, Alloy, vmalert)",
+      "description": "Collecte des métriques : cible injoignable (« cannot scrape target » : machine arrêtée ou exportateur tombé), remote write vers VictoriaMetrics en échec (« couldn't send a block », renvoyé ensuite), résolution DNS d'un service Swarm absent (vmagent du Swarm), règle vmalert non évaluée.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 14,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"vmagent|monitoring_vmagent.*|alloy-wrapper|vmalert\"} |~ `cannot scrape|couldn't send|cannot send|error in .* lookup|failed to execute|level=(error|warn)` |~ `(?i)$recherche` | line_format `{{.host}} · {{ regexReplaceAll \"^\\\\S+\\\\t\\\\w+\\\\t\\\\S+\\\\t\" __line__ \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Cibles injoignables (vmagent)",
+      "description": "Cibles de collecte en échec sur la période, par machine et exportateur (node, cadvisor, docker...). Les deux vmagent interrogent les mêmes cibles : chaque échec compte deux fois.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 32,
+        "w": 10,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (cible, job) (count_over_time({host=~\"$host\", identifier=\"vmagent\"} |= `cannot scrape target` | regexp `\\(\\{host=\"(?P<cible>[^\"]+)\".*?job=\"(?P<job>[^\"]+)\"` [$__range]))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Échecs"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "labelsToFields": true,
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Field": true
+            },
+            "indexByName": {
+              "cible": 0,
+              "job": 1,
+              "Last *": 2
+            },
+            "renameByName": {
+              "cible": "Machine",
+              "job": "Exportateur",
+              "Last *": "Échecs"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Échecs",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "logs",
+      "title": "Démarrages et arrêts des services de supervision (24 h)",
+      "description": "Redémarrages, rechargements et arrêts de Loki, Grafana, Alertmanager, VictoriaMetrics, vmalert, vmauth, vmagent, Alloy (playbook Ansible, panne, redémarrage de la machine).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=\"systemd\", unit=\"init.scope\"} |~ `(Started|Stopped|Reloaded|Stopping|Failed|failed) (loki|grafana|prometheus-alertmanager|vmalert|victoria-metrics|vmauth|vmagent|alloy|pve-exporter)` |~ `(?i)$recherche` | line_format `{{.host}} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "Tous les logs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "logs",
+      "title": "Toutes les sources sélectionnées",
+      "description": "Lignes brutes, les plus récentes en haut. Filtrer avec les variables host, source et recherche ; cliquer une ligne pour voir ses labels.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"loki|grafana|prometheus-alertmanager|vmalert|victoria-metrics|vmauth|vmagent|monitoring_vmagent.*|pve_exporter|alloy-wrapper\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" |~ `(?i)$recherche` | line_format `{{.host}} · {{.src}} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}
