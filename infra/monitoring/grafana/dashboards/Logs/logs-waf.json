@@ -1,0 +1,1771 @@
+{
+  "id": null,
+  "uid": "logs-waf",
+  "title": "Logs - WAF et sécurité",
+  "description": "Logs du WAF (waf01 : nginx + ModSecurity OWASP CRS), du bannissement automatique (waf-ban) et des connexions SSH de toutes les machines.",
+  "tags": [
+    "logs",
+    "waf",
+    "securite"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "links": [
+    {
+      "title": "Logs - Accueil",
+      "type": "link",
+      "url": "/d/logs-accueil",
+      "icon": "doc",
+      "tooltip": "Page d'entrée des logs : toutes les parties",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "Autres logs",
+      "type": "dashboards",
+      "tags": [
+        "logs"
+      ],
+      "asDropdown": true,
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "icon": "external link",
+      "tooltip": "",
+      "url": ""
+    },
+    {
+      "title": "Cyber (équipe cyber)",
+      "type": "link",
+      "url": "/d/resilience-cyber",
+      "icon": "dashboard",
+      "tooltip": "Dashboard de l'équipe cyber : WAF, attaques, bannissements",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "Vue centrale",
+      "type": "link",
+      "url": "/d/central",
+      "icon": "dashboard",
+      "tooltip": "Plateforme - vue centrale",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "host",
+        "label": "Machine",
+        "description": "waf01 pour le WAF ; toutes les machines pour SSH.",
+        "query": "ceph01,ceph02,ceph03,control01,dockermgr01,dockermgr02,dockermgr03,dockerwrk01,dockerwrk02,dockerwrk03,iam01,monitoring01,rag01,vault01,vaultwarden01,vmagent01,vmagent02,waf01",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "ceph01",
+            "value": "ceph01",
+            "selected": false
+          },
+          {
+            "text": "ceph02",
+            "value": "ceph02",
+            "selected": false
+          },
+          {
+            "text": "ceph03",
+            "value": "ceph03",
+            "selected": false
+          },
+          {
+            "text": "control01",
+            "value": "control01",
+            "selected": false
+          },
+          {
+            "text": "dockermgr01",
+            "value": "dockermgr01",
+            "selected": false
+          },
+          {
+            "text": "dockermgr02",
+            "value": "dockermgr02",
+            "selected": false
+          },
+          {
+            "text": "dockermgr03",
+            "value": "dockermgr03",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk01",
+            "value": "dockerwrk01",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk02",
+            "value": "dockerwrk02",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk03",
+            "value": "dockerwrk03",
+            "selected": false
+          },
+          {
+            "text": "iam01",
+            "value": "iam01",
+            "selected": false
+          },
+          {
+            "text": "monitoring01",
+            "value": "monitoring01",
+            "selected": false
+          },
+          {
+            "text": "rag01",
+            "value": "rag01",
+            "selected": false
+          },
+          {
+            "text": "vault01",
+            "value": "vault01",
+            "selected": false
+          },
+          {
+            "text": "vaultwarden01",
+            "value": "vaultwarden01",
+            "selected": false
+          },
+          {
+            "text": "vmagent01",
+            "value": "vmagent01",
+            "selected": false
+          },
+          {
+            "text": "vmagent02",
+            "value": "vmagent02",
+            "selected": false
+          },
+          {
+            "text": "waf01",
+            "value": "waf01",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "custom",
+        "name": "source",
+        "label": "Source",
+        "description": "Label identifier du journal.",
+        "query": "WAF (nginx + ModSecurity) : resilience-waf,Bannissement (waf-ban) : waf-ban,SSH (démon) : sshd,SSH (sessions) : sshd-session",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "WAF (nginx + ModSecurity)",
+            "value": "resilience-waf",
+            "selected": false
+          },
+          {
+            "text": "Bannissement (waf-ban)",
+            "value": "waf-ban",
+            "selected": false
+          },
+          {
+            "text": "SSH (démon)",
+            "value": "sshd",
+            "selected": false
+          },
+          {
+            "text": "SSH (sessions)",
+            "value": "sshd-session",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "recherche",
+        "label": "Recherche (regex)",
+        "description": "Filtre texte appliqué aux panneaux de logs (expression régulière, insensible à la casse). Vide = tout.",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "En un coup d'œil",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Lignes de logs",
+      "description": "Lignes reçues sur la période pour les machines et sources sélectionnées.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"$source\"} |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Erreurs",
+      "description": "Lignes contenant un mot-clé d'erreur (y compris les refus ModSecurity « Access denied »). Bruit exclu : réponses nginx mises en tampon, « syslogin_perform_logout » des LXC.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"$source\"} != `buffered to a temporary file` != `syslogin_perform_logout` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Avertissements",
+      "description": "Lignes contenant « warn » (hors bruit nginx « buffered to a temporary file »).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"$source\"} != `buffered to a temporary file` != `syslogin_perform_logout` |~ `(?i)(warn|avertissement|deprecat)` |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Requêtes bloquées (403)",
+      "description": "Réponses 403 du WAF (ModSecurity, ou IP déjà bannie) sur la période. Plus de 10 en 2 min depuis une même IP déclenche le bannissement automatique.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=\"waf01\", container=\"resilience-waf\"} |= `\"event_type\"` | json | __error__=\"\" | status=\"403\" [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "IP bannies",
+      "description": "Bannissements posés par le récepteur waf-ban sur waf01 (alerte Loki -> Alertmanager -> waf-ban, 15 min). Détail dans « Événements clés ».",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=\"waf01\", identifier=\"waf-ban\"} |~ `^ban ip=` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Échecs SSH",
+      "description": "Tentatives SSH refusées (utilisateur inconnu, mauvaise clé ou mot de passe) sur les machines sélectionnées.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"sshd|sshd-session\"} |~ `Failed |Invalid user|authentication failure|Connection closed by (authenticating|invalid) user|maximum authentication|Unable to negotiate|banner exchange|Did not receive identification` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Volume de logs par source",
+      "description": "Nombre de lignes de logs par intervalle, empilées par source. Un pic isolé = un événement (redémarrage, attaque, rafale d'erreurs) ; une source qui disparaît = service arrêté ou collecte (Alloy) en panne.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (identifier) (count_over_time({host=~\"$host\", identifier=~\"$source\"} |~ `(?i)$recherche` [$__interval]))",
+          "legendFormat": "{{identifier}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Erreurs et avertissements",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "Erreurs et avertissements",
+      "description": "Lignes d'erreur ou d'avertissement des sources sélectionnées. Les « ModSecurity: Access denied with code 403 » sont les attaques bloquées (règle et IP client dans la ligne). Bruit exclu : « buffered to a temporary file » (nginx), « syslogin_perform_logout » (sshd en LXC).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"$source\"} != `buffered to a temporary file` != `syslogin_perform_logout` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)|(?i)(warn|avertissement|deprecat)` |~ `(?i)$recherche` | line_format `{{.host}} · {{.identifier}} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Événements clés",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "Bannissements au WAF (waf-ban) (24 h)",
+      "description": "Journal du récepteur waf-ban de waf01 : IP bannie (raison = nom de l'alerte Loki : WafSourceAttacks, WafSourceFlood, WafSourceBruteForce), libérée à l'expiration (15 min) ou débannie à la main (sudo waf-ban unban <ip>).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=\"waf01\", identifier=\"waf-ban\"} | regexp `^(?P<action>[a-z_]+)` | logfmt | line_format `{{ if eq .action \"ban\" }}IP BANNIE   {{.ip}}   raison {{.raison}}, {{.duree_s}} s, jusqu'à {{.expire}} (actifs : {{.actifs}}){{ else if eq .action \"expiration\" }}LIBÉRÉE     {{.ip}}   fin du bannissement (actifs : {{.actifs}}){{ else if eq .action \"unban\" }}DÉBANNIE    {{.ip}}   levée manuelle{{ else }}{{ __line__ }}{{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Règles ModSecurity déclenchées (24 h)",
+      "description": "Journal d'audit ModSecurity : première règle OWASP CRS déclenchée par requête (930130 = accès à un fichier sensible, 942100 = injection SQL, 920350 = Host en adresse IP...). Réponse 403 = bloquée ; 200 = simplement signalée (score sous le seuil).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 23,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "topk(15, sum by (rule_id, rule_msg, http_code) (count_over_time({host=\"waf01\", container=\"resilience-waf\"} |= `{\"transaction\"` | regexp `\"http_code\":(?P<http_code>\\d+).*?\"message\":\"(?P<rule_msg>[^\"]*)\".*?\"ruleId\":\"(?P<rule_id>\\d+)\"` [$__range])))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Requêtes"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "labelsToFields": true,
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Field": true
+            },
+            "indexByName": {
+              "rule_id": 0,
+              "rule_msg": 1,
+              "http_code": 2,
+              "Last *": 3
+            },
+            "renameByName": {
+              "rule_id": "Règle",
+              "rule_msg": "Description",
+              "http_code": "Réponse",
+              "Last *": "Requêtes"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Requêtes",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "timeFrom": "24h"
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "IP bloquées (403) (24 h)",
+      "description": "IP réelles des clients (vues par waf01 derrière NPM) ayant reçu des 403. Une IP en tête de liste avec beaucoup de 403 = scanner ou attaquant ; elle est bannie automatiquement au-delà de 10 en 2 min.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "topk(10, sum by (source_ip) (count_over_time({host=\"waf01\", container=\"resilience-waf\"} |= `\"event_type\"` | json | __error__=\"\" | status=\"403\" [$__range])))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Requêtes 403"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "labelsToFields": true,
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Field": true
+            },
+            "indexByName": {
+              "source_ip": 0,
+              "Last *": 1
+            },
+            "renameByName": {
+              "source_ip": "IP source",
+              "Last *": "Requêtes 403"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Requêtes 403",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "timeFrom": "24h"
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Top IP clientes",
+      "description": "Clients les plus actifs sur la période (toutes réponses). La sonde et les tests depuis le poste de contrôle (10.0.1.110) y figurent.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 31,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "topk(10, sum by (source_ip) (count_over_time({host=\"waf01\", container=\"resilience-waf\"} |= `\"event_type\"` | json | __error__=\"\" | event_type=\"http_access\" [$__range])))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Requêtes"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "labelsToFields": true,
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Field": true
+            },
+            "indexByName": {
+              "source_ip": 0,
+              "Last *": 1
+            },
+            "renameByName": {
+              "source_ip": "IP source",
+              "Last *": "Requêtes"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Requêtes",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Réponses du WAF par code HTTP",
+      "description": "Codes HTTP renvoyés par le WAF. 403 = bloqué (ModSecurity ou IP bannie), 401/422 = refus applicatif (connexion), 413 = corps trop gros, 5xx = application derrière la VIP indisponible.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 31,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (status) (count_over_time({host=\"waf01\", container=\"resilience-waf\"} |= `\"event_type\"` | json | __error__=\"\" | event_type=~\"http_access|waf_banned\" [$__interval]))",
+          "legendFormat": "{{status}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "403"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "200"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "logs",
+      "title": "Refus SSH (toutes machines) (24 h)",
+      "description": "Connexions SSH refusées : utilisateur inexistant, clé ou mot de passe faux, négociation impossible. Les machines n'acceptent que des clés ; une rafale ici = balayage ou attaque par force brute.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"sshd|sshd-session\"} |~ `Failed |Invalid user|authentication failure|Connection closed by (authenticating|invalid) user|maximum authentication|Unable to negotiate|banner exchange|Did not receive identification` |~ `(?i)$recherche` | line_format `{{.host}} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "Connexions SSH acceptées",
+      "description": "Connexions SSH réussies par machine, compte et adresse d'origine. Attendu : root/debian depuis le poste de contrôle 10.0.1.110 (Ansible) et les VPN d'administration (10.10.0.0/24, 10.250.90.0/24).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 39,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (host, user, from) (count_over_time({host=~\"$host\", identifier=~\"sshd|sshd-session\"} |~ `^Accepted` | pattern `Accepted <method> for <user> from <from> port <_>` [$__range]))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Connexions"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "labelsToFields": true,
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Field": true
+            },
+            "indexByName": {
+              "host": 0,
+              "user": 1,
+              "from": 2,
+              "Last *": 3
+            },
+            "renameByName": {
+              "host": "Machine",
+              "user": "Utilisateur",
+              "from": "Depuis",
+              "Last *": "Connexions"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Connexions",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "Tous les logs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "logs",
+      "title": "WAF : accès et blocages (resilience-waf)",
+      "description": "Journal du conteneur resilience-waf (nginx + ModSecurity). Lignes d'accès reformatées : code HTTP, méthode, route, IP client, durée. Les autres lignes (erreurs nginx, audit ModSecurity) sont affichées brutes.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=\"waf01\", container=\"resilience-waf\"} |~ `(?i)$recherche` | json | line_format `{{ if .event_type }}{{.status}}  {{.method}} {{.route}}  ← {{.source_ip}}  ({{.duration_s}} s){{ if eq .event_type \"waf_banned\" }}  [IP bannie]{{ end }}{{ else }}{{ __line__ }}{{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 21,
+      "type": "logs",
+      "title": "Toutes les sources sélectionnées",
+      "description": "Lignes brutes, les plus récentes en haut. Filtrer avec les variables host, source et recherche ; cliquer une ligne pour voir ses labels.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 48,
+        "w": 12,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"$source\"} |~ `(?i)$recherche` | line_format `{{.host}} · {{.identifier}} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

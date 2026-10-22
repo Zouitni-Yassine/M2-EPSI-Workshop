@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Génère le dashboard Grafana « Plateforme - vue centrale » (uid central).
 
-Un seul écran pour l'état de santé de toute la plateforme : Proxmox, Ceph,
-Docker Swarm, chaîne de supervision, alertes et logs. Conçu pour être lisible
-de loin (démo incident -> reprise automatique).
+Un seul écran pour l'état de santé de toute la plateforme : en haut, un voyant par
+brique (application, base répliquée, WAF, identités, assistant, sauvegardes, Proxmox,
+Ceph, Swarm, supervision), chacun relié à son dashboard détaillé, puis les alertes.
+Le détail est rangé dans des sections repliées (ouvertes à la demande : leurs requêtes
+ne partent qu'à l'ouverture).
 
 Usage (depuis infra/monitoring/grafana) : python3 scripts/gen-central-dashboard.py
 Sortie : dashboards/Vue centrale/central.json
@@ -28,7 +30,30 @@ NB_MON = 3
 NB_SWARM = 6        # 3 managers + 3 workers
 NB_MANAGERS = 3
 NB_VMAGENT = 2
+NB_FRONTEND = 3     # frontal : une réplique par worker
+NB_DB = 3           # nœuds Patroni db1-3 (un par worker) : 1 primaire + 2 réplicas
+# Services de la stack paiement (db1-3, etcd1-3, auth, payment-api, detector,
+# remediation, frontend, mailpit)
+NB_PAIEMENT_SERVICES = 12
 STACK_JOBS = ["victoriametrics", "vmalert", "alertmanager", "loki", "grafana"]
+RAG_UNITS = ["ollama.service", "ollama-index.service", "rag-api.service",
+             "rag-mcp.service", "discord-bot.service", "nginx.service"]
+PAIEMENT = 'stack="paiement"'
+DB_SVC = 'container_label_com_docker_swarm_service_name=~"paiement_db[0-9]+"'
+WAF_ACCESS = ('{host="waf01", container="resilience-waf"} | json | __error__="" '
+              '| event_type="http_access"')
+WAF_BAN = '{host="waf01", identifier="waf-ban"}'
+# pg_dump : une ligne par base, écrite deux fois dans le journal (logger -> notice,
+# sortie du service -> info) : on ne garde que celle de logger
+PGDUMP = '{host="control01", identifier="paiement-db-backup", level="notice"}'
+PBS = '{host=~"ceph0[1-3]"}'
+NOTIFY = ('{job="alertmanager-notify"} | json body | line_format "{{.body}}" '
+          '| json status="status", alertname="alerts[0].labels.alertname", '
+          'severity="alerts[0].labels.severity" | __error__=""')
+GATEWAY = ('{identifier="remediate"} |= "code=" '
+           '| regexp "code=(?P<code>[0-9]+) (?P<payload>.*)" | line_format "{{.payload}}" '
+           '| json action, svc="service", duration_s, error')
+BOT = '{host="rag01", unit="discord-bot.service"} |= "question" | logfmt | __error__=""'
 
 # Niveaux journald considérés comme warning/erreur dans Loki.
 LOG_LEVELS = "warning|warn|err|error|crit|alert|emerg"
@@ -55,7 +80,7 @@ def tgt(expr, legend="", ref="A", instant=False, fmt="time_series", ds=VM):
         t.update({"range": not instant, "instant": instant, "format": fmt,
                   "editorMode": "code"})
     else:
-        t.update({"queryType": "range", "editorMode": "code"})
+        t.update({"queryType": "instant" if instant else "range", "editorMode": "code"})
     return t
 
 
@@ -77,9 +102,13 @@ def full_nominal(n, warn=None):
     return steps(("red", None), ("orange", warn), ("green", n))
 
 
-def link(title, uid):
-    return {"title": title, "url": f"/d/{uid}?${{__url_time_range}}",
+def link(title, uid, params=""):
+    return {"title": title, "url": f"/d/{uid}?${{__url_time_range}}{params}",
             "targetBlank": False}
+
+
+def node_link(host):
+    return link(f"Machine {host}", "node-exporter-full", f"&var-job=node&var-host={host}")
 
 
 def panel(ptype, title, targets, pos, *, unit=None, thresholds=None,
@@ -139,8 +168,8 @@ def timeseries(title, targets, pos, *, unit=None, stack=False, fill=10,
               "spanNulls": False, "axisSoftMin": 0 if soft_min else None,
               "stacking": {"mode": "normal" if stack else "none", "group": "A"}}
     custom = {k: v for k, v in custom.items() if v is not None}
-    opts = {"legend": {"displayMode": legend, "placement": "bottom",
-                       "showLegend": True,
+    opts = {"legend": {"displayMode": "list" if legend == "hidden" else legend,
+                       "placement": "bottom", "showLegend": legend != "hidden",
                        "calcs": ["lastNotNull", "max"] if legend == "table" else []},
             "tooltip": {"mode": "multi", "sort": "desc"}}
     kw.setdefault("color", {"mode": "palette-classic"})
@@ -188,9 +217,149 @@ def text_map(value, text, color):
 # --------------------------------------------------------------------------- #
 panels = []
 y = 0
+V = 4  # hauteur d'un voyant
+
+
+def tile(title, targets, x, *, uid, label=None, w=3, **kw):
+    """Voyant d'une brique (3 colonnes sur 24 : 8 par ligne), relié à son dashboard."""
+    kw.setdefault("links", [link(label or "Détail", uid)])
+    return stat(title, targets, (x, y, w, V), **kw)
+
+
+def ok_map(ok="OK", ko="KO", unknown=None):
+    maps = [text_map(1, ok, "green"), text_map(0, ko, "red")]
+    if unknown:
+        maps.append(text_map(-1, unknown, "orange"))
+    return maps
+
+
+# ---- Briques : application et base répliquée ------------------------------------
+db_primary = (
+    'max by (name, host) (label_replace(max by (host, container_label_com_docker_swarm_service_name) '
+    f'(container_last_seen{{{DB_SVC}}}), "service", "$1", '
+    '"container_label_com_docker_swarm_service_name", "(.*)") '
+    f'* on (service) group_left (name) max by (service, name) (patroni_primary{{{PAIEMENT}}} == 1)) '
+    'or on() label_set(vector(0), "name", "AUCUN", "host", "-")')
+panels += [
+    tile("Paiements (sonde)",
+         [tgt('min(paiement_probe_up) or vector(-1)', instant=True)], 0,
+         uid="demo-remediation", label="Démo / Remédiation",
+         mappings=ok_map("OK", "EN PANNE", "SONDE MUETTE"),
+         thresholds=steps(("orange", None), ("red", 0), ("green", 1)),
+         desc="Sonde de transaction (stack probe) : un client réel par l'adresse virtuelle, "
+              "/api/health toutes les 5 s et un paiement de test toutes les 30 s."),
+    tile("Entrée 10.30.1.200",
+         [tgt('max by (host) (app_vip_master == 1) '
+              'or on() label_set(vector(0), "host", "PERSONNE")', "{{host}}", instant=True)], 3,
+         uid="swarm-overview", label="Swarm", text_mode="name",
+         thresholds=steps(("red", None), ("green", 1)),
+         desc="Worker qui porte l'adresse virtuelle de l'application (keepalived sur les 3 "
+              "workers, métrique app_vip_master). Deux noms = conflit."),
+    tile("Frontal",
+         [tgt('count(container_last_seen{container_label_com_docker_swarm_service_name='
+              '"paiement_frontend"}) or vector(0)', instant=True)], 6,
+         uid="swarm-overview", label="Swarm", unit=f"suffix: / {NB_FRONTEND}",
+         thresholds=full_nominal(NB_FRONTEND, warn=1),
+         desc="Répliques du frontal (une par worker) vues par cAdvisor."),
+    tile("Services paiement",
+         [tgt('count(count by (container_label_com_docker_swarm_service_name) '
+              f'(container_last_seen{{container_label_com_docker_stack_namespace="paiement"}})) '
+              'or vector(0)', instant=True)], 9,
+         uid="docker-containers", label="Conteneurs", unit=f"suffix: / {NB_PAIEMENT_SERVICES}",
+         thresholds=full_nominal(NB_PAIEMENT_SERVICES, warn=10),
+         desc="Services de la stack paiement ayant au moins un conteneur en marche : db1-3, "
+              "etcd1-3, auth, payment-api, detector, remediation, frontend, mailpit."),
+    tile("Base : primaire",
+         [tgt(db_primary, "{{name}} · {{host}}", instant=True)], 12,
+         uid="swarm-overview", label="Swarm : base répliquée", text_mode="name",
+         thresholds=steps(("red", None), ("green", 1)),
+         desc="Nœud Patroni primaire et le worker qui le fait tourner (bascule automatique "
+              "si ce worker tombe). Deux noms = double primaire."),
+    tile("Réplicas en flux",
+         [tgt(f'count(patroni_replica{{{PAIEMENT}}} == 1 and on (instance) '
+              f'patroni_postgres_streaming{{{PAIEMENT}}} == 1) or vector(0)', instant=True)], 15,
+         uid="swarm-overview", label="Swarm : base répliquée", unit=f"suffix: / {NB_DB - 1}",
+         thresholds=full_nominal(NB_DB - 1, warn=1),
+         desc="Réplicas PostgreSQL qui reçoivent le flux de réplication du primaire."),
+    tile("Détecteur ML",
+         [tgt('max(detector_ready) or vector(-1)', instant=True)], 18,
+         uid="ml-detecteur", label="Modèle ML",
+         mappings=[text_map(1, "PRÊT", "green"), text_map(0, "APPRENTISSAGE", "orange"),
+                   text_map(-1, "MUET", "red")],
+         thresholds=steps(("red", None), ("orange", 0), ("green", 1)),
+         desc="Détecteur d'anomalies (IsolationForest) : modèle entraîné et /metrics joignable."),
+    tile("Moteur de remédiation",
+         [tgt('max(paiement_probe_remediation_in_progress) or vector(-1)', instant=True)], 21,
+         uid="demo-remediation", label="Démo / Remédiation",
+         mappings=[text_map(0, "VEILLE", "green"), text_map(1, "EN ACTION", "orange"),
+                   text_map(-1, "INCONNU", "red")],
+         thresholds=steps(("red", None), ("green", 0), ("orange", 1)),
+         desc="État du moteur (/remediation/state, relu par la sonde) : EN ACTION entre la "
+              "décision et la reprise. Il agit par la passerelle remediate des managers."),
+]
+y += V
+
+# ---- Briques : sécurité, identités, assistant, sauvegardes ------------------------
+rag_re = "|".join(RAG_UNITS)
+panels += [
+    tile("WAF (waf01)",
+         [tgt('max(pve_up * on (id) group_left (name) pve_guest_info{name="waf01"}) '
+              'or vector(0)', instant=True)], 0,
+         uid="resilience-cyber", label="Cyber", mappings=ok_map("EN MARCHE", "ARRÊTÉ"),
+         thresholds=steps(("red", None), ("green", 1)),
+         desc="VM du WAF (RA-DMZ 10.30.2.251) : NPM -> WAF -> adresse virtuelle."),
+    tile("IP bannies au WAF",
+         [tgt(f'max(last_over_time({WAF_BAN} |~ "^(ban|expiration) " | logfmt '
+              '| unwrap actifs [20m]) by (host)) or vector(0)', ds=LOKI, instant=True)], 3,
+         uid="resilience-cyber", label="Cyber", ds=LOKI, decimals=0,
+         thresholds=steps(("green", None), ("orange", 1)), color_mode="value",
+         desc="Bannissements actifs (15 min) posés par le récepteur waf-ban sur alerte Loki "
+              "(rafale, force brute, attaques bloquées). Liste : sudo waf-ban list sur waf01."),
+    tile("Vault",
+         [tgt('max(vault_core_unsealed) or vector(0)', instant=True)], 6,
+         uid="node-exporter-full", links=[node_link("vault01")],
+         mappings=[text_map(1, "DESCELLÉ", "green"), text_map(0, "SCELLÉ", "red")],
+         thresholds=steps(("red", None), ("green", 1)),
+         desc="Coffre des secrets d'infrastructure. Scellé après un redémarrage : vault-unseal."),
+    tile("Keycloak (SSO)",
+         [tgt('max(up{job="keycloak"}) or vector(0)', instant=True)], 9,
+         uid="node-exporter-full", links=[node_link("iam01")], mappings=ok_map(),
+         thresholds=steps(("red", None), ("green", 1)),
+         desc="Fournisseur d'identité (realm epsi, TOTP) : SSO de Grafana et Proxmox."),
+    tile("Vaultwarden",
+         [tgt('max(node_systemd_unit_state{host="vaultwarden01", name="vaultwarden.service", '
+              'state="active"}) or vector(0)', instant=True)], 12,
+         uid="node-exporter-full", links=[node_link("vaultwarden01")], mappings=ok_map(),
+         thresholds=steps(("red", None), ("green", 1)),
+         desc="Coffre des comptes de secours (service systemd vaultwarden)."),
+    tile("Assistant (rag01)",
+         [tgt(f'sum(node_systemd_unit_state{{host="rag01", state="active", name=~"{rag_re}"}}) '
+              'or vector(0)', instant=True)], 15,
+         uid="node-exporter-full", links=[node_link("rag01")], unit=f"suffix: / {len(RAG_UNITS)}",
+         thresholds=full_nominal(len(RAG_UNITS), warn=4),
+         desc="Services actifs sur rag01 : " + ", ".join(RAG_UNITS) + "."),
+    tile("pg_dump (1 h)",
+         [tgt(f'sum(count_over_time({PGDUMP} |= "ok base=payments" [1h])) or vector(0)',
+              ds=LOKI, instant=True)], 18,
+         uid="proxmox", label="Proxmox", ds=LOKI, unit="suffix: / 4", decimals=0,
+         thresholds=steps(("red", None), ("orange", 1), ("green", 3)),
+         desc="Sauvegardes logiques réussies de la base payments depuis une heure (pg_dump "
+              "toutes les 15 min sur le poste de contrôle, sur le primaire courant)."),
+    tile("Sauvegardes PBS (24 h)",
+         [tgt(f'sum(count_over_time({PBS} |= "INFO: Finished Backup of VM" [24h])) '
+              'or vector(0)', "réussies", ds=LOKI, instant=True),
+          tgt(f'sum(count_over_time({PBS} |~ "ERROR: Backup of VM|ERROR: job failed" [24h])) '
+              'or vector(0)', "erreurs", "B", ds=LOKI, instant=True)], 21,
+         uid="proxmox", label="Proxmox", ds=LOKI, decimals=0,
+         text_mode="value_and_name", color_mode="value",
+         thresholds=steps(("green", None), ("red", 1)),
+         overrides=[override_name("réussies", [fixed("blue")])],
+         desc="Sauvegardes de VM/LXC vers Proxmox Backup Server (jobs 13h00 et 21h00) "
+              "terminées ou en erreur, d'après le journal des hyperviseurs."),
+]
+y += V
 
 # ---- Voyants ---------------------------------------------------------------
-V = 4  # hauteur d'un voyant
 panels += [
     stat("Alertes actives",
          [tgt('count(ALERTS{alertstate="firing", alertname!="Watchdog"}) or vector(0)',
@@ -328,6 +497,292 @@ panels += [
           desc="Alertes firing (série ALERTS écrite par vmalert)."),
 ]
 y += 8
+
+# Sections de détail : repliées à l'ouverture (voir COLLAPSED en fin de script)
+LOGS_OPTS = {"showTime": True, "showLabels": False, "showCommonLabels": False,
+             "wrapLogMessage": True, "prettifyLogMessage": False,
+             "enableLogDetails": True, "enableInfiniteScrolling": False,
+             "dedupStrategy": "none", "sortOrder": "Descending"}
+
+
+def logs(title, expr, pos, desc="", **kw):
+    return panel("logs", title, [tgt(expr, ds=LOKI)], pos, ds=LOKI, options=LOGS_OPTS,
+                 desc=desc, **kw)
+
+
+def timeline(title, targets, pos, mappings, **kw):
+    kw.setdefault("thresholds", steps(("red", None), ("green", 1)))
+    return panel("state-timeline", title, targets, pos, mappings=mappings,
+                 custom={"lineWidth": 0, "fillOpacity": 85},
+                 options={"showValue": "auto", "mergeValues": True, "rowHeight": 0.85,
+                          "alignValue": "center", "legend": {"showLegend": False,
+                                                             "displayMode": "list",
+                                                             "placement": "bottom"},
+                          "tooltip": {"mode": "single", "sort": "none"}}, **kw)
+
+
+# ---- Application : stack paiement -------------------------------------------
+API_BUSINESS = 'service="paiement_payment-api", route!~"/api/(status|health)"'
+panels.append(row("Application : stack paiement", y)); y += 1
+panels += [
+    table("Placement des services",
+          [tgt('count by (container_label_com_docker_stack_namespace, '
+               'container_label_com_docker_swarm_service_name, host) (container_last_seen'
+               '{container_label_com_docker_stack_namespace=~"paiement|probe|registry|monitoring"})',
+               instant=True, fmt="table")],
+          (0, y, 8, 13),
+          transformations=[
+              {"id": "organize", "options": {
+                  "excludeByName": {"Time": True},
+                  "indexByName": {"container_label_com_docker_stack_namespace": 0,
+                                  "container_label_com_docker_swarm_service_name": 1,
+                                  "host": 2, "Value": 3},
+                  "renameByName": {"container_label_com_docker_stack_namespace": "Stack",
+                                   "container_label_com_docker_swarm_service_name": "Service",
+                                   "host": "Worker", "Value": "Conteneurs"}}},
+              {"id": "sortBy", "options": {"sort": [{"field": "Service"}]}}],
+          overrides=[override_name("Worker", [
+              {"id": "custom.cellOptions", "value": {"type": "color-text"}},
+              {"id": "color", "value": {"mode": "palette-classic-by-name"}}])],
+          desc="Conteneurs en marche par service et par worker (cAdvisor) : stack paiement, "
+               "sonde, registre privé 10.30.1.221:5000, vmagent du Swarm.",
+          links=[link("Conteneurs", "docker-containers")]),
+    timeline("Porteur de l'adresse virtuelle 10.30.1.200",
+             [tgt('max by (host) (app_vip_master)', "{{host}}")], (8, y, 8, 5),
+             mappings=[text_map(1, "PORTEUR", "green"), text_map(0, "secours", "transparent")],
+             desc="keepalived (unicast, nopreempt) sur les 3 workers : l'adresse change de "
+                  "worker quand son porteur tombe.",
+             links=[link("Swarm", "swarm-overview")]),
+    stat("Dépendances de payment-api",
+         [tgt('max by (dependency) (payment_api_dependency_up)', "{{dependency}}",
+              instant=True)],
+         (8, y + 5, 8, 4), text_mode="value_and_name", mappings=ok_map(),
+         thresholds=steps(("red", None), ("green", 1)),
+         desc="Base de données et prestataires de paiement (Stripe, PayPal en mode test) vus "
+              "par payment-api."),
+    timeseries("payment-api : requêtes et erreurs",
+               [tgt(f'sum(rate(http_requests_total{{{API_BUSINESS}}}[$__rate_interval]))',
+                    "requêtes/s"),
+                tgt('sum(rate(http_requests_total{service="paiement_payment-api", '
+                    'code=~"5.."}[$__rate_interval])) or vector(0)', "5xx/s", "B")],
+               (16, y, 8, 9), unit="reqps",
+               overrides=[override_name("5xx/s", [fixed("red")])],
+               desc="Requêtes métier (hors /api/status et /api/health) et réponses 5xx.",
+               links=[link("Démo / Remédiation", "demo-remediation")]),
+    timeseries("payment-api : latence p95",
+               [tgt('histogram_quantile(0.95, sum by (le) (rate('
+                    f'http_request_duration_seconds_bucket{{{API_BUSINESS}}}[$__rate_interval])))',
+                    "p95")],
+               (8, y + 9, 8, 4), unit="s", legend="hidden",
+               links=[link("Démo / Remédiation", "demo-remediation")]),
+    timeseries("Sonde : durée des étapes",
+               [tgt('max by (step) (paiement_probe_step_duration_seconds)', "{{step}}")],
+               (16, y + 9, 8, 4), unit="s", legend="hidden",
+               desc="Dernière transaction de la sonde : frontal, santé, connexion, création, "
+                    "confirmation (Stripe en mode test).",
+               links=[link("Démo / Remédiation", "demo-remediation")]),
+]
+y += 13
+panels += [
+    timeseries("Connexions et reconnaissance faciale",
+               [tgt('sum by (result) (increase(auth_login_total[$__rate_interval]))',
+                    "connexion {{result}}"),
+                tgt('sum by (result) (increase(auth_face_total{result!="enrolled"}'
+                    '[$__rate_interval]))', "visage {{result}}", "B")],
+               (0, y, 8, 8), draw="bars", fill=80, stack=True, decimals=0,
+               overrides=[override_regex(".*(failure|locked|rejected)", [fixed("red")])],
+               desc="Service auth : connexions (succès, échec, blocage) et identification des "
+                    "opérateurs par la caméra (reconnus, refusés, bloqués).",
+               links=[link("Démo / Remédiation", "demo-remediation"),
+                      link("Cyber", "resilience-cyber")]),
+    timeseries("Détecteur : score d'anomalie",
+               [tgt('max(detector_anomaly_score)', "score"),
+                tgt('max(detector_threshold)', "seuil", "B")],
+               (8, y, 8, 8), decimals=2,
+               overrides=[override_name("seuil", [
+                   fixed("red"), {"id": "custom.fillOpacity", "value": 0},
+                   {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}}])],
+               desc="Score du détecteur (IsolationForest, /metrics, à 30 s près). Détail du "
+                    "modèle dans le dashboard Modèle ML.",
+               links=[link("Modèle ML", "ml-detecteur")]),
+    logs("Passerelle remediate : actions du moteur",
+         GATEWAY + ' | line_format "{{.action}} {{.svc}} : {{if .duration_s}}{{.duration_s}} s'
+                   '{{else}}{{.error}}{{end}} (code {{.code}})"',
+         (16, y, 8, 8),
+         desc="Actions demandées par le moteur de remédiation à la passerelle des managers "
+              "(SSH, commande forcée remediate) : durée du redémarrage ou refus (limites : "
+              "60 s entre deux actions sur un service, 10 actions / 10 min).",
+         links=[link("Démo / Remédiation", "demo-remediation")]),
+]
+y += 8
+
+# ---- Base PostgreSQL répliquée (Patroni + etcd) ---------------------------------
+db_role = (f'max by (name) (3 * patroni_primary{{{PAIEMENT}}} + patroni_replica{{{PAIEMENT}}} '
+           f'* (1 + patroni_postgres_streaming{{{PAIEMENT}}}))')
+primary_lsn = (f'scalar(max(patroni_xlog_location{{{PAIEMENT}}} and on (instance) '
+               f'patroni_primary{{{PAIEMENT}}} == 1))')
+replica = f'on (instance) patroni_replica{{{PAIEMENT}}} == 1'
+panels.append(row("Base PostgreSQL répliquée (Patroni)", y)); y += 1
+panels += [
+    stat("Primaire", [tgt(db_primary, "{{name}} · {{host}}", instant=True)],
+         (0, y, 4, 4), text_mode="name", thresholds=steps(("red", None), ("green", 1)),
+         desc="Nœud primaire et worker qui l'héberge."),
+    stat("Nœuds Patroni joignables",
+         [tgt('count(up{job=~"paiement_db[0-9]+"} == 1) or vector(0)', instant=True)],
+         (4, y, 4, 4), unit=f"suffix: / {NB_DB}", thresholds=full_nominal(NB_DB, warn=2),
+         desc="API Patroni (/metrics, port 8008) de db1, db2, db3."),
+    stat("Timeline PostgreSQL",
+         [tgt(f'max(patroni_postgres_timeline{{{PAIEMENT}}})', instant=True)],
+         (8, y, 4, 4), color_mode="value", thresholds=steps(("blue", None)),
+         desc="Augmente de 1 à chaque bascule (promotion d'un réplica)."),
+    stat("etcd vu il y a",
+         [tgt(f'max(time() - patroni_dcs_last_seen{{{PAIEMENT}}})', instant=True)],
+         (12, y, 4, 4), unit="s", decimals=0, color_mode="value",
+         thresholds=steps(("green", None), ("orange", 30), ("red", 60)),
+         desc="Dernier contact de Patroni avec etcd (etcd1-3, magasin du verrou de leader). "
+              "Au-delà de 60 s : alerte PaiementDbEtcdInjoignable."),
+    timeline("Rôle des nœuds", [tgt(db_role, "{{name}}")], (16, y, 8, 8),
+             mappings=[text_map(3, "PRIMAIRE", "blue"), text_map(2, "réplica en flux", "green"),
+                       text_map(1, "réplica sans flux", "orange")],
+             thresholds=steps(("orange", None)),
+             desc="Primaire, réplicas qui reçoivent le flux, réplicas décrochés. Une bascule "
+                  "se voit au changement de couleur."),
+    timeseries("Retard de réplication",
+               [tgt(f'clamp_min({primary_lsn} - (patroni_xlog_received_location{{{PAIEMENT}}} '
+                    f'and {replica}), 0)', "{{name}} reçu"),
+                tgt(f'clamp_min(patroni_xlog_received_location{{{PAIEMENT}}} - '
+                    f'patroni_xlog_replayed_location{{{PAIEMENT}}}, 0) and {replica}',
+                    "{{name}} rejoué", "B")],
+               (0, y + 4, 16, 4), unit="bytes", legend="hidden",
+               desc="Octets de WAL en retard sur le primaire (reçus, puis rejoués). Alerte "
+                    "PaiementDbReplicationRetard au-delà de 16 Mo."),
+]
+y += 8
+
+# ---- Sécurité : WAF et bannissements --------------------------------------------
+panels.append(row("Sécurité : WAF et bannissements", y)); y += 1
+panels += [
+    timeseries("Requêtes au WAF par statut",
+               [tgt(f'sum by (status) (count_over_time({WAF_ACCESS} [$__auto]))', "{{status}}",
+                    ds=LOKI)],
+               (0, y, 10, 8), ds=LOKI, draw="bars", fill=80, stack=True, unit="short",
+               overrides=[override_regex("4..", [fixed("orange")]),
+                          override_regex("403", [fixed("red")]),
+                          override_regex("5..", [fixed("dark-red")])],
+               desc="Requêtes publiques (NPM -> waf01) par code HTTP. 403 = bloquée par "
+                    "ModSecurity ou par la liste des IP bannies.",
+               links=[link("Cyber", "resilience-cyber")]),
+    bargauge("IP les plus bloquées (403)",
+             [tgt(f'topk(10, sum by (source_ip) (count_over_time({WAF_ACCESS} | status="403" '
+                  '[$__range])))', "{{source_ip}}", ds=LOKI, instant=True)],
+             (10, y, 5, 8), ds=LOKI, decimals=0, minv=0, no_value="aucune",
+             thresholds=steps(("orange", None), ("red", 10)),
+             desc="Sur la période affichée (IP réelle du client, transmise par NPM).",
+          links=[link("Cyber", "resilience-cyber")]),
+    logs("Bannissements (waf-ban)", WAF_BAN + ' |~ "^(ban|expiration|refus|erreur)"',
+         (15, y, 9, 8),
+         desc="Récepteur waf-ban de waf01 : bannissement 15 min sur alerte Loki (WafSourceFlood, "
+              "WafSourceBruteForce, WafSourceAttacks) via Alertmanager, expiration, refus "
+              "(liste blanche, plafonds).",
+         links=[link("Cyber", "resilience-cyber")]),
+]
+y += 8
+
+# ---- Assistant RAG (rag01) ------------------------------------------------------
+panels.append(row("Assistant (rag01) et bot Discord", y)); y += 1
+panels += [
+    timeline("Services de rag01",
+             [tgt(f'max by (name) (node_systemd_unit_state{{host="rag01", state="active", '
+                  f'name=~"{rag_re}"}})', "{{name}}")], (0, y, 8, 8),
+             mappings=[text_map(1, "actif", "green"), text_map(0, "arrêté", "red")],
+             desc="Ollama (modèle et index), API rag-api (:8600), serveur MCP supervision "
+                  "(lecture seule), bot Discord, relais nginx GPU/CPU.",
+             links=[node_link("rag01")]),
+    timeseries("Bot Discord : temps de réponse",
+               [tgt(f'max by (statut) (max_over_time({BOT} | unwrap duration(total) '
+                    '[$__interval]))', "{{statut}}", ds=LOKI)],
+               (8, y, 8, 8), ds=LOKI, unit="s", interval="2m",
+               overrides=[override_regex("ok", [fixed("green")])],
+               desc="Durée totale de chaque question posée au bot (#assistance-rag), par statut "
+                    "(ok, http_504 = délai de l'API dépassé)."),
+    timeseries("rag01 : CPU et mémoire",
+               [tgt('1 - avg(rate(node_cpu_seconds_total{host="rag01", mode="idle"}'
+                    '[$__rate_interval]))', "CPU"),
+                tgt('1 - node_memory_MemAvailable_bytes{host="rag01"} '
+                    '/ node_memory_MemTotal_bytes{host="rag01"}', "mémoire", "B")],
+               (16, y, 8, 8), unit="percentunit", minv=0, maxv=1,
+               desc="Le modèle tourne sur le GPU de délestage quand le tunnel est ouvert, "
+                    "sinon sur le CPU de rag01 (repli).",
+               links=[node_link("rag01")]),
+]
+y += 8
+panels.append(logs("Questions au bot (sans le nom de l'auteur)",
+                   BOT + ' | line_format "statut={{.statut}} outils={{.outils}} '
+                         'api={{.duree_api}} total={{.total}}"',
+                   (0, y, 24, 6)))
+y += 6
+
+# ---- Sauvegardes ----------------------------------------------------------------
+panels.append(row("Sauvegardes", y)); y += 1
+panels += [
+    stat("pg_dump réussis (période)",
+         [tgt(f'sum(count_over_time({PGDUMP} |= "ok base=" [$__range])) or vector(0)',
+              ds=LOKI, instant=True)],
+         (0, y, 4, 4), ds=LOKI, decimals=0, color_mode="value",
+         thresholds=steps(("red", None), ("green", 1)),
+         desc="Dumps réussis (une ligne par base : auth, payments) sur la période affichée."),
+    stat("pg_dump en échec (période)",
+         [tgt(f'sum(count_over_time({PGDUMP} |= "echec" [$__range])) or vector(0)',
+              ds=LOKI, instant=True)],
+         (0, y + 4, 4, 4), ds=LOKI, decimals=0, color_mode="value",
+         thresholds=steps(("green", None), ("red", 1))),
+    timeseries("Taille des dumps",
+               [tgt(f'max by (base) (max_over_time({PGDUMP} |= "ok base=" | logfmt '
+                    '| unwrap taille [$__interval]))', "{{base}}", ds=LOKI)],
+               (4, y, 8, 8), ds=LOKI, unit="bytes", interval="15m",
+               desc="Taille de chaque dump (format custom pg_dump) dans /var/backups/paiement "
+                    "sur le poste de contrôle."),
+    stat("Invités hors sauvegarde",
+         [tgt('max(pve_not_backed_up_total) or vector(0)', instant=True)],
+         (12, y, 4, 4), color_mode="value", thresholds=steps(("green", None), ("orange", 1)),
+         desc="VM/LXC qu'aucun job de sauvegarde Proxmox ne couvre.",
+         links=[link("Proxmox", "proxmox")]),
+    stat("PBS (période)",
+         [tgt(f'sum(count_over_time({PBS} |= "INFO: Finished Backup of VM" [$__range])) '
+              'or vector(0)', "réussies", ds=LOKI, instant=True),
+          tgt(f'sum(count_over_time({PBS} |~ "ERROR: Backup of VM|ERROR: job failed" '
+              '[$__range])) or vector(0)', "erreurs", "B", ds=LOKI, instant=True)],
+         (12, y + 4, 4, 4), ds=LOKI, decimals=0, text_mode="value_and_name",
+         color_mode="value", thresholds=steps(("green", None), ("red", 1)),
+         overrides=[override_name("réussies", [fixed("blue")])]),
+    logs("Journal des sauvegardes (pg_dump et PBS)",
+         '{host=~"control01|ceph0[1-3]"} |~ "^(ok|echec) base=|restauration-test|'
+         'starting new backup job|Finished Backup of VM|ERROR: Backup of VM|Backup job finished" '
+         '| level!="info" or host!="control01"',
+         (16, y, 8, 8),
+         desc="pg_dump toutes les 15 min (paiement-db-backup) et jobs vzdump vers Proxmox "
+              "Backup Server (13h00, 21h00 ; une sauvegarde gèle les VM ~45 s)."),
+]
+y += 8
+
+# ---- Notifications Discord -------------------------------------------------------
+panels.append(row("Notifications Discord (Alertmanager)", y)); y += 1
+panels += [
+    stat("Notifications envoyées (période)",
+         [tgt(f'sum by (status) (count_over_time({NOTIFY} [$__range]))', "{{status}}",
+              ds=LOKI, instant=True)],
+         (0, y, 6, 6), ds=LOKI, decimals=0, text_mode="value_and_name", color_mode="value",
+         orientation="horizontal", thresholds=steps(("blue", None)),
+         overrides=[override_name("firing", [fixed("red")]),
+                    override_name("resolved", [fixed("green")])],
+         desc="Copie de chaque notification envoyée au salon Discord (récepteur webhook "
+              "journalisé sur monitoring01, job alertmanager-notify)."),
+    logs("Dernières notifications",
+         NOTIFY + ' | line_format "{{.status}} {{.alertname}} ({{.severity}})"',
+         (6, y, 18, 6),
+         desc="Mêmes notifications que sur Discord et dans la page Supervision du back-office."),
+]
+y += 6
 
 # ---- Proxmox ---------------------------------------------------------------
 panels.append(row("Proxmox", y)); y += 1
@@ -595,7 +1050,8 @@ panels += [
                [tgt(f'sum by (host) (count_over_time({LOG_SELECTOR} [$__auto]))',
                     "{{host}}", ds=LOKI)],
                (0, y, 24, 6), draw="bars", fill=80, stack=True, ds=LOKI, unit="short",
-               desc="Logs journald de niveau warning à emerg (machines Swarm et supervision)."),
+               desc="Logs journald de niveau warning à emerg (toutes les machines : "
+                    "hyperviseurs, Swarm, supervision, identités, rag01, waf01, poste de contrôle)."),
 ]
 y += 6
 panels.append(panel(
@@ -621,7 +1077,8 @@ def loki_var(name, label, lbl):
             "options": [], "hide": 0}
 
 
-DETAIL = [("Proxmox & Ceph", "proxmox"),
+DETAIL = [("Démo / Remédiation", "demo-remediation"), ("Modèle ML", "ml-detecteur"),
+          ("Cyber", "resilience-cyber"), ("Proxmox & Ceph", "proxmox"),
           ("Swarm", "swarm-overview"), ("Conteneurs", "docker-containers"),
           ("Node Exporter", "node-exporter-full"),
           ("VictoriaMetrics", "victoriametrics"), ("vmagent", "vmagent"),
@@ -631,8 +1088,9 @@ dashboard = {
     "id": None,
     "uid": "central",
     "title": "Plateforme - vue centrale",
-    "description": "État de santé de toute la plateforme en un écran : Proxmox, Ceph, "
-                   "Docker Swarm, supervision, alertes et logs.",
+    "description": "État de santé de toute la plateforme en un écran : application, base "
+                   "répliquée, WAF, identités, assistant, sauvegardes, Proxmox, Ceph, Swarm, "
+                   "supervision, alertes et logs.",
     "tags": ["central", "plateforme"],
     "timezone": "browser",
     "editable": False,
@@ -663,7 +1121,33 @@ dashboard = {
     "panels": panels,
 }
 
+# Sections de détail repliées : chaque rangée emporte ses panneaux jusqu'à la suivante.
+# Les rangées repliées s'empilent (une ligne chacune) sous les voyants et les alertes.
+OPEN_ROWS = {"Alertes"}
+folded, current, ry = [], None, None
+for p in panels:
+    if p["type"] == "row":
+        current = None
+        if p["title"] not in OPEN_ROWS:
+            p["collapsed"] = True
+            current = p
+        folded.append(p)
+    elif current is not None:
+        current["panels"].append(p)
+    else:
+        folded.append(p)
+# positions : panneaux ouverts inchangés, rangées repliées les unes sous les autres
+bottom = max(p["gridPos"]["y"] + p["gridPos"]["h"] for p in folded if not p.get("collapsed"))
+for p in folded:
+    if p.get("collapsed"):
+        offset = bottom - p["gridPos"]["y"]
+        p["gridPos"]["y"] = bottom
+        for q in p["panels"]:
+            q["gridPos"]["y"] += offset
+        bottom += 1
+dashboard["panels"] = folded
+
 OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_text(json.dumps(dashboard, indent=2, ensure_ascii=False) + "\n",
                encoding="utf-8")
-print(f"{OUT} : {len(panels)} panels")
+print(f"{OUT} : {len(panels)} panneaux, {len(folded)} au premier niveau")

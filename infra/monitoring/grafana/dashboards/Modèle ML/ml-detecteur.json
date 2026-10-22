@@ -1,0 +1,1773 @@
+{
+  "id": null,
+  "uid": "ml-detecteur",
+  "title": "Modèle ML / Détecteur d'anomalies",
+  "description": "Travail du détecteur d'anomalies (IsolationForest) de Resilience Pay : état du modèle, score, variables d'entrée, chaîne détection → remédiation, qualité.",
+  "tags": [
+    "ml",
+    "detecteur",
+    "paiement"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "links": [
+    {
+      "title": "Démo / Remédiation",
+      "type": "link",
+      "url": "/d/demo-remediation",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Écran de la démonstration"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Anomalie confirmée (moteur)",
+        "enable": true,
+        "hide": false,
+        "iconColor": "red",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "expr": "{stack=\"probe\", service=\"probe_transactions\"} |= \"type=evenement\" | logfmt | kind=\"detect\"",
+        "instant": false,
+        "titleFormat": "{{etape}}",
+        "textFormat": "{{texte}}",
+        "tagKeys": "kind"
+      },
+      {
+        "name": "Action du moteur",
+        "enable": true,
+        "hide": false,
+        "iconColor": "orange",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "expr": "{stack=\"probe\", service=\"probe_transactions\"} |= \"type=evenement\" | logfmt | kind=\"act\"",
+        "instant": false,
+        "titleFormat": "{{etape}}",
+        "textFormat": "{{texte}}",
+        "tagKeys": "kind"
+      },
+      {
+        "name": "Service rétabli",
+        "enable": true,
+        "hide": false,
+        "iconColor": "green",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "expr": "{stack=\"probe\", service=\"probe_transactions\"} |= \"type=evenement\" | logfmt | kind=\"restore\"",
+        "instant": false,
+        "titleFormat": "{{etape}}",
+        "textFormat": "{{texte}}",
+        "tagKeys": "kind"
+      },
+      {
+        "name": "Réapprentissage du modèle",
+        "enable": true,
+        "hide": false,
+        "iconColor": "blue",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "expr": "{stack=\"paiement\", service=\"paiement_detector\"} |~ \"Application startup complete|POST /reset\"",
+        "instant": false,
+        "titleFormat": "Réapprentissage du modèle",
+        "textFormat": "Détecteur démarré ou réinitialisé sur {{host}} : échauffement de 60 s",
+        "tagKeys": "host"
+      },
+      {
+        "name": "Tests de chaos",
+        "enable": true,
+        "hide": false,
+        "iconColor": "#B877D9",
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "target": {
+          "type": "tags",
+          "tags": [
+            "chaos"
+          ],
+          "limit": 100,
+          "matchAny": true
+        }
+      },
+      {
+        "name": "Alertes du détecteur",
+        "enable": true,
+        "hide": false,
+        "iconColor": "yellow",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "expr": "ALERTS{alertstate=\"firing\", alertname=~\"PaiementAnomalieDetectee|PaiementDetectorDown\"}",
+        "step": "30s",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{service}}",
+        "tagKeys": "severity",
+        "useValueForTime": false
+      }
+    ]
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "État du modèle",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Modèle",
+      "description": "PRÊT : la normale est apprise, chaque seconde reçoit un score. ÉCHAUFFEMENT : le modèle apprend (60 premières secondes où l'API répond, après un redémarrage du détecteur ou un POST /reset). INJOIGNABLE : /metrics ne répond plus (alerte PaiementDetectorDown au bout de 2 min). Mesure toutes les 30 s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 5,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(detector_ready{service=\"paiement_detector\"}) or vector(-1)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "PRÊT",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "ÉCHAUFFEMENT",
+                  "color": "orange",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "-1": {
+                  "text": "INJOIGNABLE",
+                  "color": "red",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Normale apprise",
+      "description": "Secondes d'observation apprises pendant l'échauffement (WARMUP_SECONDS = 60 en production, 120 lors de l'évaluation hors ligne). Le modèle n'est plus réentraîné ensuite : la normale est figée.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(detector_training_samples{service=\"paiement_detector\"})",
+          "legendFormat": "",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 60
+              }
+            ]
+          },
+          "unit": "suffix: / 60 s",
+          "decimals": 0,
+          "min": 0,
+          "max": 60,
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Score d'anomalie",
+      "description": "Score courant (0 normal, 1 très anormal), seuil 0,55. Valeur lissée (moyenne exponentielle) recopiée de /detector/score par la sonde toutes les 5 s ; /metrics n'est collecté que toutes les 30 s.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "max(last_over_time({stack=\"probe\", service=\"probe_transactions\"} |= \"type=etat\" | logfmt score | __error__=\"\" | unwrap score [15s]))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.44000000000000006
+              },
+              {
+                "color": "red",
+                "value": 0.55
+              }
+            ]
+          },
+          "decimals": 2,
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      },
+      "interval": "5s"
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Verdict",
+      "description": "ANOMALIE CONFIRMÉE : score brut ≥ 0,55 pendant 3 secondes de suite ; le moteur de remédiation agit. À 5 s près (sonde).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 13,
+        "y": 1,
+        "w": 5,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "max(last_over_time({stack=\"probe\", service=\"probe_transactions\"} |= \"type=etat\" | logfmt anomalie | __error__=\"\" | unwrap anomalie [30s])) or vector(2)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "NORMAL",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "ANOMALIE CONFIRMÉE",
+                  "color": "red",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "2": {
+                  "text": "SONDE MUETTE",
+                  "color": "orange",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 2
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      },
+      "interval": "5s"
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Anomalies confirmées",
+      "description": "Passages de normal à anormal sur la période affichée (compteur detector_anomalies_total : garde la trace d'une anomalie plus brève que la collecte de 30 s).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 3,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(increase(detector_anomalies_total{service=\"paiement_detector\"}[$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Alertes du détecteur",
+      "description": "Alertes vmalert en cours : PaiementAnomalieDetectee (anomalie confirmée, remédiation en cours), PaiementDetectorDown (détecteur muet : remédiation automatique aveugle).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 1,
+        "w": 3,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max by (alertname) (last_over_time(ALERTS{alertstate=\"firing\", alertname=~\"PaiementAnomalieDetectee|PaiementDetectorDown\"}[1m])) or on() label_set(vector(0), \"alertname\", \"aucune\")",
+          "legendFormat": "{{alertname}}",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Score d'anomalie, seuil et anomalies confirmées",
+      "description": "Violet : score lissé lu toutes les 5 s par la sonde ; points gris : le même score collecté par VictoriaMetrics (30 s). Tirets rouges : seuil 0,55. Zone rouge : anomalie confirmée (score brut au-dessus du seuil 3 s de suite). La décision porte sur le score brut : une anomalie peut être confirmée alors que la courbe lissée reste juste sous le seuil. Traits verticaux : événements du moteur, tests de chaos.",
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Mixed --"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 16,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "max(max_over_time({stack=\"probe\", service=\"probe_transactions\"} |= \"type=etat\" | logfmt score | __error__=\"\" | unwrap score [$__interval]))",
+          "legendFormat": "score (5 s)",
+          "editorMode": "code",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "max(max_over_time({stack=\"probe\", service=\"probe_transactions\"} |= \"type=etat\" | logfmt anomalie | __error__=\"\" | unwrap anomalie [$__interval]))",
+          "legendFormat": "anomalie confirmée",
+          "editorMode": "code",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "C",
+          "expr": "max(detector_anomaly_score{service=\"paiement_detector\"})",
+          "legendFormat": "score /metrics (30 s)",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "D",
+          "expr": "max(detector_threshold{service=\"paiement_detector\"})",
+          "legendFormat": "seuil",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2,
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 3,
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "score (5 s)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "score /metrics (30 s)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 4
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seuil"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "anomalie confirmée"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 25
+              },
+              {
+                "id": "custom.gradientMode",
+                "value": "none"
+              },
+              {
+                "id": "custom.lineInterpolation",
+                "value": "stepAfter"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "5s"
+    },
+    {
+      "id": 9,
+      "type": "text",
+      "title": "Le modèle en bref",
+      "description": "",
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**IsolationForest** (scikit-learn, 200 arbres) **+ distance robuste** à la normale\n(médiane / MAD). Score brut = le plus élevé des deux, ramené sur [0, 1].\n\n- **Entrée** : une observation de payment-api **par seconde**, 6 variables\n  (req/s, taux d'erreur, p95, latence Stripe, API et Stripe joignables).\n- **Apprentissage** : les **60 premières secondes** où l'API répond, puis\n  **modèle figé** (pas de réentraînement continu). Réapprend au redémarrage du\n  conteneur ou sur `POST /reset` (jeton administrateur).\n- **Décision** : score brut **≥ 0,55** pendant **3 s de suite**\n  (une seconde isolée est un soubresaut).\n\n**Évaluation hors ligne** (`evaluation/`) : attaque réelle de 47 s (surcharge et\nrequêtes en erreur), score capturé chaque seconde et comparé seconde par seconde à\nla fenêtre d'attaque (warmup 120 s).\n\n| Precision | Recall | F1 | AUC-ROC | Délai |\n|:-:|:-:|:-:|:-:|:-:|\n| **0,811** | **0,915** | **0,860** | **0,922** | **4 s** |\n"
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Persistance : secondes au-dessus du seuil / anomalies confirmées",
+      "description": "Par minute. Orange : secondes dont le score brut dépasse 0,55 ; rouge (axe de droite) : anomalies confirmées. Des barres orange sans point rouge = soubresauts filtrés par la persistance (3 s de suite exigées) : pas de remédiation inutile.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 14,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(increase(detector_over_threshold_seconds_total{service=\"paiement_detector\"}[$__interval]))",
+          "legendFormat": "secondes au-dessus du seuil",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "sum(increase(detector_anomalies_total{service=\"paiement_detector\"}[$__interval]))",
+          "legendFormat": "anomalies confirmées",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 3,
+            "fillOpacity": 70,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "secondes au-dessus du seuil"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "anomalies confirmées"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 14
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m"
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Indicateurs en ligne (période affichée)",
+      "description": "Observations/s : rythme réel de la boucle (5 dernières min), doit rester ≈ 1 (une décision par seconde). Temps au-dessus du seuil : part des secondes observées dont le score brut dépasse le seuil. Temps en anomalie confirmée : part du temps (échantillons à 30 s) avec verdict anormal. Réapprentissages : démarrages du détecteur et POST /reset (journaux Loki) ; chacun relance l'échauffement.",
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Mixed --"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 16,
+        "w": 10,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(rate(detector_observations_total{service=\"paiement_detector\"}[5m]))",
+          "legendFormat": "observations/s (attendu 1)",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "sum(increase(detector_over_threshold_seconds_total{service=\"paiement_detector\"}[$__range])) / sum(increase(detector_observations_total{service=\"paiement_detector\"}[$__range]))",
+          "legendFormat": "temps au-dessus du seuil",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "C",
+          "expr": "avg_over_time(max(detector_anomaly{service=\"paiement_detector\"})[$__range:30s])",
+          "legendFormat": "temps en anomalie confirmée",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "D",
+          "expr": "sum(count_over_time({stack=\"paiement\", service=\"paiement_detector\"} |~ \"Application startup complete|POST /reset\" [$__range])) or vector(0)",
+          "legendFormat": "réapprentissages",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "temps au-dessus du seuil"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "temps en anomalie confirmée"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "réapprentissages"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Variables d'entrée du modèle (dernière valeur collectée, 30 s)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Trafic et erreurs",
+      "description": "rps : requêtes par seconde sur les 10 dernières secondes ; errRate : part des réponses en erreur (axe de droite). Une attaque par surcharge fait monter les deux. API muette : errRate = 100 %, rps = 0.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(detector_feature{service=\"paiement_detector\", feature=\"rps\"})",
+          "legendFormat": "requêtes/s",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "max(detector_feature{service=\"paiement_detector\", feature=\"errRate\"})",
+          "legendFormat": "taux d'erreur",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 3,
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "requêtes/s"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "taux d'erreur"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Latences",
+      "description": "p95 : 95e centile de la durée des requêtes de payment-api ; latence de l'appel de santé à Stripe (mode test). 0 quand l'API ne répond pas.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 25,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(detector_feature{service=\"paiement_detector\", feature=\"p95\"})",
+          "legendFormat": "p95 payment-api",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "max(detector_feature{service=\"paiement_detector\", feature=\"stripeLatency\"})",
+          "legendFormat": "latence Stripe",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ms",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 3,
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95 payment-api"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "latence Stripe"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "state-timeline",
+      "title": "Joignabilité vue par le modèle",
+      "description": "apiUp : /api/status de payment-api répond (une API muette est aussi une observation : toutes ses variables passent à 0 et le taux d'erreur à 100 %). stripeUp : Stripe joignable depuis payment-api.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 25,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(detector_feature{service=\"paiement_detector\", feature=\"apiUp\"})",
+          "legendFormat": "payment-api",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "max(detector_feature{service=\"paiement_detector\", feature=\"stripeUp\"})",
+          "legendFormat": "Stripe",
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "répond",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "MUET",
+                  "color": "red",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 85
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "auto",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "alignValue": "center",
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "Chaîne de décision : détection → action du moteur → reprise",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "type": "logs",
+      "title": "Chronologie : verdict du modèle, action, reprise",
+      "description": "« Incident détecté » : anomalie confirmée par le détecteur (avec son score), lue par le moteur ; puis décision, redémarrage par la passerelle, transaction de contrôle, reprise. « Sonde » : panne et retour vus par un client réel. « Modèle » : redémarrage du détecteur ou POST /reset (nouvel échauffement). Événements du moteur recopiés par la sonde (heure à 5 s près). Vide si rien ne s'est passé sur la période.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 15,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"probe\", service=\"probe_transactions\"} |~ \"type=(evenement|incident)\" | logfmt | line_format \"{{.etape}} : {{.texte}}\"",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "{stack=\"paiement\", service=\"paiement_detector\"} |~ \"Application startup complete|POST /reset\" | line_format \"Modèle : démarrage ou réinitialisation sur {{.host}}, réapprentissage de la normale (60 s)\"",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Ascending"
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Dernière remédiation (24 h)",
+      "description": "Durées de la dernière remédiation des 24 dernières heures, lues dans les événements du moteur et de la sonde. S'y ajoute le délai de confirmation du modèle (3 s de persistance ; délai de détection mesuré hors ligne : 4 s).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 34,
+        "w": 9,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "last_over_time({stack=\"probe\", service=\"probe_transactions\"} |= \"type=evenement\" |= \"kind=restore\" | regexp `rétabli en (?P<reprise_s>[0-9.]+) s` | __error__=\"\" | unwrap reprise_s [24h]) by (stack)",
+          "legendFormat": "détection → service rétabli (moteur)",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "last_over_time({stack=\"probe\", service=\"probe_transactions\"} |= \"type=evenement\" |= \"kind=act\" |= \"passerelle\" | regexp `en (?P<restart_s>[0-9.]+) s,` | __error__=\"\" | unwrap restart_s [24h]) by (stack)",
+          "legendFormat": "dont redémarrage par la passerelle",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "C",
+          "expr": "last_over_time({stack=\"probe\", service=\"probe_transactions\"} |= \"type=incident\" |= \"phase=fin\" | logfmt duree_s | __error__=\"\" | unwrap duree_s [24h]) by (stack)",
+          "legendFormat": "panne vue par un client (sonde)",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          },
+          "unit": "s",
+          "decimals": 0,
+          "noValue": "aucune",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    }
+  ]
+}

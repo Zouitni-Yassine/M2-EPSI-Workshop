@@ -1,0 +1,1522 @@
+{
+  "id": null,
+  "uid": "logs-remediation",
+  "title": "Logs - Détection et remédiation",
+  "description": "Logs de la chaîne de reprise automatique : anomalie détectée, décision du moteur, action de la passerelle remediate, reprise vue par la sonde de transaction.",
+  "tags": [
+    "logs"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "links": [
+    {
+      "title": "Accueil des logs",
+      "type": "link",
+      "url": "/d/logs-accueil",
+      "icon": "doc",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Page d'accueil des dashboards de logs"
+    },
+    {
+      "title": "Autres logs",
+      "type": "dashboards",
+      "tags": [
+        "logs"
+      ],
+      "asDropdown": true,
+      "icon": "external link",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "url": "",
+      "tooltip": ""
+    },
+    {
+      "title": "Démo / Remédiation",
+      "type": "link",
+      "url": "/d/demo-remediation",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Vue métriques de la démonstration"
+    },
+    {
+      "title": "Modèle ML",
+      "type": "link",
+      "url": "/d/ml-detecteur",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Détecteur d'anomalies (score, seuil, métriques)"
+    },
+    {
+      "title": "Vue centrale",
+      "type": "link",
+      "url": "/d/central",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Plateforme - vue centrale"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Tests de chaos",
+        "enable": true,
+        "hide": false,
+        "iconColor": "#B877D9",
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "target": {
+          "type": "tags",
+          "tags": [
+            "chaos"
+          ],
+          "limit": 100,
+          "matchAny": true
+        }
+      },
+      {
+        "name": "Sonde : panne / reprise",
+        "enable": true,
+        "hide": false,
+        "iconColor": "purple",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "instant": false,
+        "expr": "{stack=\"probe\", service=\"probe_transactions\"} |= \"type=incident\" | logfmt",
+        "titleFormat": "{{etape}}",
+        "textFormat": "{{texte}}",
+        "tagKeys": "phase"
+      },
+      {
+        "name": "Incident détecté",
+        "enable": true,
+        "hide": false,
+        "iconColor": "red",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "expr": "{stack=\"probe\", service=\"probe_transactions\"} |= \"type=evenement\" | logfmt | kind=\"detect\"",
+        "instant": false,
+        "titleFormat": "{{etape}}",
+        "textFormat": "{{texte}}",
+        "tagKeys": "kind"
+      },
+      {
+        "name": "Service rétabli",
+        "enable": true,
+        "hide": false,
+        "iconColor": "green",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "expr": "{stack=\"probe\", service=\"probe_transactions\"} |= \"type=evenement\" | logfmt | kind=\"restore\"",
+        "instant": false,
+        "titleFormat": "{{etape}}",
+        "textFormat": "{{texte}}",
+        "tagKeys": "kind"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "host",
+        "label": "Machine",
+        "description": "Workers (détecteur, moteur, sonde) et managers (passerelle)",
+        "query": "dockerwrk01,dockerwrk02,dockerwrk03,dockermgr01,dockermgr02,dockermgr03",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "dockerwrk01",
+            "value": "dockerwrk01",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk02",
+            "value": "dockerwrk02",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk03",
+            "value": "dockerwrk03",
+            "selected": false
+          },
+          {
+            "text": "dockermgr01",
+            "value": "dockermgr01",
+            "selected": false
+          },
+          {
+            "text": "dockermgr02",
+            "value": "dockermgr02",
+            "selected": false
+          },
+          {
+            "text": "dockermgr03",
+            "value": "dockermgr03",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "custom",
+        "name": "source",
+        "label": "Source",
+        "description": "Service Swarm (label service) ; la passerelle des managers est toujours affichée",
+        "query": "paiement_detector,paiement_remediation,probe_transactions",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "paiement_detector",
+            "value": "paiement_detector",
+            "selected": false
+          },
+          {
+            "text": "paiement_remediation",
+            "value": "paiement_remediation",
+            "selected": false
+          },
+          {
+            "text": "probe_transactions",
+            "value": "probe_transactions",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "recherche",
+        "label": "Recherche",
+        "description": "Filtre libre appliqué à toutes les requêtes (expression régulière, insensible à la casse). Vide = tout.",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "En un coup d'œil",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Lignes de logs",
+      "description": "Lignes écrites par le détecteur, le moteur et la sonde sur la période (hors passerelle). L'essentiel : interrogations périodiques du score (chaque seconde) et de l'état du moteur.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=~\"paiement|probe\", service=~\"$source\", host=~\"$host\"} |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Erreurs",
+      "description": "Traces Python, réponses 5xx, transactions de la sonde en échec et appels refusés par la passerelle (code ≠ 0). Pendant une remédiation, la sonde voit quelques transactions échouer : c'est la panne mesurée, pas un défaut du moteur.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "((sum(count_over_time({stack=~\"paiement|probe\", service=~\"$source\", host=~\"$host\"} |~ `(?i)(traceback|exception|error|erreur|fatal|panic|HTTP/[0-9.]+\" 5[0-9]{2} |result=echec)` != \"type=etat\" |~ \"(?i)$recherche\" [$__range])) or vector(0)) + (sum(count_over_time({host=~\"dockermgr0[123]\", host=~\"$host\", identifier=\"remediate\"} != \" code=0 \" |~ \"(?i)$recherche\" [$__range])) or vector(0))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Avertissements",
+      "description": "Lignes d'état de la sonde (une toutes les 5 s) qui signalent des paiements en panne ou une santé en échec, plus les WARNING d'uvicorn. Proportionnel à la durée des pannes : 12 lignes ≈ 1 min de panne.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=~\"paiement|probe\", service=~\"$source\", host=~\"$host\"} |~ `(?i)(WARNING:|level=warn)|type=etat .*(paiements=panne|sante=echec)` |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Anomalies confirmées",
+      "description": "Incidents confirmés par le détecteur ML (score ≥ seuil 0,55) qui ont déclenché le moteur, sur la période.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"probe\", service=\"probe_transactions\", service=~\"$source\", host=~\"$host\"} |= \"type=evenement\" |= \"kind=detect\" |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Actions de la passerelle",
+      "description": "Actions correctives exécutées par la passerelle remediate des managers (redémarrage, mise à l'échelle, retour arrière) ; les simples lectures (status, list) ne sont pas comptées.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({host=~\"dockermgr0[123]\", host=~\"$host\", identifier=\"remediate\"} |~ `\"action\": \"(restart|scale|rollback)\"` |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Pannes vues par la sonde",
+      "description": "Débuts de panne détectés par la sonde de transaction (client réel qui paie toutes les 30 s et vérifie la santé toutes les 5 s). La durée de chaque panne est dans « Pannes et transactions en échec ».",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"probe\", service=\"probe_transactions\", service=~\"$source\", host=~\"$host\"} |= \"type=incident\" |= \"phase=debut\" |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Volume de logs par source",
+      "description": "Lignes par minute : détecteur, moteur, sonde et passerelle remediate. Le détecteur est interrogé chaque seconde (volume constant) ; la passerelle n'écrit qu'à chaque appel du moteur.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (service) (count_over_time({stack=~\"paiement|probe\", service=~\"$source\", host=~\"$host\"} |~ \"(?i)$recherche\" [$__interval]))",
+          "legendFormat": "{{service}}",
+          "editorMode": "code",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "sum by (identifier) (count_over_time({host=~\"dockermgr0[123]\", host=~\"$host\", identifier=\"remediate\"} |~ \"(?i)$recherche\" [$__interval]))",
+          "legendFormat": "passerelle remediate",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "sum"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m"
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Erreurs et avertissements",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "Erreurs (détecteur, moteur, sonde, passerelle) (24 h)",
+      "description": "Erreurs des composants de la chaîne : traces Python (ex. BrokenPipe de la sonde quand un client coupe /metrics, sans conséquence), réponses 5xx, transactions de contrôle en échec, appels refusés par la passerelle (ex. « service inconnu » : service hors liste blanche ou en cours de recréation). Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=~\"paiement|probe\", service=~\"$source\", host=~\"$host\"} |~ `(?i)(traceback|exception|error|erreur|fatal|panic|HTTP/[0-9.]+\" 5[0-9]{2} |result=echec)` != \"type=etat\" |~ \"(?i)$recherche\" | line_format `{{ trimPrefix \"paiement_\" .service }} @ {{ .host }} │ {{ regexReplaceAll \"(?i)(bearer\\\\s+)[A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"(?i)((token|passw[a-z]*|pwd|secret|api_?key|authorization|session_?id|cookie)[a-z_]*\\\"?\\\\s*[=:]\\\\s*\\\"?)[^&\\\\s\\\",]+\" __line__ \"${1}***\") \"${1}***\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "{host=~\"dockermgr0[123]\", host=~\"$host\", identifier=\"remediate\"} != \" code=0 \" |~ \"(?i)$recherche\" | regexp `^caller=(?P<caller>\\S+) code=(?P<code>[0-9]+) (?P<corps>.*)$` | line_format `{{ .corps }}` | json | line_format `[3 Passerelle {{ .host }}] {{ if .action }}{{ .action }}{{ else }}refus{{ end }} {{ .service }}{{ if .duration_s }} en {{ .duration_s }} s{{ end }}{{ if .replicas_desired }} · {{ .replicas_running }}/{{ .replicas_desired }} réplicas{{ end }} · code {{ .code }}{{ if .error }} · {{ .error }}{{ end }} · appel de {{ .caller }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Événements clés",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "La chaîne de remédiation, étape par étape (24 h)",
+      "description": "À lire de bas en haut (plus récent en haut) : [Sonde : PANNE] la sonde ne peut plus payer → [1 Détection] le détecteur ML confirme l'anomalie (score ≥ 0,55) → [2 Moteur] décision (recréer le service) → [3 Passerelle] le manager Swarm exécute l'action (durée, réplicas en marche) → [4 Vérification] transaction de contrôle → [5 Rétabli] durée totale, 0 intervention humaine → [Sonde : REPRISE] durée de panne vue par un client. Les étapes 1, 2, 4, 5 viennent du moteur (recopiées par la sonde, le moteur ne journalise pas lui-même) ; l'étape 3 vient du journal des managers. Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 14,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"probe\", service=\"probe_transactions\", service=~\"$source\", host=~\"$host\"} |= \"type=evenement\" |~ \"(?i)$recherche\" | logfmt | line_format `{{ if eq .kind \"detect\" }}[1 Détection]{{ else if eq .kind \"act\" }}[2 Moteur]{{ else if eq .kind \"verify\" }}[4 Vérification]{{ else if eq .kind \"restore\" }}[5 Rétabli]{{ else }}[{{ .kind }}]{{ end }} {{ .texte }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 300
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "{host=~\"dockermgr0[123]\", host=~\"$host\", identifier=\"remediate\"} |~ `\"action\": \"(restart|scale|rollback)\"|code=[1-9]` |~ \"(?i)$recherche\" | regexp `^caller=(?P<caller>\\S+) code=(?P<code>[0-9]+) (?P<corps>.*)$` | line_format `{{ .corps }}` | json | line_format `[3 Passerelle {{ .host }}] {{ if .action }}{{ .action }}{{ else }}refus{{ end }} {{ .service }}{{ if .duration_s }} en {{ .duration_s }} s{{ end }}{{ if .replicas_desired }} · {{ .replicas_running }}/{{ .replicas_desired }} réplicas{{ end }} · code {{ .code }}{{ if .error }} · {{ .error }}{{ end }} · appel de {{ .caller }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 300
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "C",
+          "expr": "{stack=\"probe\", service=\"probe_transactions\", service=~\"$source\", host=~\"$host\"} |= \"type=incident\" |~ \"(?i)$recherche\" | logfmt | line_format `{{ if eq .phase \"debut\" }}[Sonde : PANNE]{{ else }}[Sonde : REPRISE]{{ end }} {{ .texte }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 300
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 13,
+      "type": "logs",
+      "title": "Pannes et transactions en échec (sonde) (24 h)",
+      "description": "Vue client : la sonde paie 1 € toutes les 30 s par l'adresse virtuelle et vérifie /api/health toutes les 5 s. PANNE / REPRISE encadrent chaque coupure avec sa durée réelle ; une transaction en échec indique l'étape qui casse (connexion, création, confirmation) et le code HTTP (0 = pas de réponse). Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 23,
+        "w": 10,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"probe\", service=\"probe_transactions\", service=~\"$source\", host=~\"$host\"} |~ \"type=(transaction|incident)\" |~ \"(?i)$recherche\" | logfmt | result!=\"ok\" | line_format `{{ if eq .type \"incident\" }}{{ if eq .phase \"debut\" }}PANNE{{ else }}REPRISE{{ end }} │ {{ .texte }}{{ else }}Transaction en échec à l'étape {{ .etape_echec }} · {{ .detail }} · {{ .duree_ms }} ms{{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Étapes de la chaîne dans le temps (24 h)",
+      "description": "Chaque barre = un événement : détection (detect), décision et action (act), vérification (verify), retour à la normale (restore), appels de la passerelle par action, débuts et fins de panne vus par la sonde. Les événements d'un même incident sont groupés en moins d'une minute. Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 10,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (kind) (count_over_time({stack=\"probe\", service=\"probe_transactions\", service=~\"$source\", host=~\"$host\"} |= \"type=evenement\" |~ \"(?i)$recherche\" | logfmt [$__interval]))",
+          "legendFormat": "moteur : {{kind}}",
+          "editorMode": "code",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "sum by (action) (count_over_time({host=~\"dockermgr0[123]\", host=~\"$host\", identifier=\"remediate\"} |~ \"(?i)$recherche\" | regexp `\"action\": \"(?P<action>[a-z_-]+)\"` | action!=\"\" [$__interval]))",
+          "legendFormat": "passerelle : {{action}}",
+          "editorMode": "code",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "C",
+          "expr": "sum by (phase) (count_over_time({stack=\"probe\", service=\"probe_transactions\", service=~\"$source\", host=~\"$host\"} |= \"type=incident\" |~ \"(?i)$recherche\" | logfmt [$__interval]))",
+          "legendFormat": "sonde : {{phase}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "sum"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "timeFrom": "24h"
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Appels de la passerelle (24 h)",
+      "description": "Appels reçus par /usr/local/sbin/remediate sur les managers, par action et service. Code 0 = exécuté ; code ≠ 0 = refusé (service ou action hors liste blanche, limite de fréquence). status / list = lectures d'état du moteur. Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 35,
+        "w": 7,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (host, action, service, code) (count_over_time({host=~\"dockermgr0[123]\", host=~\"$host\", identifier=\"remediate\"} |~ \"(?i)$recherche\" | regexp `^caller=(?P<caller>\\S+) code=(?P<code>[0-9]+) (?P<corps>.*)$` | line_format `{{ .corps }}` | json [$__range]))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Appels",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "host": "Manager",
+              "action": "Action",
+              "service": "Service",
+              "code": "Code retour",
+              "Value": "Appels",
+              "Value #A": "Appels"
+            }
+          }
+        }
+      ],
+      "timeFrom": "24h"
+    },
+    {
+      "id": 16,
+      "type": "logs",
+      "title": "Accès SSH du moteur à la passerelle (24 h)",
+      "description": "Le moteur n'a pas accès au socket Docker : il se connecte en SSH au compte « remediation » d'un manager, dont la clé n'autorise qu'une commande forcée (sudo /usr/local/sbin/remediate <action> <service>). On voit ici la connexion par clé et la commande exécutée. Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 17,
+        "y": 35,
+        "w": 7,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"dockermgr0[123]\", host=~\"$host\", identifier=~\"sshd-session|sshd|sudo\"} |= \"remediation\" !~ \"pam_unix\" |~ \"(?i)$recherche\" | line_format `{{ .host }} │ {{ regexReplaceAll \"PWD=[^;]*; \" __line__ \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 17,
+      "type": "logs",
+      "title": "Redémarrages du détecteur et du moteur (24 h)",
+      "description": "Démarrages et arrêts des conteneurs detector et remediation (uvicorn). Au démarrage, le moteur annonce son mode (ssh) et les passerelles qu'il utilisera (les 3 managers). Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=~\"paiement_(detector|remediation)\", service=~\"$source\", host=~\"$host\"} |~ `Started server process|Shutting down|Finished server process|remédiation : mode|Application startup complete` |~ \"(?i)$recherche\" | line_format `{{ trimPrefix \"paiement_\" .service }} @ {{ .host }} │ {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 18,
+      "type": "row",
+      "title": "Tous les logs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 19,
+      "type": "logs",
+      "title": "Détecteur, moteur et sonde (hors interrogations périodiques)",
+      "description": "Toutes les lignes des sources choisies, plus récentes en premier, sauf les interrogations réussies (/score chaque seconde, /state, /health, /metrics). Les lignes « type=etat » de la sonde (toutes les 5 s) donnent l'état complet : paiements, score du détecteur, anomalie, état du moteur. Le score dans le temps est dans le dashboard Modèle ML.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 16,
+        "h": 14
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=~\"paiement|probe\", service=~\"$source\", host=~\"$host\"} !~ `\"GET /(health|score|state|metrics|remediation/state) HTTP/1.1\" 200` |~ \"(?i)$recherche\" | line_format `{{ trimPrefix \"paiement_\" .service }} @ {{ .host }} │ {{ regexReplaceAll \"(?i)(bearer\\\\s+)[A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"(?i)((token|passw[a-z]*|pwd|secret|api_?key|authorization|session_?id|cookie)[a-z_]*\\\"?\\\\s*[=:]\\\\s*\\\"?)[^&\\\\s\\\",]+\" __line__ \"${1}***\") \"${1}***\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 1000
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 20,
+      "type": "logs",
+      "title": "Passerelle remediate (journal des managers) (24 h)",
+      "description": "Chaque appel reçu par la passerelle, résumé : action, service, durée, réplicas en marche après l'action, code retour, IP du worker qui porte le moteur. Le détail (état de la mise à jour Swarm, tâches) est dans la ligne complète (cliquer la ligne). La variable source ne s'applique pas ici. Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 51,
+        "w": 8,
+        "h": 14
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"dockermgr0[123]\", host=~\"$host\", identifier=\"remediate\"} |~ \"(?i)$recherche\" | regexp `^caller=(?P<caller>\\S+) code=(?P<code>[0-9]+) (?P<corps>.*)$` | line_format `{{ .corps }}` | json | line_format `[3 Passerelle {{ .host }}] {{ if .action }}{{ .action }}{{ else }}refus{{ end }} {{ .service }}{{ if .duration_s }} en {{ .duration_s }} s{{ end }}{{ if .replicas_desired }} · {{ .replicas_running }}/{{ .replicas_desired }} réplicas{{ end }} · code {{ .code }}{{ if .error }} · {{ .error }}{{ end }} · appel de {{ .caller }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    }
+  ]
+}

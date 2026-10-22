@@ -1,0 +1,1401 @@
+{
+  "id": null,
+  "uid": "logs-swarm",
+  "title": "Logs - Docker Swarm et hôtes",
+  "description": "Logs des hôtes Docker Swarm (dockermgr01-03, dockerwrk01-03) : démon Docker, containerd, keepalived (VIP 10.30.1.200), registre privé, cAdvisor, noyau.",
+  "tags": [
+    "logs",
+    "swarm",
+    "docker"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "links": [
+    {
+      "title": "Logs - Accueil",
+      "type": "link",
+      "url": "/d/logs-accueil",
+      "icon": "doc",
+      "tooltip": "Page d'entrée des logs : toutes les parties",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "Autres logs",
+      "type": "dashboards",
+      "tags": [
+        "logs"
+      ],
+      "asDropdown": true,
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "icon": "external link",
+      "tooltip": "",
+      "url": ""
+    },
+    {
+      "title": "Swarm - vue d'ensemble",
+      "type": "link",
+      "url": "/d/swarm-overview",
+      "icon": "dashboard",
+      "tooltip": "Docker Swarm - vue d'ensemble",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "Swarm - conteneurs",
+      "type": "link",
+      "url": "/d/docker-containers",
+      "icon": "dashboard",
+      "tooltip": "Docker Swarm - conteneurs",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "Vue centrale",
+      "type": "link",
+      "url": "/d/central",
+      "icon": "dashboard",
+      "tooltip": "Plateforme - vue centrale",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "host",
+        "label": "Machine",
+        "description": "Machines de la partie (multi-sélection).",
+        "query": "dockermgr01,dockermgr02,dockermgr03,dockerwrk01,dockerwrk02,dockerwrk03",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "dockermgr01",
+            "value": "dockermgr01",
+            "selected": false
+          },
+          {
+            "text": "dockermgr02",
+            "value": "dockermgr02",
+            "selected": false
+          },
+          {
+            "text": "dockermgr03",
+            "value": "dockermgr03",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk01",
+            "value": "dockerwrk01",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk02",
+            "value": "dockerwrk02",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk03",
+            "value": "dockerwrk03",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "custom",
+        "name": "source",
+        "label": "Source",
+        "description": "Label identifier du journal (hors conteneurs applicatifs).",
+        "query": "Démon Docker : dockerd,containerd,keepalived (VRRP) : Keepalived_vrrp,keepalived (processus) : Keepalived,ipvsadm : ipvsadm-start,Registre privé : registry_registry,cAdvisor : cadvisor,vmagent du Swarm : monitoring_vmagent,Noyau : kernel,systemd",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "Démon Docker",
+            "value": "dockerd",
+            "selected": false
+          },
+          {
+            "text": "containerd",
+            "value": "containerd",
+            "selected": false
+          },
+          {
+            "text": "keepalived (VRRP)",
+            "value": "Keepalived_vrrp",
+            "selected": false
+          },
+          {
+            "text": "keepalived (processus)",
+            "value": "Keepalived",
+            "selected": false
+          },
+          {
+            "text": "ipvsadm",
+            "value": "ipvsadm-start",
+            "selected": false
+          },
+          {
+            "text": "Registre privé",
+            "value": "registry_registry",
+            "selected": false
+          },
+          {
+            "text": "cAdvisor",
+            "value": "cadvisor",
+            "selected": false
+          },
+          {
+            "text": "vmagent du Swarm",
+            "value": "monitoring_vmagent",
+            "selected": false
+          },
+          {
+            "text": "Noyau",
+            "value": "kernel",
+            "selected": false
+          },
+          {
+            "text": "systemd",
+            "value": "systemd",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "recherche",
+        "label": "Recherche (regex)",
+        "description": "Filtre texte appliqué aux panneaux de logs (expression régulière, insensible à la casse). Vide = tout.",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "En un coup d'œil",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Lignes de logs",
+      "description": "Lignes reçues des managers et workers Swarm pour les sources sélectionnées (hors conteneurs applicatifs : voir Logs - Paiement / Base / Remédiation).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"dockerd|containerd|Keepalived.*|ipvsadm-start|registry_registry.*|cadvisor|monitoring_vmagent.*|kernel|systemd\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Erreurs",
+      "description": "Lignes d'erreur. Bruit exclu : paquets de diffusion refusés par le pare-feu (host_fw drop), « martian source », sondes memberlist du Swarm.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"dockerd|containerd|Keepalived.*|ipvsadm-start|registry_registry.*|cadvisor|monitoring_vmagent.*|kernel|systemd\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" != `host_fw drop` !~ `martian source|ll header` != `memberlist:` != `is unknown to memberlist` |~ `(?i)(error|fail|fatal|panic|oom-kill|out of memory|killed process|fault state|timed_out)` |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Avertissements",
+      "description": "Lignes de niveau warning (hors bruit).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"dockerd|containerd|Keepalived.*|ipvsadm-start|registry_registry.*|cadvisor|monitoring_vmagent.*|kernel|systemd\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" != `host_fw drop` !~ `martian source|ll header` != `memberlist:` != `is unknown to memberlist` |~ `(?i)(level=warning|\\bwarn)` |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Prises de la VIP",
+      "description": "Nombre de fois où un worker est devenu porteur de la VIP 10.30.1.200 (keepalived MASTER). 0 = pas de bascule sur la période.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=~\"Keepalived.*\"} |= `Entering MASTER STATE` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Tâches Swarm en échec",
+      "description": "Tâches que le Swarm a dû arrêter ou replanifier (« fatal task error »).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=\"dockerd\"} |= `fatal task error` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Conteneurs arrêtés",
+      "description": "Conteneurs terminés (containerd : « shim disconnected ») : redémarrage, replanification, mise à jour d'un service ou test de chaos.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=\"containerd\"} |= `shim disconnected` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Volume de logs par source",
+      "description": "Nombre de lignes de logs par intervalle, empilées par source. Un pic isolé = un événement (redémarrage, attaque, rafale d'erreurs) ; une source qui disparaît = service arrêté ou collecte (Alloy) en panne.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (src) (count_over_time({host=~\"$host\", identifier=~\"dockerd|containerd|Keepalived.*|ipvsadm-start|registry_registry.*|cadvisor|monitoring_vmagent.*|kernel|systemd\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" |~ `(?i)$recherche` [$__interval]))",
+          "legendFormat": "{{src}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Erreurs et avertissements",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "Erreurs et avertissements",
+      "description": "Erreurs des démons Docker / containerd, de keepalived et du noyau. Bruit exclu (voir « Erreurs »). « heartbeat to manager failed » = un nœud a perdu le contact avec le leader (gel d'une sauvegarde, panne réseau, test de chaos).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"dockerd|containerd|Keepalived.*|ipvsadm-start|registry_registry.*|cadvisor|monitoring_vmagent.*|kernel|systemd\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" != `host_fw drop` !~ `martian source|ll header` != `memberlist:` != `is unknown to memberlist` |~ `(?i)(error|fail|fatal|panic|oom-kill|out of memory|killed process|fault state|timed_out)|(?i)(level=warning|\\bwarn)` |~ `(?i)$recherche` | line_format `{{.host}} · {{.src}} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Événements clés",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "VIP 10.30.1.200 : changements d'état keepalived (24 h)",
+      "description": "keepalived sur les trois workers : MASTER = porte la VIP 10.30.1.200 (entrée de l'application), BACKUP = en attente, FAULT = test local du frontal (port 5173) en échec, la VIP part ailleurs.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"Keepalived.*\"} |~ `Entering (MASTER|BACKUP|FAULT) STATE|VRRP_Script\\(.*\\) (succeeded|failed|timed_out)|Stopping|Starting|Reload` |~ `(?i)$recherche` | line_format `{{.host}} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 13,
+      "type": "logs",
+      "title": "Swarm : tâches en échec, nœuds, élections (24 h)",
+      "description": "Événements du démon Docker en mode Swarm : tâche arrêtée/replanifiée (fatal task error), perte de contact avec un manager (heartbeat), élection d'un nouveau leader Raft, conteneur impossible à tuer.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 23,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=\"dockerd\"} |~ `fatal task error|healthcheck failed|heartbeat to manager|elected leader|leadership changed|Could not send KILL|task failed|rejected|node .* (down|unknown)` |~ `(?i)$recherche` | logfmt msg, error | line_format `{{.host}} · {{.msg}}{{ if .error }} — {{.error}}{{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Conteneurs démarrés et arrêtés par machine",
+      "description": "Au-dessus de zéro : conteneurs démarrés (systemd « libcontainer container ») ; en dessous : conteneurs terminés (containerd). Une paire arrêt/démarrage = tâche relancée ou replanifiée sur cette machine.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (host) (count_over_time({host=~\"$host\", identifier=\"systemd\"} |= `libcontainer container` |~ `^Started` [$__interval]))",
+          "legendFormat": "démarrés {{host}}",
+          "editorMode": "code",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "sum by (host) (count_over_time({host=~\"$host\", identifier=\"containerd\"} |= `shim disconnected` [$__interval]))",
+          "legendFormat": "arrêtés {{host}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "arrêtés.*"
+            },
+            "properties": [
+              {
+                "id": "custom.transform",
+                "value": "negative-Y"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "logs",
+      "title": "Système : démarrages, arrêts, OOM (24 h)",
+      "description": "Démarrage et arrêt des machines (Startup finished, Reached target Shutdown), du démon Docker et de keepalived, et tueur OOM du noyau (« Out of memory: Killed process ») s'il intervient. Aucun OOM attendu.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"kernel|systemd|systemd-shutdown\", unit!~\"user@.*\"} |~ `(?i)out of memory|oom-kill|killed process|Linux version|Reached target .*(Shutdown|Reboot)|Startup finished|docker.service: (Main process exited|Failed|Scheduled restart)|(Started|Stopped) docker.service|(Started|Stopped) keepalived` |~ `(?i)$recherche` | line_format `{{.host}} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Messages d'erreur et d'avertissement du démon Docker",
+      "description": "Messages warning/error les plus fréquents de dockerd. Les « memberlist » (sondes UDP du gossip Swarm) sont fréquents et bénins tant que les nœuds restent Ready.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "topk(15, sum by (msg) (count_over_time({host=~\"$host\", identifier=\"dockerd\"} |~ `level=(error|warning|fatal)` | regexp `msg=\"(?P<msg>[^\"]{0,90})` [$__range])))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lignes"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "labelsToFields": true,
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Field": true
+            },
+            "indexByName": {
+              "msg": 0,
+              "Last *": 1
+            },
+            "renameByName": {
+              "msg": "Message",
+              "Last *": "Lignes"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Lignes",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "Tous les logs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "logs",
+      "title": "Démon Docker, containerd, keepalived",
+      "description": "Démons de l'hôte, plus récents en haut.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 12,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"dockerd|containerd|Keepalived.*|ipvsadm-start\"} |~ `(?i)$recherche` | line_format `{{.host}} · {{.identifier}} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 19,
+      "type": "logs",
+      "title": "Toutes les sources sélectionnées",
+      "description": "Lignes brutes, les plus récentes en haut. Filtrer avec les variables host, source et recherche ; cliquer une ligne pour voir ses labels.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 47,
+        "w": 12,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=~\"dockerd|containerd|Keepalived.*|ipvsadm-start|registry_registry.*|cadvisor|monitoring_vmagent.*|kernel|systemd\"} | label_format src=`{{ regexReplaceAll \"[.][0-9]+[.].*\" .identifier \"\" }}` | src=~\"$source\" |~ `(?i)$recherche` | line_format `{{.host}} · {{.src}} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

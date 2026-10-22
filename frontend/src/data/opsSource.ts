@@ -181,7 +181,8 @@ async function fetchHistory(): Promise<AlertNotification[]> {
   for (const { ts, line } of await lines('notifications')) {
     let n: Webhook
     try {
-      n = (JSON.parse(line) as { notification: Webhook }).notification
+      // Ligne écrite par le nginx de monitoring01 : {"ts": …, "body": "<JSON du webhook>"}
+      n = JSON.parse((JSON.parse(line) as { body: string }).body) as Webhook
     } catch {
       continue
     }

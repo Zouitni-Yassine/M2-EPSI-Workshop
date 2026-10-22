@@ -414,7 +414,7 @@ local seulement) écrit chaque corps JSON sur une ligne de
 Alloy (`alloy_log_files`, job `alertmanager-notify`) :
 
 ```logql
-{host="monitoring01",job="alertmanager-notify"} | json | notification_status="firing"
+{host="monitoring01",job="alertmanager-notify"} | json | line_format "{{.body}}" | json | status="firing"
 ```
 
 ### Brancher le moteur de remédiation

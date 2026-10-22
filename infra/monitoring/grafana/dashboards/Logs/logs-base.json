@@ -1,0 +1,1276 @@
+{
+  "id": null,
+  "uid": "logs-base",
+  "title": "Logs - Base de données (Patroni)",
+  "description": "Logs de la base PostgreSQL répliquée (Patroni, 3 nœuds) et de son magasin de consensus etcd (3 membres) : élection du primaire, réplication, redémarrages.",
+  "tags": [
+    "logs"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "links": [
+    {
+      "title": "Accueil des logs",
+      "type": "link",
+      "url": "/d/logs-accueil",
+      "icon": "doc",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Page d'accueil des dashboards de logs"
+    },
+    {
+      "title": "Autres logs",
+      "type": "dashboards",
+      "tags": [
+        "logs"
+      ],
+      "asDropdown": true,
+      "icon": "external link",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "url": "",
+      "tooltip": ""
+    },
+    {
+      "title": "Vue centrale",
+      "type": "link",
+      "url": "/d/central",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Plateforme - vue centrale (métriques)"
+    },
+    {
+      "title": "Swarm",
+      "type": "link",
+      "url": "/d/swarm-overview",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Docker Swarm - vue d'ensemble"
+    },
+    {
+      "title": "Conteneurs",
+      "type": "link",
+      "url": "/d/docker-containers",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Docker Swarm - conteneurs"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Tests de chaos",
+        "enable": true,
+        "hide": false,
+        "iconColor": "#B877D9",
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "target": {
+          "type": "tags",
+          "tags": [
+            "chaos"
+          ],
+          "limit": 100,
+          "matchAny": true
+        }
+      },
+      {
+        "name": "Sonde : panne / reprise",
+        "enable": true,
+        "hide": false,
+        "iconColor": "purple",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "instant": false,
+        "expr": "{stack=\"probe\", service=\"probe_transactions\"} |= \"type=incident\" | logfmt",
+        "titleFormat": "{{etape}}",
+        "textFormat": "{{texte}}",
+        "tagKeys": "phase"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "host",
+        "label": "Machine",
+        "description": "Workers Swarm (un nœud PostgreSQL et un membre etcd par worker)",
+        "query": "dockerwrk01,dockerwrk02,dockerwrk03",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "dockerwrk01",
+            "value": "dockerwrk01",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk02",
+            "value": "dockerwrk02",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk03",
+            "value": "dockerwrk03",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "custom",
+        "name": "source",
+        "label": "Source",
+        "description": "Service Swarm (label service)",
+        "query": "paiement_db1,paiement_db2,paiement_db3,paiement_etcd1,paiement_etcd2,paiement_etcd3",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "paiement_db1",
+            "value": "paiement_db1",
+            "selected": false
+          },
+          {
+            "text": "paiement_db2",
+            "value": "paiement_db2",
+            "selected": false
+          },
+          {
+            "text": "paiement_db3",
+            "value": "paiement_db3",
+            "selected": false
+          },
+          {
+            "text": "paiement_etcd1",
+            "value": "paiement_etcd1",
+            "selected": false
+          },
+          {
+            "text": "paiement_etcd2",
+            "value": "paiement_etcd2",
+            "selected": false
+          },
+          {
+            "text": "paiement_etcd3",
+            "value": "paiement_etcd3",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "recherche",
+        "label": "Recherche",
+        "description": "Filtre libre appliqué à toutes les requêtes (expression régulière, insensible à la casse). Vide = tout.",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "En un coup d'œil",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Lignes de logs",
+      "description": "Lignes écrites par les nœuds choisis sur la période. Patroni écrit une ligne de battement toutes les 10 s par nœud.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Erreurs",
+      "description": "Lignes ERROR / FATAL / PANIC de PostgreSQL et Patroni, level error d'etcd. Au redémarrage d'un réplica, quelques FATAL sont normaux (« the database system is starting up », « replication slot is active ») tant qu'ils cessent en moins d'une minute.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ `(?i)(,[0-9]+ (ERROR|CRITICAL|FATAL):|\\] (ERROR|FATAL|PANIC):|\"level\":\"(error|fatal|panic|dpanic)\"|traceback)` |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Avertissements",
+      "description": "WARNING de Patroni/PostgreSQL et level warn d'etcd (pair perdu, publication du membre en attente).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ `(,[0-9]+ WARNING:|\\] WARNING:|\"level\":\"warn\")` |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Primaire actuel",
+      "description": "Nœud Patroni qui détient le verrou de leader dans etcd (dernière minute) : c'est le primaire PostgreSQL, les autres sont des réplicas. « AUCUN » = pas de primaire, écritures impossibles. Ne dépend pas des variables.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (noeud) (count_over_time({stack=\"paiement\", service=~\"paiement_db[123]\"} |= \"the leader with the lock\" | regexp `I am \\((?P<noeud>[a-z0-9]+)\\)` [1m]))",
+          "legendFormat": "{{noeud}}",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "AUCUN",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Promotions de primaire",
+      "description": "Nombre de fois où un réplica est devenu primaire sur la période (bascule automatique après la perte du primaire, ou redémarrage du cluster).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=~\"paiement_db[123]\", service=~\"$source\", host=~\"$host\"} |~ `promoted self to leader` |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Démarrages de nœuds",
+      "description": "Démarrages de PostgreSQL et d'etcd sur la période : conteneur relancé par Swarm après une panne, un test de chaos ou un redéploiement.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ `starting PostgreSQL [0-9]|\"msg\":\"starting an etcd server\"` |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Volume de logs par source",
+      "description": "Lignes par minute et par nœud. Volume régulier = battements Patroni ; pic = redémarrage, rattrapage de réplication ou élection etcd ; trou = nœud arrêté.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (service) (count_over_time({stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ \"(?i)$recherche\" [$__interval]))",
+          "legendFormat": "{{service}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "sum"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m"
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Erreurs et avertissements",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "Erreurs et avertissements (PostgreSQL, Patroni, etcd) (24 h)",
+      "description": "Lignes de gravité warning ou plus, préfixées par « nœud @ machine », horodatage interne retiré. Repères : « replication slot … is active » et « could not start WAL streaming » au redémarrage d'un réplica = transitoire ; « peer became inactive » (etcd) = un membre etcd est tombé ; « failed to resolve host » = conteneur voisin pas encore démarré. Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ `(?i)(,[0-9]+ (ERROR|CRITICAL|FATAL|WARNING):|\\] (ERROR|FATAL|PANIC|WARNING):|\"level\":\"(warn|error|fatal|panic|dpanic)\"|traceback)` |~ \"(?i)$recherche\" | line_format `{{ trimPrefix \"paiement_\" .service }} @ {{ .host }} │ {{ regexReplaceAll \"^[0-9-]+ [0-9:.,]+ (UTC \\\\[[0-9]+\\\\] )?\" __line__ \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Événements clés",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "Élection du primaire et bascules (Patroni) (7 j)",
+      "description": "Comment Patroni choisit le primaire : « Lock owner: None » = plus de primaire, « promoted self to leader » = un réplica devient primaire, « following new leader » = un autre nœud suit le nouveau primaire, « pg_rewind » = l'ancien primaire est réaligné avant de redevenir réplica, « starting as a secondary » = nœud redémarré en réplica, « Setting leader to … quorum » = réplication synchrone recalculée. Plage propre au panneau : 7 derniers jours (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=~\"paiement_db[123]\", service=~\"$source\", host=~\"$host\"} |~ `(?i)promoted self to leader|acquired session lock|following new leader|demot|Lock owner: None|received promote request|pg_rewind|starting as a secondary|starting as readonly|released leader key|does not have lock|bootstrap|failover|switchover|Setting leader to|waiting for leader` |~ \"(?i)$recherche\" | line_format `{{ trimPrefix \"paiement_\" .service }} @ {{ .host }} │ {{ regexReplaceAll \"^[0-9-]+ [0-9:.,]+ (UTC \\\\[[0-9]+\\\\] )?\" __line__ \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "7d"
+    },
+    {
+      "id": 13,
+      "type": "logs",
+      "title": "Réplication : réplicas, flux WAL, timeline (24 h)",
+      "description": "Vie de la réplication : un réplica entre en mode standby, rattrape le WAL (« redo starts », « consistent recovery state »), puis reçoit le flux du primaire (« started streaming WAL from primary … on timeline N »). La timeline augmente à chaque promotion. « Setting synchronous replication to 1 of 2 » = une transaction attend l'accusé d'au moins un réplica (aucune perte en cas de bascule). Le retard de réplication n'est pas journalisé (métriques). Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=~\"paiement_db[123]\", service=~\"$source\", host=~\"$host\"} |~ `(?i)started streaming WAL|entering standby mode|consistent recovery state|ready to accept (read-only )?connections|primary_timeline|Local timeline|selected new timeline|synchronous replication|candidate for quorum|could not start WAL streaming|unexpected EOF on standby|archive recovery complete|redo (starts|done)` |~ \"(?i)$recherche\" | line_format `{{ trimPrefix \"paiement_\" .service }} @ {{ .host }} │ {{ regexReplaceAll \"^[0-9-]+ [0-9:.,]+ (UTC \\\\[[0-9]+\\\\] )?\" __line__ \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 14,
+      "type": "logs",
+      "title": "etcd : élections Raft et liens entre membres (24 h)",
+      "description": "etcd garde le verrou de leader de Patroni (3 membres, quorum 2). On y lit l'élection Raft (« elected leader … at term N »), la perte et le retour d'un membre (« peer became inactive / active », « lost / established TCP streaming ») et les redémarrages. Si deux membres sur trois tombent, Patroni ne peut plus élire de primaire. Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=~\"paiement_etcd[123]\", service=~\"$source\", host=~\"$host\"} |~ \"(?i)$recherche\" | json | __error__=\"\" | msg=~\"(?i).*(elected leader|became leader|lost leader|leader changed|starting election|became candidate|became follower|peer became|lost TCP streaming|established TCP streaming|starting an etcd server|closed etcd server|added member|removed member|failed to publish).*\" | line_format `{{ trimPrefix \"paiement_\" .service }} @ {{ .host }} │ [{{ .level_extracted }}] {{ .msg }}{{ if .error }} · {{ .error }}{{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Rôle de chaque nœud (battement Patroni)",
+      "description": "Battements Patroni (« no action. I am (db3), the leader with the lock » toutes les 10 s) comptés par nœud et par rôle sur la période. Un nœud qui apparaît avec deux rôles a changé de rôle pendant la période (bascule). Ces lignes sont masquées ailleurs pour ne pas noyer le reste.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 6,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (noeud, statut) (count_over_time({stack=\"paiement\", service=~\"paiement_db[123]\", host=~\"$host\"} |= \"no action. I am\" | regexp `I am \\((?P<noeud>[a-z0-9]+)\\), (?P<statut>[^,(]+)` [$__range]))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Battements",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "noeud": "Nœud",
+              "statut": "Rôle annoncé",
+              "Value": "Battements",
+              "Value #A": "Battements"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "logs",
+      "title": "Arrêts et démarrages des nœuds (24 h)",
+      "description": "Arrêts et démarrages de PostgreSQL et d'etcd : chaque relance d'un conteneur par Swarm (panne de worker, test de chaos, redéploiement). Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 34,
+        "w": 6,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ `starting PostgreSQL [0-9]|database system is shut down|received fast shutdown|database system is ready to accept|Postgresql is not running|\"msg\":\"starting an etcd server\"|\"msg\":\"closed etcd server\"` |~ \"(?i)$recherche\" | line_format `{{ trimPrefix \"paiement_\" .service }} @ {{ .host }} │ {{ regexReplaceAll \"\\\"(ts|caller|logger)\\\":\\\"[^\\\"]*\\\",\" __line__ \"\" | trunc 160 }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "Tous les logs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "logs",
+      "title": "Tous les logs de la base (hors battements Patroni)",
+      "description": "Toutes les lignes de PostgreSQL/Patroni et d'etcd, plus récentes en premier, sauf le battement Patroni « no action. I am … » (une ligne toutes les 10 s par nœud, résumée dans « Rôle de chaque nœud »). Les points de contrôle (checkpoint / restartpoint) toutes les 5 min sont normaux.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 14
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=~\"$source\", host=~\"$host\"} !~ `INFO: no action\\. I am ` |~ \"(?i)$recherche\" | line_format `{{ trimPrefix \"paiement_\" .service }} @ {{ .host }} │ {{ regexReplaceAll \"(?i)(bearer\\\\s+)[A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"(?i)((token|passw[a-z]*|pwd|secret|api_?key|authorization|session_?id|cookie)[a-z_]*\\\"?\\\\s*[=:]\\\\s*\\\"?)[^&\\\\s\\\",]+\" __line__ \"${1}***\") \"${1}***\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 1000
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

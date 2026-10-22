@@ -1,0 +1,1454 @@
+{
+  "id": null,
+  "uid": "logs-paiement",
+  "title": "Logs - Application paiement",
+  "description": "Logs de l'application de paiement (stack Swarm paiement) : authentification, API de paiement, frontal nginx, mailpit.",
+  "tags": [
+    "logs"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "links": [
+    {
+      "title": "Accueil des logs",
+      "type": "link",
+      "url": "/d/logs-accueil",
+      "icon": "doc",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Page d'accueil des dashboards de logs"
+    },
+    {
+      "title": "Autres logs",
+      "type": "dashboards",
+      "tags": [
+        "logs"
+      ],
+      "asDropdown": true,
+      "icon": "external link",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "url": "",
+      "tooltip": ""
+    },
+    {
+      "title": "Vue centrale",
+      "type": "link",
+      "url": "/d/central",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Plateforme - vue centrale (métriques)"
+    },
+    {
+      "title": "Démo / Remédiation",
+      "type": "link",
+      "url": "/d/demo-remediation",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Sonde, détecteur et moteur"
+    },
+    {
+      "title": "Cyber",
+      "type": "link",
+      "url": "/d/resilience-cyber",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "WAF, attaques, bannissements"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Tests de chaos",
+        "enable": true,
+        "hide": false,
+        "iconColor": "#B877D9",
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "target": {
+          "type": "tags",
+          "tags": [
+            "chaos"
+          ],
+          "limit": 100,
+          "matchAny": true
+        }
+      },
+      {
+        "name": "Sonde : panne / reprise",
+        "enable": true,
+        "hide": false,
+        "iconColor": "purple",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "instant": false,
+        "expr": "{stack=\"probe\", service=\"probe_transactions\"} |= \"type=incident\" | logfmt",
+        "titleFormat": "{{etape}}",
+        "textFormat": "{{texte}}",
+        "tagKeys": "phase"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "host",
+        "label": "Machine",
+        "description": "Workers Swarm qui portent les conteneurs de la stack paiement",
+        "query": "dockerwrk01,dockerwrk02,dockerwrk03",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "dockerwrk01",
+            "value": "dockerwrk01",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk02",
+            "value": "dockerwrk02",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk03",
+            "value": "dockerwrk03",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "custom",
+        "name": "source",
+        "label": "Source",
+        "description": "Service Swarm (label service)",
+        "query": "paiement_auth,paiement_payment-api,paiement_frontend,paiement_mailpit",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "paiement_auth",
+            "value": "paiement_auth",
+            "selected": false
+          },
+          {
+            "text": "paiement_payment-api",
+            "value": "paiement_payment-api",
+            "selected": false
+          },
+          {
+            "text": "paiement_frontend",
+            "value": "paiement_frontend",
+            "selected": false
+          },
+          {
+            "text": "paiement_mailpit",
+            "value": "paiement_mailpit",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "recherche",
+        "label": "Recherche",
+        "description": "Filtre libre appliqué à toutes les requêtes (expression régulière, insensible à la casse). Vide = tout.",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 0,
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "En un coup d'œil",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Lignes de logs",
+      "description": "Nombre de lignes écrites par les services choisis (variable source) sur la période affichée. Le gros du volume vient des contrôles de santé et des appels de la sonde (normal).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Erreurs",
+      "description": "Lignes d'erreur reconnues au contenu : niveau JSON error, [error] nginx, réponse HTTP 5xx, trace Python. Le label Loki « level » n'est pas utilisé : il vaut « error » pour tout ce qui sort sur stderr. Des 502 apparaissent pendant chaque redémarrage de payment-api (remédiation) : c'est attendu.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ `(?i)(\"level\": \"(error|critical)\"|level=(error|fatal)|\\[(error|crit|alert|emerg)\\]|HTTP/[0-9.]+\" 5[0-9]{2} |traceback|exception|panic)` !~ `column \"first_name\" already exists` |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Avertissements",
+      "description": "Lignes de niveau warning : échecs de connexion, visages non enrôlés, base injoignable vue par payment-api, [warn] nginx.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ `(?i)(\"level\": \"warning\"|level=warn(ing)?|\\[warn\\])` |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Paiements acceptés",
+      "description": "Paiements confirmés par Stripe (mode test) sur la période, sonde de transaction comprise (un paiement de contrôle toutes les 30 s).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=\"paiement_payment-api\", service=~\"$source\", host=~\"$host\"} |= `\"msg\": \"paiement accepté\"` |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Échecs de connexion",
+      "description": "Mots de passe refusés et connexions bloquées par le freinage anti force brute (result=failure ou locked). Une rafale signale une attaque par dictionnaire : voir le panneau « Connexions » plus bas et le dashboard Cyber.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=\"paiement_auth\", service=~\"$source\", host=~\"$host\"} |~ `\"result\": \"(failure|locked)\"` |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Réponses 5xx du frontal",
+      "description": "Requêtes auxquelles le frontal nginx a répondu 500/502/504 : service derrière indisponible (redémarrage, panne). Les détails sont dans « Erreurs ».",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=\"paiement_frontend\", service=~\"$source\", host=~\"$host\"} |~ `HTTP/[0-9.]+\" 5[0-9]{2} ` |~ \"(?i)$recherche\" [$__range]))) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Volume de logs par source",
+      "description": "Lignes de logs par minute et par service. Un trou = service muet (arrêté ou en cours de redémarrage) ; un pic = rafale de requêtes (attaque, test de charge) ou boucle d'erreurs.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (service) (count_over_time({stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ \"(?i)$recherche\" [$__interval]))",
+          "legendFormat": "{{service}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "sum"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m"
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Erreurs et avertissements",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "Erreurs et avertissements (tous services) (24 h)",
+      "description": "Lignes d'erreur ou d'avertissement des services de la stack paiement, plus récentes en premier, préfixées par « service @ machine ». Exclu : l'erreur bénigne « column first_name already exists » au démarrage d'auth. Repères : 502 sur /remediation/state ou /api/* = service en redémarrage ; « base injoignable » = bascule de la base (voir Logs - Base de données). Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=~\"$source\", host=~\"$host\"} |~ `(?i)(\"level\": \"(error|critical|warning)\"|level=(error|fatal|warn)|\\[(error|crit|alert|emerg|warn)\\]|HTTP/[0-9.]+\" 5[0-9]{2} |traceback|exception|panic)` !~ `column \"first_name\" already exists` |~ \"(?i)$recherche\" | line_format `{{ trimPrefix \"paiement_\" .service }} @ {{ .host }} │ {{ regexReplaceAll \"(?i)(bearer\\\\s+)[A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"(?i)((token|passw[a-z]*|pwd|secret|api_?key|authorization|session_?id|cookie)[a-z_]*\\\"?\\\\s*[=:]\\\\s*\\\"?)[^&\\\\s\\\",]+\" __line__ \"${1}***\") \"${1}***\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Événements clés",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "Paiements (payment-api)",
+      "description": "Journal métier de payment-api : paiement créé puis accepté (Stripe ou PayPal en mode test), base injoignable / de retour, réconciliation avec Stripe après une coupure. « paiement non journalisé » = paiement encaissé pendant une panne de la base, rattrapé ensuite par la réconciliation.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=\"paiement_payment-api\", service=~\"$source\", host=~\"$host\"} |= `\"event\"` |~ \"(?i)$recherche\" | json | __error__=\"\" | event=~\"payment|store|reconcile\" | line_format `{{ .host }} │ {{ .msg }}{{ if .provider }} · {{ .provider }}{{ end }}{{ if .amount }} · montant {{ .amount }}{{ end }}{{ if .reference }} · réf. {{ .reference }}{{ end }}{{ if .owner }} · compte {{ .owner }}{{ end }}{{ if .db }} · base {{ .db }}{{ end }}{{ if .error }} · erreur : {{ .error }}{{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 13,
+      "type": "logs",
+      "title": "Connexions et freinage anti force brute (auth) (24 h)",
+      "description": "Connexions au service d'authentification : réussies, échouées (mot de passe faux), refusées par le freinage anti force brute (« trop d'échecs »), créations de compte. L'IP est l'IP réelle du client (transmise par le WAF et le frontal). Masqué : les connexions réussies internes (172.20.x, la sonde se connecte toutes les 30 s). Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=\"paiement_auth\", service=~\"$source\", host=~\"$host\"} |= `\"event\"` |~ \"(?i)$recherche\" | json | __error__=\"\" | event=~\"login|signup\" | result!=\"success\" or ip!~\"172[.]20[.].+\" | line_format `{{ .host }} │ {{ .msg }} · utilisateur {{ .username }}{{ if .role_extracted }} ({{ .role_extracted }}){{ end }}{{ if .ip }} · IP {{ .ip }}{{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 14,
+      "type": "logs",
+      "title": "Back-office : reconnaissance faciale et administration (auth) (7 j)",
+      "description": "Opérateurs du back-office : la caméra est demandée, le visage est reconnu (score de similarité) ou refusé ; « aucun visage enrôlé » = l'opérateur n'a pas encore scanné son visage ; « indisponible » = modèles absents côté serveur (alerte AuthFaceUnavailable). Actions d'administration : visage scanné sous trois angles, compte créé, habilitations modifiées. Plage propre au panneau : 7 derniers jours (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=\"paiement_auth\", service=~\"$source\", host=~\"$host\"} |= `\"event\"` |~ \"(?i)$recherche\" | json | __error__=\"\" | event=~\"face|admin\" | line_format `{{ .host }} │ {{ .msg }} · opérateur {{ .username }}{{ if .score }} · score {{ .score }}{{ end }}{{ if .ip }} · IP {{ .ip }}{{ end }}{{ if .actor }} · par {{ .actor }}{{ end }}{{ if .error }} · {{ .error }}{{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "7d"
+    },
+    {
+      "id": 15,
+      "type": "logs",
+      "title": "Requêtes refusées ou en erreur au frontal (4xx / 5xx) (24 h)",
+      "description": "Journal d'accès nginx du frontal limité aux réponses ≥ 400, avec l'IP réelle du client (après le WAF). 401/403 = accès refusé, 413/422 = requête rejetée par l'API, 499 = client parti, 502/504 = service derrière indisponible. Les 401 de la sonde sur /detector/score (normaux) sont masqués. Les valeurs de paramètres sensibles dans l'URL sont remplacées par ***. Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=\"paiement_frontend\", service=~\"$source\", host=~\"$host\"} |~ \"(?i)$recherche\" |~ `HTTP/[0-9.]+\" [0-9]{3} ` | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <_> \"<_>\" \"<ua>\" \"<_>\"` | status >= 400 | status >= 500 or ua!~\"resilience-probe.*\" | line_format `{{ .host }} │ {{ .status }} {{ .method }} {{ regexReplaceAll \"(?i)((token|passw[a-z]*|pwd|secret|api_?key|session|code)[a-z_]*=)[^&]*\" .path \"${1}***\" }} · client {{ .ip }} · {{ trunc 70 .ua }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 500
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Réponses du frontal par code HTTP (hors 2xx/3xx) (24 h)",
+      "description": "Codes d'erreur renvoyés par nginx, par minute. Un pic de 401/403 = tentatives d'accès refusées ; un pic de 502 = service applicatif en panne. Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (status) (count_over_time({stack=\"paiement\", service=\"paiement_frontend\", service=~\"$source\", host=~\"$host\"} |~ \"(?i)$recherche\" |~ `HTTP/[0-9.]+\" [0-9]{3} ` | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <_> \"<_>\" \"<ua>\" \"<_>\"` | status >= 400 [$__interval]))",
+          "legendFormat": "{{status}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "sum"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1m",
+      "timeFrom": "24h"
+    },
+    {
+      "id": 17,
+      "type": "table",
+      "title": "Événements applicatifs (24 h)",
+      "description": "Comptage des événements métier (JSON) d'auth et de payment-api sur la période : connexions, paiements, reconnaissance faciale, base… Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 43,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (service, event, result, msg) (count_over_time({stack=\"paiement\", service=~\"paiement_(auth|payment-api)\", service=~\"$source\", host=~\"$host\"} |= `\"event\"` |~ \"(?i)$recherche\" | json | __error__=\"\" | event!=\"\" [$__range]))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Nombre",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "service": "Service",
+              "event": "Événement",
+              "result": "Résultat",
+              "msg": "Message",
+              "Value": "Nombre",
+              "Value #A": "Nombre"
+            }
+          }
+        }
+      ],
+      "timeFrom": "24h"
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "IP clientes externes les plus actives (24 h)",
+      "description": "Adresses publiques qui ont envoyé le plus de requêtes au frontal sur la période (IP réelle transmise par le WAF). Les adresses internes (sonde, contrôles de santé) sont exclues. Une IP isolée très active = attaque probable : vérifier son bannissement dans le dashboard Cyber. Plage propre au panneau : 24 dernières heures (événements rares), quelle que soit la période du dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 43,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "topk(15, sum by (ip) (count_over_time({stack=\"paiement\", service=\"paiement_frontend\", service=~\"$source\", host=~\"$host\"} |~ \"(?i)$recherche\" |~ `HTTP/[0-9.]+\" [0-9]{3} ` | pattern `<ip> - <_> [<_>] \"<method> <path> <_>\" <status> <_> \"<_>\" \"<ua>\" \"<_>\"` | ip!~`(127|10|172|192)[.].*` [$__range])))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Requêtes",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "ip": "IP client",
+              "Value": "Requêtes",
+              "Value #A": "Requêtes"
+            }
+          }
+        }
+      ],
+      "timeFrom": "24h"
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "Tous les logs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "logs",
+      "title": "Tous les logs de la stack paiement",
+      "description": "Toutes les lignes des services choisis, plus récentes en premier, préfixées par « service @ machine ». Seuls les contrôles de santé réussis (/health, /metrics, Wget du healthcheck) sont masqués. Utiliser la variable « Recherche » pour filtrer (IP, référence de paiement, utilisateur…).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 24,
+        "h": 14
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{stack=\"paiement\", service=~\"$source\", host=~\"$host\"} !~ `\"GET /(health|metrics) HTTP/1.1\" 200|\"Wget\" \"-\"$` |~ \"(?i)$recherche\" | line_format `{{ trimPrefix \"paiement_\" .service }} @ {{ .host }} │ {{ regexReplaceAll \"(?i)(bearer\\\\s+)[A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"(?i)((token|passw[a-z]*|pwd|secret|api_?key|authorization|session_?id|cookie)[a-z_]*\\\"?\\\\s*[=:]\\\\s*\\\"?)[^&\\\\s\\\",]+\" __line__ \"${1}***\") \"${1}***\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range",
+          "maxLines": 1000
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

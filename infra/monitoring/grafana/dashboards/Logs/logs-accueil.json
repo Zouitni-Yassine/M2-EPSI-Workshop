@@ -1,0 +1,1553 @@
+{
+  "id": null,
+  "uid": "logs-accueil",
+  "title": "Logs - Accueil",
+  "description": "Page d'entrée des logs (Loki) de RESILIENCE-ALPHA : erreurs et volume par partie, liens vers les neuf dashboards « Logs - … ».",
+  "tags": [
+    "logs",
+    "accueil"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "links": [
+    {
+      "title": "Parties",
+      "type": "dashboards",
+      "tags": [
+        "logs"
+      ],
+      "asDropdown": true,
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "icon": "external link",
+      "tooltip": "",
+      "url": ""
+    },
+    {
+      "title": "Vue centrale",
+      "type": "link",
+      "url": "/d/central",
+      "icon": "dashboard",
+      "tooltip": "Plateforme - vue centrale (métriques)",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "Démo / Remédiation",
+      "type": "link",
+      "url": "/d/demo-remediation",
+      "icon": "dashboard",
+      "tooltip": "Écran de la démonstration",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "host",
+        "label": "Machine",
+        "description": "Filtre l'histogramme et les dernières erreurs.",
+        "query": "ceph01,ceph02,ceph03,control01,dockermgr01,dockermgr02,dockermgr03,dockerwrk01,dockerwrk02,dockerwrk03,iam01,monitoring01,rag01,vault01,vaultwarden01,vmagent01,vmagent02,waf01",
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "ceph01",
+            "value": "ceph01",
+            "selected": false
+          },
+          {
+            "text": "ceph02",
+            "value": "ceph02",
+            "selected": false
+          },
+          {
+            "text": "ceph03",
+            "value": "ceph03",
+            "selected": false
+          },
+          {
+            "text": "control01",
+            "value": "control01",
+            "selected": false
+          },
+          {
+            "text": "dockermgr01",
+            "value": "dockermgr01",
+            "selected": false
+          },
+          {
+            "text": "dockermgr02",
+            "value": "dockermgr02",
+            "selected": false
+          },
+          {
+            "text": "dockermgr03",
+            "value": "dockermgr03",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk01",
+            "value": "dockerwrk01",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk02",
+            "value": "dockerwrk02",
+            "selected": false
+          },
+          {
+            "text": "dockerwrk03",
+            "value": "dockerwrk03",
+            "selected": false
+          },
+          {
+            "text": "iam01",
+            "value": "iam01",
+            "selected": false
+          },
+          {
+            "text": "monitoring01",
+            "value": "monitoring01",
+            "selected": false
+          },
+          {
+            "text": "rag01",
+            "value": "rag01",
+            "selected": false
+          },
+          {
+            "text": "vault01",
+            "value": "vault01",
+            "selected": false
+          },
+          {
+            "text": "vaultwarden01",
+            "value": "vaultwarden01",
+            "selected": false
+          },
+          {
+            "text": "vmagent01",
+            "value": "vmagent01",
+            "selected": false
+          },
+          {
+            "text": "vmagent02",
+            "value": "vmagent02",
+            "selected": false
+          },
+          {
+            "text": "waf01",
+            "value": "waf01",
+            "selected": false
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "recherche",
+        "label": "Recherche (regex)",
+        "description": "Filtre texte appliqué aux panneaux de logs (expression régulière, insensible à la casse). Vide = tout.",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "Comment lire ces dashboards",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 5
+      },
+      "targets": [],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Logs de RESILIENCE-ALPHA, une page par partie du projet.** Chaque voyant ci-dessous compte les\nlignes d'erreur de sa partie sur la période choisie (en haut à droite) et le volume total de logs ;\n**cliquer sur un voyant** ouvre le dashboard de la partie, sur la même période.\n\nDans chaque dashboard « Logs - … », même organisation : *En un coup d'œil* (voyants, volume par\nsource), *Erreurs et avertissements*, *Événements clés* (ce qui raconte la partie : bascule,\nbannissement, alerte…), *Tous les logs*. Trois filtres en haut :\n**host** (machines), **source** (service, unité ou conteneur), **recherche** (texte ou expression\nrégulière, sans tenir compte de la casse : `timeout`, `10\\.0\\.1\\.110`, `403|401`…).\nCliquer une ligne de log affiche ses labels ; le menu « Autres logs » passe d'une partie à l'autre.",
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "Les neuf parties : erreurs sur la période (volume de logs)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Application paiement",
+      "description": "auth, payment-api, frontend, mailpit. Erreurs = lignes contenant un mot-clé d'erreur (error, fail, fatal, denied, timeout…), bruit connu exclu ; Lignes = volume total. Cliquer pour ouvrir Logs - Application paiement. Le décompte fin des erreurs (bruit propre à la partie retiré) est dans ce dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=~\"paiement_(auth|payment-api|frontend|mailpit)\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` [$__range])) or vector(0))",
+          "legendFormat": "Erreurs",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "(sum(count_over_time({stack=\"paiement\", service=~\"paiement_(auth|payment-api|frontend|mailpit)\"} [$__range])) or vector(0))",
+          "legendFormat": "Lignes",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "links": [
+            {
+              "title": "Ouvrir Logs - Application paiement",
+              "url": "/d/logs-paiement?${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lignes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5a6f8c"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Base de données",
+      "description": "Patroni db1-3, etcd1-3. Erreurs = lignes contenant un mot-clé d'erreur (error, fail, fatal, denied, timeout…), bruit connu exclu ; Lignes = volume total. Cliquer pour ouvrir Logs - Base de données. Le décompte fin des erreurs (bruit propre à la partie retiré) est dans ce dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 6,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({service=~\"paiement_(db[1-3]|etcd[1-3])\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` [$__range])) or vector(0))",
+          "legendFormat": "Erreurs",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "(sum(count_over_time({service=~\"paiement_(db[1-3]|etcd[1-3])\"} [$__range])) or vector(0))",
+          "legendFormat": "Lignes",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "links": [
+            {
+              "title": "Ouvrir Logs - Base de données",
+              "url": "/d/logs-base?${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lignes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5a6f8c"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Détection et remédiation",
+      "description": "détecteur, moteur, sonde, passerelle. Erreurs = lignes contenant un mot-clé d'erreur (error, fail, fatal, denied, timeout…), bruit connu exclu ; Lignes = volume total. Cliquer pour ouvrir Logs - Détection et remédiation. Le décompte fin des erreurs (bruit propre à la partie retiré) est dans ce dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({service=~\"paiement_(detector|remediation)|probe_transactions\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` [$__range])) or vector(0)) + (sum(count_over_time({host=~\"dockermgr0[1-3]\", identifier=\"remediate\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` [$__range])) or vector(0))",
+          "legendFormat": "Erreurs",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "(sum(count_over_time({service=~\"paiement_(detector|remediation)|probe_transactions\"} [$__range])) or vector(0)) + (sum(count_over_time({host=~\"dockermgr0[1-3]\", identifier=\"remediate\"} [$__range])) or vector(0))",
+          "legendFormat": "Lignes",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "links": [
+            {
+              "title": "Ouvrir Logs - Détection et remédiation",
+              "url": "/d/logs-remediation?${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lignes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5a6f8c"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Virtualisation",
+      "description": "Proxmox et Ceph (ceph01-03). Erreurs = lignes contenant un mot-clé d'erreur (error, fail, fatal, denied, timeout…), bruit connu exclu ; Lignes = volume total. Cliquer pour ouvrir Logs - Virtualisation. Le décompte fin des erreurs (bruit propre à la partie retiré) est dans ce dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({host=~\"ceph0[1-3]\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` [$__range])) or vector(0))",
+          "legendFormat": "Erreurs",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "(sum(count_over_time({host=~\"ceph0[1-3]\"} [$__range])) or vector(0))",
+          "legendFormat": "Lignes",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "links": [
+            {
+              "title": "Ouvrir Logs - Virtualisation",
+              "url": "/d/logs-virtualisation?${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lignes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5a6f8c"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Identité et secrets",
+      "description": "Keycloak, Vault, Vaultwarden. Erreurs = lignes contenant un mot-clé d'erreur (error, fail, fatal, denied, timeout…), bruit connu exclu ; Lignes = volume total. Cliquer pour ouvrir Logs - Identité et secrets. Le décompte fin des erreurs (bruit propre à la partie retiré) est dans ce dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({host=~\"iam01|vault01|vaultwarden01\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` [$__range])) or vector(0))",
+          "legendFormat": "Erreurs",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "(sum(count_over_time({host=~\"iam01|vault01|vaultwarden01\"} [$__range])) or vector(0))",
+          "legendFormat": "Lignes",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "links": [
+            {
+              "title": "Ouvrir Logs - Identité et secrets",
+              "url": "/d/logs-identite?${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lignes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5a6f8c"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Poste de contrôle",
+      "description": "control01 : Ansible, Terraform, sauvegardes. Erreurs = lignes contenant un mot-clé d'erreur (error, fail, fatal, denied, timeout…), bruit connu exclu ; Lignes = volume total. Cliquer pour ouvrir Logs - Poste de contrôle. Le décompte fin des erreurs (bruit propre à la partie retiré) est dans ce dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({host=\"control01\", stack!~\"dbtest|demo\", container!~\"determined_sutherland|eloquent_babbage|kind_beaver|loving_shirley|objective_wu|sad_hugle|stupefied_hopper\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` [$__range])) or vector(0))",
+          "legendFormat": "Erreurs",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "(sum(count_over_time({host=\"control01\", stack!~\"dbtest|demo\", container!~\"determined_sutherland|eloquent_babbage|kind_beaver|loving_shirley|objective_wu|sad_hugle|stupefied_hopper\"} [$__range])) or vector(0))",
+          "legendFormat": "Lignes",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "links": [
+            {
+              "title": "Ouvrir Logs - Poste de contrôle",
+              "url": "/d/logs-controle?${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lignes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5a6f8c"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "WAF et sécurité",
+      "description": "waf01, waf-ban, SSH. Erreurs = lignes contenant un mot-clé d'erreur (error, fail, fatal, denied, timeout…), bruit connu exclu ; Lignes = volume total. Cliquer pour ouvrir Logs - WAF et sécurité. Le décompte fin des erreurs (bruit propre à la partie retiré) est dans ce dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({identifier=~\"resilience-waf|waf-ban|sshd|sshd-session\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` [$__range])) or vector(0))",
+          "legendFormat": "Erreurs",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "(sum(count_over_time({identifier=~\"resilience-waf|waf-ban|sshd|sshd-session\"} [$__range])) or vector(0))",
+          "legendFormat": "Lignes",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "links": [
+            {
+              "title": "Ouvrir Logs - WAF et sécurité",
+              "url": "/d/logs-waf?${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lignes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5a6f8c"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Assistant IA",
+      "description": "rag01 : Ollama, API, bot Discord. Erreurs = lignes contenant un mot-clé d'erreur (error, fail, fatal, denied, timeout…), bruit connu exclu ; Lignes = volume total. Cliquer pour ouvrir Logs - Assistant IA. Le décompte fin des erreurs (bruit propre à la partie retiré) est dans ce dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 14,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({host=\"rag01\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` [$__range])) or vector(0))",
+          "legendFormat": "Erreurs",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "(sum(count_over_time({host=\"rag01\"} [$__range])) or vector(0))",
+          "legendFormat": "Lignes",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "links": [
+            {
+              "title": "Ouvrir Logs - Assistant IA",
+              "url": "/d/logs-assistant?${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lignes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5a6f8c"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Supervision",
+      "description": "Loki, Grafana, alertes, collecte. Erreurs = lignes contenant un mot-clé d'erreur (error, fail, fatal, denied, timeout…), bruit connu exclu ; Lignes = volume total. Cliquer pour ouvrir Logs - Supervision. Le décompte fin des erreurs (bruit propre à la partie retiré) est dans ce dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 14,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({identifier=~\"loki|grafana|prometheus-alertmanager|vmalert|victoria-metrics|vmauth|vmagent|monitoring_vmagent.*|pve_exporter|alloy-wrapper\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `level=error|level=eror|level=crit|level=fatal|\\terror\\t|\\tfatal\\t|\\tpanic\\t|panic:|Traceback|cannot scrape|couldn't send` [$__range])) or vector(0)) + (sum(count_over_time({job=\"alertmanager-notify\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `level=error|level=eror|level=crit|level=fatal|\\terror\\t|\\tfatal\\t|\\tpanic\\t|panic:|Traceback|cannot scrape|couldn't send` [$__range])) or vector(0))",
+          "legendFormat": "Erreurs",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "(sum(count_over_time({identifier=~\"loki|grafana|prometheus-alertmanager|vmalert|victoria-metrics|vmauth|vmagent|monitoring_vmagent.*|pve_exporter|alloy-wrapper\"} [$__range])) or vector(0)) + (sum(count_over_time({job=\"alertmanager-notify\"} [$__range])) or vector(0))",
+          "legendFormat": "Lignes",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "links": [
+            {
+              "title": "Ouvrir Logs - Supervision",
+              "url": "/d/logs-supervision?${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lignes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5a6f8c"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Docker Swarm et hôtes",
+      "description": "Docker, keepalived (VIP), noyau. Erreurs = lignes contenant un mot-clé d'erreur (error, fail, fatal, denied, timeout…), bruit connu exclu ; Lignes = volume total. Cliquer pour ouvrir Logs - Docker Swarm et hôtes. Le décompte fin des erreurs (bruit propre à la partie retiré) est dans ce dashboard.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({host=~\"docker(mgr|wrk)0[1-3]\", identifier=~\"dockerd|containerd|Keepalived.*|ipvsadm-start|registry_registry.*|cadvisor|monitoring_vmagent.*|kernel|systemd\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` [$__range])) or vector(0))",
+          "legendFormat": "Erreurs",
+          "editorMode": "code",
+          "queryType": "instant"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "B",
+          "expr": "(sum(count_over_time({host=~\"docker(mgr|wrk)0[1-3]\", identifier=~\"dockerd|containerd|Keepalived.*|ipvsadm-start|registry_registry.*|cadvisor|monitoring_vmagent.*|kernel|systemd\"} [$__range])) or vector(0))",
+          "legendFormat": "Lignes",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "links": [
+            {
+              "title": "Ouvrir Logs - Docker Swarm et hôtes",
+              "url": "/d/logs-swarm?${__url_time_range}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lignes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5a6f8c"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Toutes les machines",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Volume de logs par machine",
+      "description": "Lignes de logs par machine et par intervalle, empilées. Un trou = machine éteinte ou Alloy arrêté ; un pic = incident, test de chaos, attaque ou déploiement.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (host) (count_over_time({host=~\"$host\", stack!~\"dbtest|demo\", container!~\"determined_sutherland|eloquent_babbage|kind_beaver|loving_shirley|objective_wu|sad_hugle|stupefied_hopper\"} |~ `(?i)$recherche` [$__interval]))",
+          "legendFormat": "{{host}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "logs",
+      "title": "Dernières erreurs, toutes parties confondues",
+      "description": "Lignes d'erreur de toutes les machines, plus récentes en haut (préfixe : machine · service). Bruit connu exclu : tampon nginx du WAF, déconnexions SSH des LXC, dépréciation LangChain, options Ollama, paquets de diffusion refusés par le pare-feu, sondes memberlist du Swarm. Ouvrir la partie concernée pour le contexte.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", stack!~\"dbtest|demo\", container!~\"determined_sutherland|eloquent_babbage|kind_beaver|loving_shirley|objective_wu|sad_hugle|stupefied_hopper\"} != `buffered to a temporary file` != `syslogin_perform_logout` != `LangChainDeprecationWarning` != `invalid option provided` != `host_fw drop` != `memberlist` != `caller=metrics.go` |~ `(?i)(error|erreur|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception)` |~ `(?i)$recherche` | line_format `{{.host}} · {{ or .service .container .unit .identifier .job }} · {{ __line__ }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

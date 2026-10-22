@@ -1,0 +1,1419 @@
+{
+  "id": null,
+  "uid": "logs-identite",
+  "title": "Logs - Identité et secrets",
+  "description": "Journaux de Keycloak (SSO, TOTP), Vault (descellement, AppRole, refus) et Vaultwarden (coffre de secours), valeurs sensibles masquées.",
+  "tags": [
+    "logs"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "links": [
+    {
+      "title": "Accueil des logs",
+      "type": "link",
+      "url": "/d/logs-accueil",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Page d'accueil des dashboards de logs"
+    },
+    {
+      "title": "Vue centrale",
+      "type": "link",
+      "url": "/d/central",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Plateforme - vue centrale"
+    },
+    {
+      "title": "Nœuds (Node Exporter)",
+      "type": "link",
+      "url": "/d/node-exporter-full",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": [],
+      "tooltip": "Métriques des machines"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "host",
+        "label": "Machine",
+        "type": "custom",
+        "query": "iam01,vault01,vaultwarden01",
+        "multi": true,
+        "includeAll": true,
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          {
+            "selected": false,
+            "text": "iam01",
+            "value": "iam01"
+          },
+          {
+            "selected": false,
+            "text": "vault01",
+            "value": "vault01"
+          },
+          {
+            "selected": false,
+            "text": "vaultwarden01",
+            "value": "vaultwarden01"
+          }
+        ],
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "source",
+        "label": "Unité (source)",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "description": "Keycloak, sa base PostgreSQL, Vault et Vaultwarden.",
+        "query": {
+          "type": 1,
+          "label": "unit",
+          "stream": "{host=~\"$host\", job=\"journal\"}",
+          "refId": "LokiVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values({host=~\"$host\", job=\"journal\"},unit)",
+        "regex": "/^(?:keycloak|postgresql@.*|vault|vaultwarden)\\.service$/",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "recherche",
+        "label": "Recherche (texte ou regex)",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0,
+        "description": "Filtre appliqué à tous les panneaux de logs, sans distinction de casse (expression régulière). Vide = tout."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "En un coup d'œil",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Lignes de logs",
+      "description": "Lignes du journal de Keycloak, PostgreSQL (iam01), Vault (hors audit) et Vaultwarden sur la période.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", job=\"journal\", unit=~\"$source\", identifier!=\"vault-audit\"} |~ `(?i)$recherche` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Erreurs",
+      "description": "Lignes d'erreur (mots-clés error, fail, denied…). Inclut les échecs de connexion (LOGIN_ERROR, mot de passe incorrect).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", job=\"journal\", unit=~\"$source\", identifier!=\"vault-audit\"} |~ `(?i)$recherche` |~ `(?i)(error|erreur|err=|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception|unable|cannot)` !~ `full-scope-allowed|revoked lease|keys are pending|GOAWAY` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Avertissements",
+      "description": "Lignes de niveau WARN (bruit répétitif exclu, voir « Erreurs et avertissements »).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", job=\"journal\", unit=~\"$source\", identifier!=\"vault-audit\"} |~ `(?i)$recherche` |~ `(?i)(\\bwarn(ing)?\\b|\\[warn\\])| WARN ` !~ `full-scope-allowed|revoked lease|keys are pending|GOAWAY` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Connexions SSO réussies (24 h)",
+      "description": "Connexions réussies sur Keycloak (realm epsi, mot de passe + TOTP) vers Grafana, Proxmox ou la console d'administration. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", unit=\"keycloak.service\"} |= `org.keycloak.events` | regexp `type=\"(?P<evt>[A-Z_]+)\"` | evt=\"LOGIN\" [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Connexions refusées (24 h)",
+      "description": "Échecs de connexion : Keycloak (LOGIN_ERROR : mot de passe ou code TOTP faux) et Vaultwarden (mot de passe maître incorrect). Une série rapprochée = tentative de force brute. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "(sum(count_over_time({host=~\"$host\", unit=\"keycloak.service\"} |= `org.keycloak.events` | regexp `type=\"(?P<evt>[A-Z_]+)\"` | evt=\"LOGIN_ERROR\" [$__range])) or vector(0)) + (sum(count_over_time({host=~\"$host\", unit=\"vaultwarden.service\"} |= `Username or password is incorrect` [$__range])) or vector(0))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Refus Vault (24 h)",
+      "description": "Réponses de Vault en erreur dans le journal d'audit (permission denied, jeton invalide, chemin inconnu). Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum(count_over_time({host=~\"$host\", identifier=\"vault-audit\"} |= `\"type\":\"response\"` |= `\"error\":` [$__range])) or vector(0)",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "text": {}
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Volume de logs par source",
+      "description": "Lignes par programme et par intervalle (barres empilées). vault-audit : une ligne par requête et par réponse ; chaque exécution de vault-env (Ansible, Terraform) lit une quinzaine de secrets, d'où des pics réguliers.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (identifier) (count_over_time({host=~\"$host\", job=\"journal\", unit=~\"$source\"} |~ `(?i)$recherche` [$__interval]))",
+          "legendFormat": "{{identifier}}",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Erreurs et avertissements",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "Erreurs et avertissements (Keycloak, Vault, Vaultwarden, PostgreSQL) (24 h)",
+      "description": "Lignes d'erreur ou d'avertissement, valeurs sensibles masquées (jetons, sessions, baux). Bruit exclu : avertissement « Full scope allowed » du client grafana (à chaque échange de jeton), baux AppRole révoqués par vault-env, « keys are pending » de raft. « REFRESH_TOKEN_ERROR invalid_token » : session Grafana expirée. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", job=\"journal\", unit=~\"$source\", identifier!=\"vault-audit\"} |~ `(?i)$recherche` |~ `(?i)(error|erreur|err=|fail|échec|echec|crit|fatal|panic|denied|refused|timeout|traceback|exception|unable|cannot)|(\\bwarn(ing)?\\b|\\[warn\\])| WARN ` !~ `full-scope-allowed|revoked lease|keys are pending|GOAWAY` | line_format `{{.host}} [{{.unit}}] {{ regexReplaceAll \"@pam![^ \\\\[]+\" (regexReplaceAll \"@pve![^ \\\\[]+\" (regexReplaceAll \"hmac-sha256:[0-9a-f]+\" (regexReplaceAll \"hvs\\\\.[A-Za-z0-9_-]+\" (regexReplaceAll \"eyJ[A-Za-z0-9_-]+\\\\.[A-Za-z0-9_-]+\\\\.?[A-Za-z0-9_-]*\" (regexReplaceAll \"(?i)bearer [A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"\\\\brole_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccessor=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\blease_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsession_state=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsessionId=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bupdated_refresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btotp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\botp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpasswd=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpassword=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_secret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bid_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccess_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" __line__ \"access_token=***\") \"refresh_token=***\") \"id_token=***\") \"client_secret=***\") \"password=***\") \"passwd=***\") \"secret=***\") \"token=***\") \"otp=***\") \"totp=***\") \"code=***\") \"code_id=***\") \"token_id=***\") \"refresh_token_id=***\") \"updated_refresh_token_id=***\") \"sessionId=***\") \"session_state=***\") \"lease_id=***\") \"accessor=***\") \"client_token=***\") \"secret_id=***\") \"role_id=***\") \"Bearer ***\") \"***jwt***\") \"hvs.***\") \"hmac-sha256:***\") \"@pve!(jeton)\") \"@pam!(jeton)\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Événements clés",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "Keycloak : connexions SSO (realm epsi) (24 h)",
+      "description": "Événements de connexion Keycloak : réussite (mot de passe + TOTP), échec (invalid_user_credentials, invalid_totp…), déconnexion, enrôlement TOTP, changement de mot de passe, verrouillage anti force brute. Applications : grafana, proxmox, security-admin-console. Ni jeton ni identifiant de session. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", unit=\"keycloak.service\"} |= `org.keycloak.events` | regexp `type=\"(?P<evt>[A-Z_]+)\"` | evt=~\"LOGIN|LOGIN_ERROR|LOGOUT|UPDATE_TOTP|REMOVE_TOTP|UPDATE_PASSWORD.*|UPDATE_CREDENTIAL.*|RESET_PASSWORD.*|USER_DISABLED_BY_TEMPORARY_LOCKOUT|USER_DISABLED_BY_PERMANENT_LOCKOUT\" | regexp `clientId=\"(?P<client>[^\"]*)\"` | regexp `username=\"(?P<user>[^\"]*)\"` | regexp `ipAddress=\"(?P<ip>[^\"]*)\"` | regexp `error=\"(?P<err>[^\"]*)\"` |~ `(?i)$recherche` | line_format `{{ if eq .evt \"LOGIN\" }}Connexion réussie{{ else if eq .evt \"LOGIN_ERROR\" }}ÉCHEC de connexion{{ else if eq .evt \"LOGOUT\" }}Déconnexion{{ else }}{{.evt}}{{ end }} : {{ if .user }}{{.user}}{{ else }}?{{ end }} vers {{.client}} depuis {{.ip}}{{ if .err }} (erreur : {{.err}}){{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Keycloak : connexions par utilisateur (24 h)",
+      "description": "Nombre de connexions réussies (LOGIN) et refusées (LOGIN_ERROR) par utilisateur et par application sur la période. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (evt, user, client) (count_over_time({host=~\"$host\", unit=\"keycloak.service\"} |= `org.keycloak.events` | regexp `type=\"(?P<evt>[A-Z_]+)\"` | evt=~\"LOGIN|LOGIN_ERROR\" | regexp `clientId=\"(?P<client>[^\"]*)\"` | regexp `username=\"(?P<user>[^\"]*)\"` | regexp `ipAddress=\"(?P<ip>[^\"]*)\"` | regexp `error=\"(?P<err>[^\"]*)\"` [$__range]))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Nombre",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {}
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "user": 0,
+              "evt": 1,
+              "client": 2,
+              "Value": 3
+            },
+            "renameByName": {
+              "evt": "Événement",
+              "user": "Utilisateur",
+              "client": "Application",
+              "Value": "Nombre"
+            }
+          }
+        }
+      ],
+      "timeFrom": "24h"
+    },
+    {
+      "id": 14,
+      "type": "logs",
+      "title": "Vault : scellement, descellement, leader (24 h)",
+      "description": "Cycle de vie de Vault : « vault is unsealed » puis « post-unseal setup complete » = Vault descellé (commande vault-unseal après chaque démarrage du lab) ; « vault is sealed » = scellé (secrets inaccessibles, Ansible et Terraform bloqués). Raft à un nœud : l'élection du leader suit chaque descellement. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", unit=\"vault.service\", identifier=\"vault\"} |~ `(?i)vault is (un)?sealed|seal|post-unseal|pre-seal|standby|acquired lock|active operation|leader state|shutdown|stopping|starting listener|Vault server started` !~ `GOAWAY` |~ `(?i)$recherche` | line_format `{{.host}}  {{ regexReplaceAll \"^[0-9TZ:.-]+ \" (regexReplaceAll \": config=.*$\" __line__ \"\") \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 15,
+      "type": "logs",
+      "title": "Vault : authentifications et refus (audit)",
+      "description": "Journal d'audit de Vault, champs choisis uniquement (jamais les jetons ni les valeurs) : connexions AppRole (Ansible, Terraform via vault-env, depuis 10.0.1.110) et userpass (compte breakglass), descellement, et toute réponse en erreur (permission denied, jeton invalide).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=\"vault-audit\"} |= `\"type\":\"response\"` |~ `\"path\":\"(auth/[^\"]*/login|sys/(seal|unseal|init))|\"error\":` |~ `(?i)$recherche` | json path=\"request.path\", op=\"request.operation\", who=\"auth.display_name\", ip=\"request.remote_address\", err=\"error\" | line_format `{{ if .err }}REFUS{{ else }}OK   {{ end }} {{ if .who }}{{.who}}{{ else }}(sans jeton){{ end }} : {{.op}} {{.path}} depuis {{.ip}}{{ if .err }} : {{ regexReplaceAll \"[\\n\\t*]+\" .err \" \" }}{{ end }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 16,
+      "type": "logs",
+      "title": "Vaultwarden : connexions (24 h)",
+      "description": "Coffre de secours Vaultwarden : « logged in successfully » = connexion réussie (utilisateur, IP), « Username or password is incorrect » = échec, double facteur et page /admin. Le jeton d'accès des clients web, présent dans le journal brut (notifications), est masqué. Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", unit=\"vaultwarden.service\"} |~ `vaultwarden::api::(identity|core::two_factor|admin)|/admin` |~ `(?i)$recherche` | line_format `{{.host}}  {{ regexReplaceAll \"^\\\\[[^\\\\]]+\\\\]\\\\[[^\\\\]]+\\\\]\" (regexReplaceAll \"@pam![^ \\\\[]+\" (regexReplaceAll \"@pve![^ \\\\[]+\" (regexReplaceAll \"hmac-sha256:[0-9a-f]+\" (regexReplaceAll \"hvs\\\\.[A-Za-z0-9_-]+\" (regexReplaceAll \"eyJ[A-Za-z0-9_-]+\\\\.[A-Za-z0-9_-]+\\\\.?[A-Za-z0-9_-]*\" (regexReplaceAll \"(?i)bearer [A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"\\\\brole_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccessor=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\blease_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsession_state=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsessionId=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bupdated_refresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btotp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\botp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpasswd=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpassword=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_secret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bid_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccess_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" __line__ \"access_token=***\") \"refresh_token=***\") \"id_token=***\") \"client_secret=***\") \"password=***\") \"passwd=***\") \"secret=***\") \"token=***\") \"otp=***\") \"totp=***\") \"code=***\") \"code_id=***\") \"token_id=***\") \"refresh_token_id=***\") \"updated_refresh_token_id=***\") \"sessionId=***\") \"session_state=***\") \"lease_id=***\") \"accessor=***\") \"client_token=***\") \"secret_id=***\") \"role_id=***\") \"Bearer ***\") \"***jwt***\") \"hvs.***\") \"hmac-sha256:***\") \"@pve!(jeton)\") \"@pam!(jeton)\") \"\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    },
+    {
+      "id": 17,
+      "type": "table",
+      "title": "Vault : lectures de secrets par chemin",
+      "description": "Secrets lus (chemin KV) et par qui (approle = Ansible / Terraform via vault-env, userpass-breakglass = humain, root = jeton initial) : seuls les chemins sont affichés, jamais les valeurs.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "sum by (path, who) (count_over_time({host=~\"$host\", identifier=\"vault-audit\"} |= `\"type\":\"response\"` |= `\"operation\":\"read\"` |= `\"path\":\"secret/data/` | json path=\"request.path\", who=\"auth.display_name\" [$__range]))",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Lectures",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {}
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "path": 0,
+              "who": 1,
+              "Value": 2
+            },
+            "renameByName": {
+              "path": "Chemin",
+              "who": "Identité",
+              "Value": "Lectures"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "row",
+      "title": "Tous les logs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 19,
+      "type": "logs",
+      "title": "Journal des services d'identité (valeurs sensibles masquées)",
+      "description": "Toutes les lignes des unités choisies dans « source » (Keycloak, PostgreSQL de Keycloak, Vault, Vaultwarden), plus récentes en haut. Masqués : jetons, codes, identifiants de session et de bail, jetons JWT, en-têtes Authorization. Exclu : « revoked lease » de Vault (une ligne par bail AppRole expiré).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", job=\"journal\", unit=~\"$source\", identifier!=\"vault-audit\"} |~ `(?i)$recherche` !~ `revoked lease` | line_format `{{.host}} [{{.unit}}] {{ regexReplaceAll \"@pam![^ \\\\[]+\" (regexReplaceAll \"@pve![^ \\\\[]+\" (regexReplaceAll \"hmac-sha256:[0-9a-f]+\" (regexReplaceAll \"hvs\\\\.[A-Za-z0-9_-]+\" (regexReplaceAll \"eyJ[A-Za-z0-9_-]+\\\\.[A-Za-z0-9_-]+\\\\.?[A-Za-z0-9_-]*\" (regexReplaceAll \"(?i)bearer [A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"\\\\brole_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccessor=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\blease_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsession_state=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsessionId=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bupdated_refresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btotp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\botp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpasswd=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpassword=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_secret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bid_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccess_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" __line__ \"access_token=***\") \"refresh_token=***\") \"id_token=***\") \"client_secret=***\") \"password=***\") \"passwd=***\") \"secret=***\") \"token=***\") \"otp=***\") \"totp=***\") \"code=***\") \"code_id=***\") \"token_id=***\") \"refresh_token_id=***\") \"updated_refresh_token_id=***\") \"sessionId=***\") \"session_state=***\") \"lease_id=***\") \"accessor=***\") \"client_token=***\") \"secret_id=***\") \"role_id=***\") \"Bearer ***\") \"***jwt***\") \"hvs.***\") \"hmac-sha256:***\") \"@pve!(jeton)\") \"@pam!(jeton)\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 20,
+      "type": "logs",
+      "title": "Vault : journal d'audit (champs choisis)",
+      "description": "Une ligne par réponse de Vault : résultat, identité, opération, chemin, IP source. Les jetons, accesseurs et valeurs (hachés HMAC dans le journal brut) ne sont jamais affichés.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 63,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", identifier=\"vault-audit\"} |= `\"type\":\"response\"` |~ `(?i)$recherche` | json path=\"request.path\", op=\"request.operation\", who=\"auth.display_name\", ip=\"request.remote_address\", err=\"error\", mount=\"request.mount_type\" | line_format `{{ if .err }}REFUS{{ else }}OK   {{ end }} {{ if .who }}{{.who}}{{ else }}(sans jeton){{ end }} : {{.op}} {{.path}} ({{.mount}}) depuis {{.ip}}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 21,
+      "type": "logs",
+      "title": "PostgreSQL de Keycloak (iam01, fichier) (24 h)",
+      "description": "Fichier /var/log/postgresql/postgresql-17-main.log de iam01 (base de Keycloak), hors points de contrôle périodiques (checkpoint, toutes les 5 min). Plage fixe des dernières 24 h (événements rares : souvent aucun sur 1 h).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 63,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A",
+          "expr": "{host=~\"$host\", job=\"postgresql\"} !~ `checkpoint (starting|complete)` |~ `(?i)$recherche` | line_format `{{.host}} {{ regexReplaceAll \"@pam![^ \\\\[]+\" (regexReplaceAll \"@pve![^ \\\\[]+\" (regexReplaceAll \"hmac-sha256:[0-9a-f]+\" (regexReplaceAll \"hvs\\\\.[A-Za-z0-9_-]+\" (regexReplaceAll \"eyJ[A-Za-z0-9_-]+\\\\.[A-Za-z0-9_-]+\\\\.?[A-Za-z0-9_-]*\" (regexReplaceAll \"(?i)bearer [A-Za-z0-9._~+/=-]+\" (regexReplaceAll \"\\\\brole_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccessor=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\blease_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsession_state=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsessionId=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bupdated_refresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode_id=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bcode=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btotp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\botp=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\btoken=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bsecret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpasswd=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bpassword=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bclient_secret=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\bid_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\brefresh_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" (regexReplaceAll \"\\\\baccess_token=(\\\\\\\"[^\\\\\\\"]*\\\\\\\"|[^ &,\\\\\\\"]+)\" __line__ \"access_token=***\") \"refresh_token=***\") \"id_token=***\") \"client_secret=***\") \"password=***\") \"passwd=***\") \"secret=***\") \"token=***\") \"otp=***\") \"totp=***\") \"code=***\") \"code_id=***\") \"token_id=***\") \"refresh_token_id=***\") \"updated_refresh_token_id=***\") \"sessionId=***\") \"session_state=***\") \"lease_id=***\") \"accessor=***\") \"client_token=***\") \"secret_id=***\") \"role_id=***\") \"Bearer ***\") \"***jwt***\") \"hvs.***\") \"hmac-sha256:***\") \"@pve!(jeton)\") \"@pam!(jeton)\" }}`",
+          "legendFormat": "",
+          "editorMode": "code",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "Aucun événement sur la période (normal hors incident)",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "enableInfiniteScrolling": false,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "timeFrom": "24h"
+    }
+  ]
+}
