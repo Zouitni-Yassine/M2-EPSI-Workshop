@@ -1,0 +1,39 @@
+# {{ ansible_managed }}
+# Synchronisation de la documentation de l'assistant avec GitHub (docs/rag.md, section 12) :
+# réindexe dans un répertoire neuf si le corpus a changé, bascule le lien chroma_db, redémarre
+# rag-api entre deux questions (règle polkit limitée à cette action). Lancée par rag-docs-sync.timer.
+[Unit]
+Description=Synchronisation de la documentation de l'assistant RAG (GitHub)
+After=network-online.target ollama-index.service
+Wants=network-online.target ollama-index.service
+
+[Service]
+Type=oneshot
+User=rag
+Group=rag
+WorkingDirectory={{ rag_data_dir }}/sync
+{% for name, value in rag_env.items() %}
+Environment={{ name }}={{ value }}
+{% endfor %}
+# Indexation sur l'instance d'Ollama dédiée (ollama-index, priorité basse) : ni le relais (coupe
+# au-delà de 120 s), ni l'instance principale (un lot d'embeddings y bloquerait les questions)
+Environment=OLLAMA_HOST=http://{{ rag_index_ollama_listen }}
+ExecStart={{ rag_dir }}/venv/bin/python -I /usr/local/lib/rag/rag-docs-sync.py --config {{ rag_secrets_dir }}/docs-sync.json
+TimeoutStartSec=45min
+Nice=10
+CPUWeight=20
+IOSchedulingClass=idle
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ rag_data_dir }}
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

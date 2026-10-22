@@ -164,6 +164,21 @@ alerts=$(graf -G "$GRAFANA/api/datasources/proxy/uid/victoriametrics/api/v1/quer
   | python3 -c 'import json,sys; print(" ".join(sorted({r["metric"]["alertname"] for r in json.load(sys.stdin)["data"]["result"]})))' 2>/dev/null)
 [ -z "$alerts" ] && ok "aucune alerte active (hors Watchdog)" || warn "alertes actives : $alerts"
 [ "$(code "$GRAFANA/api/health")" = 200 ] && ok "Grafana : dashboard Démo / Remédiation disponible" || ko "Grafana injoignable"
+# Documentation de l'assistant synchronisée avec GitHub (rag-docs-sync, docs/rag.md §12) : pas bloquant
+sync=$("${SSH_VM[@]}" debian@10.30.1.230 "sudo cat /var/lib/rag/sync-state.json" 2>/dev/null | python3 -c '
+import json, sys
+from datetime import datetime, timezone
+s = json.load(sys.stdin)
+age = (datetime.now(timezone.utc) - datetime.fromisoformat(s["last_success"])).total_seconds() // 60
+c = s.get("commits", {})
+print(int(age), s.get("files"), s.get("chunks"), c.get("IA", "?")[:7], c.get("INFRA", "?")[:7], s.get("last_result"))' 2>/dev/null)
+if [ -z "$sync" ]; then warn "assistant : état de la synchronisation de la documentation absent ou illisible (rag01)"
+else
+  read -r age nf nc cia cinfra res <<< "$sync"
+  if [ "$age" -lt 60 ] && [ "$res" != echec ]; then
+    ok "assistant : documentation synchronisée il y a $age min ($nf fichiers, $nc morceaux, IA $cia, INFRA $cinfra)"
+  else warn "assistant : documentation synchronisée il y a $age min (dernier passage : $res) : journalctl -u rag-docs-sync sur rag01"; fi
+fi
 
 # --------------------------------------------------------------------------- #
 printf '\n'

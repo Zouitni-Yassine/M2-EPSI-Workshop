@@ -22,6 +22,12 @@ app_url: http://10.30.1.221:5173
 app_cors_origins: "{{ app_url }}"
 app_frontend_port: 5173
 
+# Réseaux où un compte de service (FACE_EXEMPT_USERS, operateur de la sonde) est dispensé de
+# caméra (auth, FACE_SERVICE_NETS). Mesuré le 22/10 : la sonde (VIP:5173) est vue par auth avec
+# l'adresse ingress du nœud (172.20.0.x, pool overlay) ; le tunnel SSH par .110 aussi. Le défaut
+# d'auth (10/8, 172.16/12, 192.168/16) dispenserait le VPN 10.250.90.0/24 et NPM 172.16.1.10.
+app_face_service_nets: "{{ swarm_default_addr_pool }},127.0.0.0/8,::1/128"
+
 # Base de données (docs/application.md, "Base de données") :
 #   ha        PostgreSQL + Patroni + etcd, un membre par worker de app_db_nodes, bascule auto ;
 #   single    ancienne base unique épinglée sur app_db_node, volume db-data (retour arrière) ;

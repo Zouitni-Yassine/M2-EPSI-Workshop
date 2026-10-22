@@ -454,10 +454,77 @@ async def evenements_remediation(heures: int = 2) -> str:
     return await execute("evenements_remediation", {"heures": h}, run)
 
 
+# Nature de chaque machine, d'après le label role posé par la collecte (job node)
+TYPES = {
+    "pve": "serveur physique (hyperviseur Proxmox + Ceph)",
+    "swarm_manager": "VM (manager Swarm)",
+    "swarm_worker": "VM (worker Swarm)",
+    "rag": "VM (assistant)",
+    "control": "VM (poste de contrôle)",
+    "waf": "VM (WAF)",
+    "monitoring": "LXC (supervision)",
+    "identity": "LXC (identité)",
+}
+FILTRES = {"physique": {"pve"}, "pve": {"pve"}, "hyperviseur": {"pve"},
+           "vm": {"swarm_manager", "swarm_worker", "rag", "control", "waf"},
+           "lxc": {"monitoring", "identity"}}
+
+
+@mcp.tool(annotations=LECTURE)
+async def charge_machines(type_machine: str = "") -> str:
+    """Charge actuelle de chaque machine : CPU (moyenne 5 min), RAM utilisée, disque racine
+    utilisé, état. À utiliser pour toute question CPU / RAM / disque / charge des serveurs.
+    type_machine : "physique" (= les serveurs physiques : les 3 hyperviseurs Proxmox
+    ceph01, ceph02, ceph03), "vm", "lxc", ou vide pour toutes les machines.
+    Seuls ceph01-03 sont des serveurs physiques ; toutes les autres machines sont des VM ou
+    des LXC hébergées sur eux."""
+    filtre = (type_machine or "").strip().lower()
+
+    async def run():
+        if filtre and filtre not in FILTRES:
+            raise ToolError('type_machine attendu : "physique", "vm", "lxc" ou vide')
+        cpu, ram, disque, up = await asyncio.gather(
+            vm_vecteur('100 * (1 - avg by (host, role, instance) '
+                       '(rate(node_cpu_seconds_total{job="node", mode="idle"}[5m])))'),
+            vm_vecteur('100 * (1 - node_memory_MemAvailable_bytes{job="node"} '
+                       '/ node_memory_MemTotal_bytes{job="node"})'),
+            vm_vecteur('100 * (1 - node_filesystem_avail_bytes{job="node", mountpoint="/"} '
+                       '/ node_filesystem_size_bytes{job="node", mountpoint="/"})'),
+            vm_vecteur('up{job="node"}'))
+        machines = {}
+        for nom, serie in (("cpu", cpu), ("ram", ram), ("disque", disque), ("up", up)):
+            for s in serie:
+                m = s["metric"]
+                hote = m.get("host", m.get("instance", "?"))
+                fiche = machines.setdefault(hote, {"role": m.get("role", "?"),
+                                                    "ip": m.get("instance", "?").split(":")[0]})
+                fiche[nom] = float(s["value"][1])
+        roles = FILTRES.get(filtre)
+        lignes = []
+        for hote, f in sorted(machines.items(), key=lambda x: (x[1]["role"] != "pve", x[0])):
+            if roles and f["role"] not in roles:
+                continue
+            if f.get("up", 0) < 1:
+                lignes.append(f"- {hote} ({f['ip']}, {TYPES.get(f['role'], f['role'])}) : INJOIGNABLE")
+                continue
+            val = lambda k: f"{f[k]:.0f} %" if k in f else "n/d"
+            lignes.append(f"- {hote} ({f['ip']}, {TYPES.get(f['role'], f['role'])}) : "
+                          f"CPU {val('cpu')} · RAM {val('ram')} · disque / {val('disque')}")
+        if not lignes:
+            return "Aucune machine trouvée pour ce filtre (source : VictoriaMetrics)."
+        titre = {"": "Toutes les machines", "vm": "VM", "lxc": "LXC"}.get(
+            filtre, "Serveurs physiques (hyperviseurs Proxmox ceph01-03)")
+        return (f"{titre}, {len(lignes)} machine(s) (source : VictoriaMetrics, node_exporter) :\n"
+                + "\n".join(lignes))
+
+    return await execute("charge_machines", {"type_machine": filtre[:20]}, run)
+
+
 @mcp.tool(annotations=LECTURE)
 async def requete_metrique(promql: str) -> str:
     """Requête PromQL/MetricsQL instantanée (lecture seule, 300 caractères max, 8 s max,
-    20 séries affichées au plus) pour une question non couverte par les autres outils.
+    20 séries affichées au plus) pour une question non couverte par les autres outils (CPU / RAM / disque : utiliser
+    charge_machines).
     Exemples : up{job="node"} == 0, detector_anomaly_score, rate(http_requests_total[5m])."""
     expr = (promql or "").strip()
 

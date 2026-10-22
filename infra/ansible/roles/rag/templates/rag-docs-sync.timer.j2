@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# Synchronisation de la documentation : au démarrage, puis toutes les {{ rag_docs_sync_interval }}
+[Unit]
+Description=Synchronisation périodique de la documentation de l'assistant RAG
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec={{ rag_docs_sync_interval }}
+RandomizedDelaySec=60
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,20 @@
+{{ {
+  "repo_url": rag_docs_sync_repo_url,
+  "sources": rag_docs_sync_sources,
+  "exclude": rag_docs_sync_exclude,
+  "log_branches": [rag_docs_sync_ia_branch, rag_docs_sync_infra_branch],
+  "embed_model": rag_embed_model,
+  "ingest": rag_dir ~ "/app/ingest.py",
+  "python": rag_dir ~ "/venv/bin/python",
+  "data_dir": rag_data_dir,
+  "min_chunks": rag_docs_sync_min_chunks,
+  "min_ratio": rag_docs_sync_min_ratio,
+  "max_files": 500,
+  "max_file_bytes": 20971520,
+  "ingest_timeout": 1800,
+  "api_port": rag_api_port,
+  "api_health_url": "http://127.0.0.1:" ~ rag_api_port ~ "/health",
+  "api_health_timeout": 90,
+  "idle_wait": rag_api_timeout + 30,
+  "restart_units": ["rag-api.service", "rag-assistant.service"]
+} | to_nice_json(indent=2) }}

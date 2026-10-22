@@ -147,6 +147,43 @@ L'isolement d'un service compromis n'est pas implémenté.
 - **Surveillance de la surveillance** : un Watchdog part chaque minute vers healthchecks.io,
   hors du lab. S'il cesse, la chaîne d'alerte est morte et un humain est prévenu.
 
+### Consigne additionnelle : reconnaissance faciale des opérateurs
+
+Consigne ajoutée par l'école le 21/10. Les opérateurs du back-office se connectent en trois
+temps : identifiant, visage devant la caméra du navigateur, mot de passe. Les clients de la
+boutique ne sont pas concernés. Le code est celui de l'équipe applicative (service auth :
+YuNet pour trouver le visage, SFace pour en tirer un gabarit de 128 nombres, modèles ONNX sur
+CPU). L'infrastructure l'a intégré ainsi :
+
+| Sujet | Choix | Raison |
+|---|---|---|
+| Caméra | Celle du navigateur du poste de démo | Aucune webcam sur un serveur, pas de passthrough USB vers une VM : auth peut tourner sur n'importe quel worker. La stack « PC hôte » du sujet aurait lié la connexion à une machine physique |
+| Exposition | Même chemin que le reste : NPM, WAF, VIP, frontal, auth | La caméra exige HTTPS : le certificat public existant suffit |
+| Taille des requêtes | 4 Mo sur les seules routes caméra, au frontal et au WAF ; 1 Mo ailleurs | Les images passent, le reste du site garde une limite basse |
+| WAF | Règles ModSecurity vérifiées sur les routes caméra le 22/10 : aucune exclusion, aucun 403 sur 2,8 Mo d'images ni sur une rafale de 40 guidages | Un faux positif (403) serait compté par le bannissement automatique et bannirait le présentateur |
+| Ressources | auth à 1 CPU et 768 Mo (0,5 et 256 Mo avant) ; image plus lourde (OpenCV, ≈ 37 Mo de modèles) | Inférence sur CPU ; image pré-téléchargée sur les workers |
+| Intégrité des modèles | Téléchargés au build, empreinte SHA-256 figée, build arrêté si elle diffère | Rien n'est téléchargé au démarrage (conteneur en lecture seule, réseau de la base sans sortie) |
+| Réplicas | auth reste à 1 réplica | Identifications en cours et blocages en mémoire : deux réplicas casseraient le parcours et permettraient de contourner les blocages |
+| Compte de service | `operateur` (sonde) dispensé de caméra depuis les réseaux internes seulement (`FACE_SERVICE_NETS` restreint) | Le défaut du code (toutes les plages privées) dispensait aussi le VPN de la red team et NPM, donc Internet |
+| Supervision | Alertes `AuthFaceUnavailable` et `AuthFaceRejectBurst`, panneaux Démo et Cyber | Voir un moteur hors service ou une rafale d'usurpation |
+| Premier enrôlement | Tunnel SSH vers le poste de contrôle, page en `localhost` | La caméra accepte `localhost` ; la source est interne, `operateur` enrôle les comptes nominatifs |
+
+**Données biométriques (RGPD, art. 9).** Un gabarit facial est une donnée sensible. Seuls les
+membres de l'équipe sont enrôlés, avec leur consentement explicite, pour la durée du workshop.
+Aucune image n'est conservée. Les gabarits sont dans la base `auth`, donc répliqués sur les
+trois membres Patroni, copiés dans les `pg_dump` toutes les 15 min sur le poste de contrôle
+(24 h glissantes) et dans les sauvegardes PBS des workers et du poste de contrôle. La
+disponibilité qui protège les paiements multiplie aussi les copies des gabarits : après la
+démo, ils sont supprimés de la base, puis les dumps et sauvegardes qui les contiennent sont
+purgés (procédure dans `docs/application.md`). Accès : par auth seulement (aucune route ne
+renvoie un gabarit), dumps lisibles par root sur le poste de contrôle.
+
+**Limites.** Pas de détection du vivant : une photo peut tromper la caméra, le mot de passe
+reste exigé. auth à une réplica est un point de défaillance de la connexion au back-office :
+Swarm le relance en ≈ 20 s, l'identification en cours est à recommencer, les sessions ouvertes
+continuent. Gabarits non chiffrés dans la base. Tests de panne prévus, résultats à mesurer
+([`tests-resilience.md`](../tests-resilience.md), § 3.5).
+
 ## 5. Résultats des essais
 
 Outil `infra/chaos/chaos.sh` : vérifie l'état de départ, injecte la panne, mesure côté client,
@@ -201,6 +238,7 @@ pour une machine restaurée.
 | Vault à nœud unique, descellé à la main | Vault Raft à 3 nœuds, auto-unseal (KMS, HSM) |
 | Supervision et WAF en instance unique ; le moteur dépend d'Alertmanager | Clusters VictoriaMetrics et Loki, second WAF |
 | payment-api et auth à une réplica | Plusieurs réplicas, état anti force brute partagé |
+| Reconnaissance faciale : pas de détection du vivant, état des identifications en mémoire, gabarits non chiffrés et copiés dans les sauvegardes | Détection du vivant, état partagé, gabarits chiffrés (clé dans Vault), sauvegardes à rétention courte pour la base `auth` |
 | `/api/health` ne teste pas ses dépendances | Point de santé qui échoue si la base manque |
 | Un seul serveur de sauvegarde, dumps copiés hors du lab une fois par jour | Seconde copie hors site, dumps vers S3 à chaque exécution |
 | Limites de la passerelle comptées par manager | État partagé |
@@ -215,9 +253,9 @@ pour une machine restaurée.
 | `README.md` | Vue d'ensemble, déploiement rapide, accès |
 | `docs/architecture.md` | Décisions D1 à D10 avec alternatives écartées, limites |
 | `docs/reseau.md` | VLAN, flux autorisés, adresse virtuelle, tests de filtrage |
-| `docs/application.md` | Stack Swarm, build, exposition publique, sonde de transaction |
+| `docs/application.md` | Stack Swarm, build, exposition publique, reconnaissance faciale (infra, RGPD), sonde de transaction |
 | `docs/supervision.md` | Métriques, logs, règles d'alerte, routage, dashboards |
-| `docs/waf.md` | WAF en DMZ, bannissement automatique, exploitation |
+| `docs/waf.md` | WAF en DMZ, bannissement automatique, routes de la caméra, exploitation |
 | `docs/remediation.md` | Passerelle : actions, garde-fous, tests |
 | `docs/identites.md` | Keycloak, Vault, Vaultwarden, CA interne |
 | `docs/comptes-et-rotation.md` | Inventaire des comptes et secrets, rotation |

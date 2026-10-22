@@ -90,7 +90,7 @@ Définitions retenues :
 |---|---|
 | Tous (sauf `restore`) | `/api/health` 200 par l'adresse virtuelle ; une transaction de la sonde commencée après la panne a réussi |
 | `api-stop`, `kill-*` | Le service visé a toutes ses réplicas en marche |
-| `db-kill` | `paiement_db` 1/1 ; nombre de paiements après ≥ nombre avant |
+| `db-kill`, `db-node-crash` | Un primaire PostgreSQL ; toutes les réplicas de la stack ; ancien primaire revenu en standby, réplication complète ; nombre de paiements après ≥ nombre avant (base unique, 20/10 : `paiement_db` 1/1) |
 | `worker-crash`, `leader-crash` | VM relancée par la HA Proxmox ; nœud `Ready` dans Swarm ; les 6 services `paiement_*` complets ; nouveau leader (pour `leader-crash`) |
 | `monitoring-crash` | LXC monitoring01 relancé ; Grafana répond |
 | `node-loss` | Les 12 machines du socle (211-213, 221-223, 231-233, 241-243) en marche |
@@ -153,7 +153,7 @@ a disparu avec lui et n'a donc pas vu la panne (0 s enregistré). On retient la 
 |---|---|---|---|---|---|
 | `monitoring-crash` | `lxc-stop -k` de monitoring01 (VictoriaMetrics, Loki, Grafana, alertes) | HA Proxmox | **0 s** (paiements non concernés) | Grafana répond à +28 s | OK |
 | `restore` | Restauration PBS de vaultwarden01 sur l'ID 9243, sans réseau | Procédure lancée par un humain | sans objet | Restauré et démarré en 40,3 s ; service et données vérifiés à +49,5 s : **RTO ≈ 1 min** | OK |
-| `node-loss` | Perte d'un hyperviseur entier | HA Proxmox, Ceph, Swarm, keepalived | À COMPLÉTER (§ 6) | À COMPLÉTER | À COMPLÉTER |
+| `node-loss` (hors `chaos.sh`) | Coupure brutale de l'hyperviseur ceph03 depuis l'hôte parent | Quorum Proxmox 2/3, Ceph dégradé, Swarm, base répliquée ; HA Proxmox | **0 s** : aucun échec sur les relevés toutes les 20 s ; un 502 isolé au retour du nœud (§ 6) | Nœud rallumé à ~4 min, avant la fin du fencing : relance des machines par la HA non mesurée ; `vault-unseal` | OK, à refaire en entier |
 
 RPO du test `restore` : la sauvegarde restaurée datait du 20/10 à 14h53 (heure de Paris), soit
 **22 h 31 min** (81 115 s) au moment du test. Le job PBS de 22h30 n'avait pas tourné : le lab est
@@ -169,12 +169,30 @@ RPO du test `restore` : la sauvegarde restaurée datait du 20/10 à 14h53 (heure
 | Détection ML (jeu d'évaluation de l'équipe applicative) | F1 0,86 ; précision 0,81 ; rappel 0,92 ; AUC 0,92 |
 | Remédiation de bout en bout du 20/10 (avant `chaos.sh`) | `docker stop` de payment-api, reprise en 16 s ([application.md](application.md#test-de-reprise-de-bout-en-bout-20102026)) |
 
+### 3.5 Reconnaissance faciale du back-office (consigne additionnelle)
+
+Tests prévus le 22/10 après le déploiement de la connexion par visage
+([application.md](application.md#reconnaissance-faciale-du-back-office-consigne-additionnelle)).
+La sonde n'utilise pas la caméra (compte de service `operateur`, réseau interne) : elle mesure
+le paiement, pas la connexion d'un opérateur. Ces tests se mesurent à la main, chronomètre et
+journal des accès (`auth_events`, Loki `event="face"`).
+
+| Test | Panne ou action | Attendu | Résultat |
+|---|---|---|---|
+| `kill-auth` pendant une identification | SIGKILL d'auth entre le `probe` et l'envoi des images | Swarm relance auth en ≈ 20 s ; l'identification en cours est perdue (challenge en mémoire), l'opérateur recommence ; sessions ouvertes intactes ; paiements de la sonde coupés comme au `kill-auth` du 21/10 | À mesurer |
+| Bascule de la base pendant les connexions | `chaos.sh db-kill` puis connexion d'un opérateur | Gabarits lus sur le nouveau primaire ; visage reconnu sans nouvel enrôlement ; aucun gabarit perdu | À mesurer |
+| Restauration d'un `pg_dump` avec gabarits | `paiement-db-restore-test` étendu à la base `auth` (base temporaire) | Nombre de lignes de `face_templates` identique à la production ; restauration en quelques secondes | À mesurer |
+| Connexion depuis Internet en 4G | Téléphone hors du lab, `https://app.slabreze.fr`, compte nominatif | Caméra autorisée (HTTPS) ; images acceptées par le WAF (4 Mo) ; aucun 403 ModSecurity ; visage puis mot de passe : connexion | À mesurer |
+| `operateur` depuis Internet ou le VPN | Connexion `operateur` par l'URL publique, puis depuis EPSI-WG | Caméra exigée (hors `FACE_SERVICE_NETS`) ; `/auth/token` refusé | À mesurer |
+| Refus et blocage sans bannissement WAF | Visage d'une autre personne, deux cycles ratés | Refus, nouvel essai après 30 s, identifiant bloqué 5 min ; alerte `AuthFaceRejectBurst` ; l'IP **n'est pas** bannie au WAF (refus applicatifs, pas de 403) | À mesurer |
+| Modèles absents | Image sans modèles (test hors démo) | 503 sur l'identification d'un opérateur, alerte `AuthFaceUnavailable` ; clients non concernés | À mesurer |
+
 ## 4. Analyse
 
 ### 4.1 Ce qui marche
 
-- **Aucune intervention humaine** sur 14 pannes injectées (hors restauration, manuelle par
-  nature). Chaque couche répare ce qui la concerne :
+- **Aucune intervention humaine** sur 16 pannes injectées par `chaos.sh` (hors restauration,
+  manuelle par nature) ; à la perte d'un hyperviseur, seule action : `vault-unseal`. Chaque couche répare ce qui la concerne :
 
   | Mécanisme | Ce qu'il répare | Délai observé |
   |---|---|---|
@@ -196,7 +214,7 @@ RPO du test `restore` : la sauvegarde restaurée datait du 20/10 à 14h53 (heure
 | Constat | Effet mesuré | Cause | Suite |
 |---|---|---|---|
 | `/api/health` reste à 200 quand la base ou auth sont arrêtées | `db-kill` : 0 s pour `/api/health`, 7,5 s pour la sonde ; `kill-auth` : 0 s contre 21,9 s ; `worker-crash` avec la base : 3 s contre 91,9 s | Le point de santé ne teste pas ses dépendances : le champ `db` passe à `false`, le code reste 200 | La sonde de transaction est la mesure de référence. Signalé à l'équipe applicative |
-| La base est un point de défaillance unique | `worker-crash` sur dockerwrk01 : 91,9 s sans paiement, contre 3 s quand la base n'est pas sur le worker tué | PostgreSQL épinglé sur dockerwrk01 (volume local) : il attend le retour de la VM | Base répliquée en cours de mise en place (§ 5) |
+| La base était un point de défaillance unique | `worker-crash` sur dockerwrk01 : 91,9 s sans paiement, contre 3 s quand la base n'est pas sur le worker tué | PostgreSQL épinglé sur dockerwrk01 (volume local) : il attend le retour de la VM | Base répliquée (Patroni) depuis le 21/10 : 0 s mesurée à la perte du worker du primaire (§ 5) |
 | Une seconde panne rapprochée est réparée lentement | `api-stop` relancé 50 s après le premier : 72,5 s au lieu de 10 s | Limite de la passerelle (60 s entre deux actions sur un service), aggravée par un bug du moteur : `retry_in = 0` traité comme absent, d'où 45 s d'attente au lieu de 5 | Bug corrigé (`if exc.retry_in is not None`). La limite est voulue : elle empêche un moteur en boucle de redémarrer un service sans fin |
 | Un service à réplica unique coupe le service pendant sa relance | `kill-frontend` : 11,1 s ; `kill-payment-api` : 17,4 s ; `kill-auth` : 21,9 s | Une seule réplica de frontal, d'API et d'auth (état en mémoire pour auth et le détecteur) | Frontal passé à 3 réplicas (§ 4.3). API et auth : à voir avec l'équipe applicative |
 | La rafale n'est pas bloquée à la source | Le redémarrage rétablit le service, la source continue | L'action « bannir l'IP » affichée par le scénario du frontal n'existait pas | Bannissement automatique au WAF ajouté le 21/10 (force brute bannie en 27 s) |
@@ -233,35 +251,67 @@ l'application le permette (état en mémoire d'auth : freinage anti force brute)
 
 ## 5. Base répliquée
 
-**À COMPLÉTER** quand la réplication PostgreSQL sera en place (travail en cours,
-`infra/app/postgres-ha/`).
+Depuis le 21/10 (commit `4d660c1`), la base est un cluster **Patroni 4.1.5** (PostgreSQL 16)
+à trois membres, un par worker et donc par hyperviseur, avec un verrou du primaire dans
+**etcd 3.6.15** (3 membres, quorum 2 sur 3). Réplication synchrone par quorum : un COMMIT attend
+au moins un des deux standbys, et seul un standby à jour peut être promu. auth et payment-api
+se connectent à `db1`, `db2`, `db3` avec `target_session_attrs=read-write` : ils ne gardent que
+le primaire, sans proxy ni modification du code. Détail : [application.md](application.md#base-de-données-haute-disponibilité-postgresql--patroni),
+image et configuration dans `infra/app/postgres-ha/`.
 
-| Test | Panne provoquée | Qui répare | Panne vue par la sonde | État nominal | Paiements avant / après | Verdict |
-|---|---|---|---|---|---|---|
-| `db-kill` | SIGKILL du primaire | | | | | |
-| `worker-crash` (worker du primaire) | `kill -9` de la VM | | | | | |
+Migration de la base unique vers Patroni : clients arrêtés 19 s, 659 paiements et 3 comptes
+recopiés et vérifiés sur le primaire et les deux standbys (retard de réplication nul). L'ancien
+volume `paiement_db-data` est gardé intact sur dockerwrk01 jusqu'après la démo, avec une
+procédure de retour arrière (`/root/db-migration/RETOUR-ARRIERE.txt` sur le poste de contrôle).
 
-À comparer avec : `db-kill` 7,5 s et `worker-crash` avec la base 91,9 s (base unique).
+**Prototype** (stack de test `dbtest`, client qui écrit toutes les 200 ms) :
+
+| Panne | Écritures interrompues | Données |
+|---|---|---|
+| `kill -9` de la VM du primaire | 18,3 s | 0 écriture validée perdue sur 2 979 ; ancien primaire revenu en standby (`pg_rewind`) |
+| `docker kill` du primaire | 11,8 s | 0 perte |
+| `docker kill` d'un standby | aucune (0,3 s entre deux écritures) | 0 perte |
+| Bascule manuelle (`pctl switchover`) | 3,7 s | 0 perte ; pas de double primaire |
+
+**Production** (`chaos.sh`, 21/10) :
+
+| Test | Panne provoquée | Qui répare | Panne vue par la sonde | `/api/health` en échec | État nominal | Paiements avant / après | Verdict |
+|---|---|---|---|---|---|---|---|
+| `db-kill` (12:26) | SIGKILL du primaire `paiement_db2` (dockerwrk02) | Swarm relance le conteneur ; il retrouve son verrou encore valide et redevient primaire | **0 s** | 0 s | 44,5 s (transaction OK à +32,6 s) | 686 / 687 | OK |
+| `db-node-crash` (12:35) | `kill -9` de la VM dockerwrk02, qui porte le primaire `db2` (adresse virtuelle et payment-api sur dockerwrk01) | Patroni promeut `db3` (dockerwrk03) 23 s après la panne ; HA Proxmox relance la VM (+47,3 s), nœud Swarm prêt à +66,9 s ; `db2` revient en standby (+83,2 s) | **0 s** | 0 s | 86,1 s (transaction OK à +16,4 s) | 704 / 707 | OK |
+
+Les nouveaux paiements entre « avant » et « après » sont ceux de la sonde : aucun paiement
+perdu. Pendant les ~20 s sans primaire, la sonde n'a enregistré aucun incident : ses
+transactions sont espacées de 30 s et payment-api continue d'accepter les paiements (Stripe
+reste la source de vérité). La bascule existe bien (23 s sans écriture possible), mais elle
+n'est pas visible pour un client.
+
+| Test | Base unique (20-21/10) | Base répliquée (21/10) |
+|---|---|---|
+| `db-kill` : panne vue par la sonde | 7,5 s | **0 s** |
+| Perte de la VM du worker de la base / du primaire | 91,9 s (`worker-crash` dockerwrk01) | **0 s** (`db-node-crash` dockerwrk02) |
+| Paiements perdus | 0 | 0 |
 
 ## 6. Perte d'un hyperviseur
 
-**À COMPLÉTER** après le test `node-loss`.
-
-Déroulé prévu : `infra/chaos/chaos.sh node-loss`, puis coupure brutale de l'hyperviseur choisi
-depuis l'hôte parent. Le script attend que le nœud ne réponde plus au ping, puis que les 12
-machines du socle soient de nouveau en marche. Au retour du nœud, Vault peut être scellé
-s'il était sur ce nœud : `vault-unseal` (seule action humaine attendue).
+Test du 21/10, après la migration de la base : l'hyperviseur ceph03 a été coupé brutalement
+depuis l'hôte parent (équivalent d'une coupure d'alimentation), puis rallumé au bout de 4 min
+environ. Le test a été suivi à la main, par des relevés toutes les 20 s, et non par
+`chaos.sh` : il n'a pas de ligne dans `resultats.tsv`.
 
 | Mesure | Valeur |
 |---|---|
-| Hyperviseur coupé, machines qu'il portait | |
-| Panne vue par la sonde | |
-| `/api/health` en échec | |
-| Toutes les machines relancées par la HA | |
-| État de Ceph pendant et après (`HEALTH_WARN` attendu tant que le nœud est absent) | |
-| Retour du nœud, retour des machines sur leur nœud d'origine | |
-| Intervention humaine | |
-| Verdict | |
+| Hyperviseur coupé, machines qu'il portait | ceph03 ; dont dockerwrk03 (membre `db3`, standby, et `etcd3`). Liste complète non relevée |
+| Cluster Proxmox | Quorum gardé à 2 sur 3 |
+| Base | Primaire `db2` et standby synchrone `db1` inchangés ; `db3` revenu seul en standby après le redémarrage de ceph03 |
+| Panne vue par un client | **Aucune** pendant la coupure : aucun échec sur les relevés toutes les 20 s ; un 502 isolé au retour du nœud |
+| `/api/health` seconde par seconde, sonde de transaction | Non mesurés (test hors `chaos.sh`) |
+| Toutes les machines relancées par la HA | **Non mesuré** : le nœud a été rallumé avant la fin du fencing, la HA n'a donc pas eu à déplacer ses machines |
+| État de Ceph | Dégradé (`HEALTH_WARN`) pendant l'absence du nœud ; heure du retour à `HEALTH_OK` non relevée |
+| Intervention humaine | `vault-unseal` : Vault est revenu scellé |
+| Verdict | OK pour la continuité du paiement ; relance des machines par la HA **à mesurer** (test à refaire en laissant le nœud éteint au-delà du fencing) |
+
+La cause du 502 au retour du nœud n'a pas été analysée.
 
 ## 7. Rejouer les tests
 
@@ -313,6 +363,8 @@ objet).
 | 21/10 10:43:29 | worker-crash | Conteneur | OK | 91.9 | 3.0 | 2 | 108.1 | 115.8 | - | dockerwrk01 |
 | 21/10 11:22:57 | monitoring-crash | Virtualisation | OK | 0.0 | 0 | 0 | 21.0 | 27.8 | - | - |
 | 21/10 11:25:31 | restore | Virtualisation | OK | - | - | - | 46.6 | 57.5 | 81115 | - |
+| 21/10 12:26:03 | db-kill | Appli | OK | 0.0 | 0 | 0 | 32.6 | 44.5 | - | dockerwrk02 |
+| 21/10 12:35:25 | db-node-crash | Conteneur | OK | 0.0 | 0 | 0 | 16.4 | 86.1 | - | dockerwrk02 |
 
 Essais sans ligne dans le fichier, tous dus à des bugs de `chaos.sh` corrigés depuis :
 `kill-frontend` à 09h49 (refusé à tort par la vérification préalable : heure de départ

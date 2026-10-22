@@ -1,0 +1,29 @@
+# Reconnaissance faciale des opérateurs du back-office (service auth, stack paiement).
+# Le compteur auth_face_total ne compte pas le cas « indisponible » : il se lit dans les
+# journaux JSON du service (event="face", result="unavailable"), d'où une règle Loki.
+# Déployée telle quelle par le rôle loki dans /etc/loki/rules/fake/, alertes envoyées à
+# Alertmanager (Discord). Pas d'action="ban" : panne côté serveur, pas une attaque.
+#   vault-env ansible-playbook monitoring.yml --limit monitoring_core
+groups:
+  - name: auth-face
+    interval: 30s
+    limit: 10
+    rules:
+      # Modèles de reconnaissance absents ou illisibles : chaque vérification répond 503, plus
+      # aucun opérateur ne peut entrer dans le back-office (les clients ne sont pas concernés).
+      - alert: AuthFaceUnavailable
+        expr: |
+          sum(
+            count_over_time({service="paiement_auth"}
+              | json | __error__="" | event="face" | result="unavailable" [5m])
+          ) > 0
+        labels:
+          severity: warning
+          domain: app
+          remediation: manual
+          service: paiement_auth
+          stack: paiement
+          action: none
+        annotations:
+          summary: "Reconnaissance faciale indisponible sur le service auth ({{ $value }} réponses 503 en 5 min) : back-office inaccessible"
+          description: "Modèles de reconnaissance absents ou illisibles côté serveur (champ error des journaux auth). Les connexions des clients ne sont pas touchées."

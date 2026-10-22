@@ -28,8 +28,31 @@ ollama_models:
 rag_repo_dir: /srv/M2-EPSI-Workshop
 rag_git_ref: 2e3c0c276960575a6b8a36671e506e4bd0a9e4ae
 
-# Fiches de procédures de l'infra, ajoutées au corpus de l'équipe IA (docs/infra/ de l'appli)
-rag_infra_corpus_dir: "{{ playbook_dir | dirname }}/rag/corpus"
+# --- Documentation indexée : synchronisée avec GitHub (tasks/docs_sync.yml, docs/rag.md §12) ---
+# Le code reste figé sur rag_git_ref ; la documentation suit les branches ci-dessous. Service
+# rag-docs-sync (utilisateur rag) lancé par une minuterie : au démarrage puis toutes les
+# rag_docs_sync_interval. false : minuterie arrêtée, l'index reste celui du dernier passage
+# (le premier index est construit dans tous les cas, au déploiement).
+rag_docs_sync_enabled: true
+rag_docs_sync_interval: 15min
+rag_docs_sync_repo_url: https://github.com/Zouitni-Yassine/M2-EPSI-Workshop.git  # public, sans jeton
+rag_docs_sync_ia_branch: IA
+rag_docs_sync_infra_branch: INFRA
+# Sources : dossier du dépôt -> sous-dossier de docs/ lu par ingest.py. Markdown et PDF seulement
+# (imposé par le script). docs/infra/ = fiches de procédures (chain.is_procedure les place en tête),
+# docs/doc-infra/ = documentation technique de l'infra (traitée comme les docs des services).
+rag_docs_sync_sources:
+  - { branch: "{{ rag_docs_sync_ia_branch }}", path: rag/docs, recursive: true, dest: "" }
+  - { branch: "{{ rag_docs_sync_infra_branch }}", path: infra/rag/corpus, recursive: false, dest: infra }
+  - { branch: "{{ rag_docs_sync_infra_branch }}", path: infra/docs, recursive: true, dest: doc-infra }
+# Exclusions : motifs fnmatch sur le chemin dans le dépôt (ex. "infra/docs/livraison/*")
+rag_docs_sync_exclude: []
+# Garde-fous de la bascule : nombre de morceaux du nouvel index >= max(min_chunks, ratio x précédent)
+rag_docs_sync_min_chunks: 50
+rag_docs_sync_min_ratio: 0.5
+# Instance d'Ollama dédiée à l'indexation (service ollama-index, priorité basse, locale)
+rag_index_ollama_listen: 127.0.0.1:11436
+rag_index_cpu_quota: 250%   # 2,5 vCPU au plus pour l'indexation
 
 # Dépendances Python figées (pip freeze du premier déploiement, files/constraints.txt)
 rag_pip_constraints: true

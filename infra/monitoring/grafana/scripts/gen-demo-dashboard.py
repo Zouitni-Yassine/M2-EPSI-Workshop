@@ -398,6 +398,59 @@ panels += [
 y += H
 
 
+# ---- Back-office : reconnaissance faciale des opérateurs (service auth) ------------
+# Compteur auth_face_total{result} (/metrics :8300, vmagent du Swarm) : recognized, rejected,
+# locked (identifiant bloqué après deux cycles ratés), enrolled. Le cas « indisponible »
+# (modèles absents, réponse 503) n'est pas compté : il se lit dans les journaux JSON (Loki).
+# Valeurs sur la période affichée ($__range).
+AUTH = 'service="paiement_auth"'
+AUTH_LOGS = '{service="paiement_auth"} | json | __error__=""'
+
+
+def face_sum(result):
+    return f'sum(increase(auth_face_total{{{AUTH}, result=~"{result}"}}[$__range]))'
+
+
+def face_increase(result):
+    return face_sum(result) + " or vector(0)"
+
+
+panels.append({"id": next(_ids), "type": "row", "title": "Back-office : reconnaissance faciale",
+               "collapsed": False, "gridPos": {"x": 0, "y": y, "w": 24, "h": 1}, "panels": []})
+y += 1
+H = 4
+panels += [
+    stat("Visages reconnus", [tgt(face_increase("recognized"), instant=True)],
+         (0, y, 5, H), decimals=0, color_mode="value",
+         thresholds=steps(("green", None)),
+         desc="Opérateurs reconnus par la caméra avant la saisie du mot de passe "
+              "(auth_face_total{result=\"recognized\"}), sur la période affichée."),
+    stat("Visages refusés", [tgt(face_increase("rejected"), instant=True)],
+         (5, y, 5, H), decimals=0, color_mode="value",
+         thresholds=steps(("green", None), ("orange", 1), ("red", 5)),
+         desc="Cycles d'identification ratés (visage différent du gabarit, aucun visage, "
+              "plusieurs visages). Beaucoup de refus en peu de temps : alerte AuthFaceRejectBurst."),
+    stat("Identifiants bloqués", [tgt(face_increase("locked"), instant=True)],
+         (10, y, 4, H), decimals=0, color_mode="value",
+         thresholds=steps(("green", None), ("red", 1)),
+         desc="Identifiants opérateur bloqués après deux cycles ratés (visage ou mot de passe)."),
+    stat("Reconnaissance indisponible",
+         [tgt(f'sum(count_over_time({AUTH_LOGS} | event="face" | result="unavailable" '
+              '[$__range])) or vector(0)', instant=True, ds=LOKI)],
+         (14, y, 5, H), ds=LOKI, decimals=0, color_mode="value",
+         thresholds=steps(("green", None), ("red", 1)),
+         desc="Réponses 503 : modèles de reconnaissance absents ou illisibles côté serveur "
+              "(journaux event=face result=unavailable). Alerte AuthFaceUnavailable."),
+    stat("Taux de reconnaissance",
+         [tgt(f'{face_sum("recognized")} / ({face_sum("recognized|rejected|locked")} > 0)',
+              instant=True)],
+         (19, y, 5, H), unit="percentunit", decimals=0, color_mode="value",
+         no_value="aucune tentative", minv=0, maxv=1,
+         thresholds=steps(("red", None), ("orange", 0.5), ("green", 0.8)),
+         desc="Reconnus / (reconnus + refusés + bloqués) sur la période affichée."),
+]
+y += H
+
 # --------------------------------------------------------------------------- #
 # Annotations : événements du moteur et de la sonde, alertes
 # --------------------------------------------------------------------------- #

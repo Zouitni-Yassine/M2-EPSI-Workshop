@@ -205,6 +205,10 @@ services:
       AUTH_MAX_FAILURES: "5"
       AUTH_MAX_FAILURES_PER_IP: "20"
       AUTH_LOCKOUT_SECONDS: "300"
+      # Adresses dispensées de caméra pour les comptes de service (operateur de la sonde) :
+      # sans X-Forwarded-For, le frontal transmet l'adresse ingress du nœud (accès direct à la
+      # VIP depuis le réseau interne, tunnel SSH par .110). Via NPM/WAF, auth voit l'IP réelle.
+      FACE_SERVICE_NETS: "{{ app_face_service_nets }}"
     secrets:
       - { source: auth_db_password, target: auth_db_password }
       - { source: jwt_private_key, target: jwt_private_key }
@@ -217,11 +221,13 @@ services:
     # "monitoring" : /metrics (port 8300) collecté par le vmagent du Swarm
     networks: [resilience, data, monitoring]
     deploy:
-      # 1 : le freinage de la force brute compte les échecs en mémoire
+      # 1 : le freinage de la force brute, les identifications faciales en cours et les
+      # blocages après échec sont en mémoire ; plusieurs réplicas demanderaient un état partagé
       replicas: 1
       placement: *worker
       resources:
-        limits: { cpus: "0.5", memory: 256M }
+        # Moteur de reconnaissance faciale (OpenCV, YuNet + SFace) chargé en mémoire
+        limits: { cpus: "1.0", memory: 768M }
       restart_policy: { condition: any, delay: 5s, window: 30s }
       update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s }
       rollback_config: { parallelism: 1, order: start-first }
