@@ -234,6 +234,80 @@ Le délai se décompose ainsi : arrivée des logs dans Loki, évaluation du rule
 - Les fichiers de `/opt/resilience-waf` restent ceux de l'équipe cyber : une réinstallation de
   leur côté doit être suivie de `waf-ban.yml`.
 
+## 6. Routes de la caméra (reconnaissance faciale, 22/10/2026)
+
+La connexion des opérateurs par visage (consigne additionnelle, voir
+[application.md](application.md#reconnaissance-faciale-du-back-office-consigne-additionnelle))
+envoie des images de la caméra à auth. Le WAF limitait tous les corps à 1 Mo : l'envoi des
+5 images au jugement ne passait pas.
+
+### Changement
+
+Fichier versionné `infra/waf/nginx/site-8443.conf` (inclus dans le serveur 8443, déployé par
+`waf-roadmap.yml`) : une `location` à expression régulière sur les 5 routes caméra, et
+seulement elles.
+
+```nginx
+location ~ "^/auth/(identify/[A-Za-z0-9_-]+/(frames|probe)|admin/face/probe|admin/accounts/[^/]+/face(/scan)?)$" {
+    client_max_body_size 4m;
+    proxy_pass http://10.30.1.200:5173;
+    # mêmes en-têtes que le relais principal (X-Forwarded-For $remote_addr, X-Request-ID…)
+    proxy_connect_timeout 3s;
+    proxy_read_timeout 30s;
+    proxy_send_timeout 30s;
+}
+```
+
+Le navigateur envoie au plus 8 images JPEG (400 ko chacune au plus). Le délai de 30 s couvre
+le calcul des gabarits sur CPU. Le bloc reprend les en-têtes du relais principal : l'IP réelle
+du client arrive toujours à auth. Pas d'`add_header` dans ce fichier : il annulerait les
+en-têtes de sécurité définis au niveau du serveur.
+
+| Route | Rôle | Corps accepté |
+|---|---|---|
+| `/auth/identify/<id>/probe` | Guidage pendant la capture (connexion) | 4 Mo |
+| `/auth/identify/<id>/frames` | Images au jugement (connexion) | 4 Mo |
+| `/auth/admin/face/probe` | Guidage du scan d'enrôlement | 4 Mo |
+| `/auth/admin/accounts/<compte>/face` et `…/face/scan` | Enrôlement | 4 Mo |
+| Toutes les autres routes | Pages, API, connexion classique | **1 Mo**, inchangé |
+
+Le frontal applique la même expression régulière avec la même limite (`frontend/nginx.conf`,
+16 ko ailleurs). Une route voisine hors de l'expression (par exemple `/auth/login`) garde la
+limite basse.
+
+### ModSecurity : aucune exclusion
+
+Aucune exclusion de règle n'a été nécessaire :
+
+- `SecRequestBodyLimit` est à 12,5 Mo : au-dessus des 4 Mo de nginx ;
+- les images partent comme **fichiers** d'un formulaire multipart. Elles ne comptent pas dans
+  `SecRequestBodyNoFilesLimit` (128 ko), qui ne mesure que les champs hors fichiers ;
+- CRS 4.30 en paranoïa 1 n'inspecte que le nom des fichiers, pas leur contenu.
+
+### Tests
+
+Depuis le poste de contrôle, par le serveur 8443 :
+
+| Test | Attendu | Obtenu |
+|---|---|---|
+| 5 JPEG de 352 ko (bruit aléatoire) sur chacune des 5 routes | Transmis, aucune règle déclenchée | OK |
+| 8 images (2,8 Mo) en une requête | Transmis, aucune règle déclenchée | OK |
+| Rafale de 40 `/probe` en 5 s | Transmis | OK |
+| Témoin : 2 Mo sur `/auth/login` (route voisine, hors expression) | 413 | 413 |
+| Témoin : 5 Mo sur `/frames` | 413 | 413 |
+| Journaux du WAF pendant les tests | Aucun 403, aucun bannissement | Aucun 403, aucun bannissement |
+
+Les 413 ne comptent pas dans les règles de bannissement, qui ne regardent que les 403
+(section 5). Un opérateur qui envoie une image trop grande n'est donc pas banni.
+
+### Limites
+
+- Les données envoyées sur ces 5 routes ne sont pas inspectées au-delà de ce que fait CRS sur
+  un fichier multipart : le contrôle du contenu (images valides, nombre d'images) est fait par
+  auth.
+- Le délai de 30 s laisse le temps à l'inférence sur CPU ; un client lent occupe une connexion
+  pendant ce temps.
+
 ## Feuille de route publiée par le WAF
 
 La feuille de route du projet (`infra/roadmap/index.html`) est servie par le WAF lui-même sur

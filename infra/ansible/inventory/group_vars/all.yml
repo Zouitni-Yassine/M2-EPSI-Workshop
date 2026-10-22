@@ -49,6 +49,16 @@ rag_readonly_user: rag-readonly
 rag_vm_read_password: "{{ lookup('ansible.builtin.env', 'RAG_VM_READ_PASSWORD') }}"
 rag_loki_read_password: "{{ lookup('ansible.builtin.env', 'RAG_LOKI_READ_PASSWORD') }}"
 
+# Compte en LECTURE SEULE du back-office de l'application (page Supervision, routes fixes
+# /ops/m/* du frontal, docs/application.md) : vmauth -> /api/v1/query seulement ; nginx de Loki
+# -> requêtes Loki et lecture des alertes d'Alertmanager (GET). Secret Vault secret/infra/app-ops
+# (infra/app/app-ops-credentials.py) : APP_OPS_READ_PASSWORD (vmauth et Loki ; injecté dans le
+# frontal en secret Swarm ops_monitoring_auth) et APP_OPS_AM_PASSWORD (nginx de monitoring01 ->
+# Alertmanager en local, ne quitte pas monitoring01).
+app_ops_user: app-ops
+app_ops_read_password: "{{ lookup('ansible.builtin.env', 'APP_OPS_READ_PASSWORD') }}"
+app_ops_am_password: "{{ lookup('ansible.builtin.env', 'APP_OPS_AM_PASSWORD') }}"
+
 # VictoriaMetrics (binaires officiels GitHub, checksum vérifié ; même version pour l'image Docker)
 vm_version: v1.154.0
 # Doit être égal à l'intervalle de scrape : les 2 vmagents envoient les mêmes séries,

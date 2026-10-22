@@ -41,8 +41,8 @@
           "expr": "sum(count_over_time({host=\"waf01\",container=\"resilience-waf\"} | json | __error__=\"\" | event_type=\"http_access\" [$__range]))",
           "instant": true,
           "legendFormat": "",
-          "refId": "A",
-          "queryType": "instant"
+          "queryType": "instant",
+          "refId": "A"
         }
       ],
       "title": "Requêtes au WAF — période sélectionnée",
@@ -86,8 +86,8 @@
           "expr": "sum(count_over_time({host=\"waf01\",container=\"resilience-waf\"} | json | __error__=\"\" | event_type=\"http_access\" | status=\"403\" [$__range]))",
           "instant": true,
           "legendFormat": "",
-          "refId": "A",
-          "queryType": "instant"
+          "queryType": "instant",
+          "refId": "A"
         }
       ],
       "title": "Réponses HTTP 403 — période sélectionnée",
@@ -401,6 +401,287 @@
         }
       ],
       "title": "Passerelle — refus et échecs",
+      "type": "logs"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "description": "Back-office : vérifications faciales des opérateurs (auth_face_total). Refusés = cycle raté (visage différent, absent ou multiple) ; bloqués = identifiant bloqué après deux cycles ratés. Beaucoup de refus en peu de temps : tentative d'usurpation (alerte AuthFaceRejectBurst).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "noValue": "Sans données",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "refusés"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 5
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bloqués"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 30
+      },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "sum(increase(auth_face_total{service=\"paiement_auth\", result=\"recognized\"}[$__range])) or vector(0)",
+          "instant": true,
+          "legendFormat": "reconnus",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "sum(increase(auth_face_total{service=\"paiement_auth\", result=\"rejected\"}[$__range])) or vector(0)",
+          "instant": true,
+          "legendFormat": "refusés",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "sum(increase(auth_face_total{service=\"paiement_auth\", result=\"locked\"}[$__range])) or vector(0)",
+          "instant": true,
+          "legendFormat": "bloqués",
+          "refId": "C"
+        }
+      ],
+      "title": "Reconnaissance faciale — période sélectionnée",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Réponses 503 : modèles absents ou illisibles côté serveur (journaux event=face result=unavailable). Alerte AuthFaceUnavailable.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "noValue": "Sans données",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 30
+      },
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum(count_over_time({service=\"paiement_auth\"} | json | __error__=\"\" | event=\"face\" | result=\"unavailable\" [$__range])) or vector(0)",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "Reconnaissance faciale indisponible",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Cycles d'identification refusés, par adresse source (IP réelle du client).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 1
+          },
+          "decimals": 0,
+          "noValue": "Sans données"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (ip) (count_over_time({service=\"paiement_auth\"} | json | __error__=\"\" | event=\"face\" | result=\"rejected\" [$__interval]))",
+          "legendFormat": "{{ip}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Refus de visage par adresse IP",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Refus de visage (raison, similarité), comptes sans visage enrôlé, mots de passe présentés sans visage vérifié, moteur indisponible. Un identifiant est bloqué après deux cycles ratés (compteur « bloqués »).",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Sans données"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "id": 14,
+      "options": {
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{service=\"paiement_auth\"} | json | __error__=\"\" | event=~\"face|login\" | result=~\"rejected|no_template|unavailable|face_required\" | line_format \"{{.event}} {{.result}} user={{.username}} ip={{.ip}}{{if .reason}} raison={{.reason}}{{end}}{{if .score}} score={{.score}}{{end}}{{if .error}} erreur={{.error}}{{end}}\"",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "Reconnaissance faciale — refus et blocages",
       "type": "logs"
     }
   ],

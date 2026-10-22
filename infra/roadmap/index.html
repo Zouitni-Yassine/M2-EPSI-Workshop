@@ -110,7 +110,7 @@ footer { font-size: 13px; color: var(--muted); }
 
 <div class="wrap">
   <header>
-    <div class="eyebrow">PROJECT RESILIENCE-ALPHA · Workshop EPSI M2 · état au mercredi 21/10</div>
+    <div class="eyebrow">PROJECT RESILIENCE-ALPHA · Workshop EPSI M2 · état au jeudi 22/10</div>
     <h1>Feuille de route de la plateforme</h1>
     <p class="lede">Le tronc suit ce que le sujet exige : une plateforme de paiement qui encaisse une attaque et se rétablit sans opérateur. Les branches de couleur sont ce que l'équipe a construit en plus, sans que le sujet le demande.</p>
     <div class="deadlines">
@@ -179,8 +179,8 @@ const ITEMS = [
     detail: "keepalived : bascule en 1 requête perdue. Une réplica du frontal par worker : un frontal tué coûtait 11 s de panne, il n'en coûte plus aucune." },
   { lane: 1, status: "done", title: "Sauvegardes externes et dump de la base toutes les 15 min", tag: "",
     detail: "Serveur PBS hors du lab, deux passages par jour (13h00 et 21h00). Restauration d'une machine en 40 s, de la base en 0,7 s. Démarrage à froid du lab en environ 5 min." },
-  { lane: 1, status: "wip", title: "Base PostgreSQL répliquée sur 3 nœuds", tag: "",
-    detail: "Patroni et etcd, réplication synchrone, bascule automatique. Primaire tué : 18 s d'interruption au lieu de 92 s, aucune écriture validée perdue. Migration des données en cours." },
+  { lane: 1, status: "done", title: "Base PostgreSQL répliquée sur 3 nœuds", tag: "",
+    detail: "Patroni et etcd, réplication synchrone, bascule automatique. Worker du primaire tué : 0 s de panne vue par un client (92 s avec la base unique), nouveau primaire en 23 s, aucun paiement perdu." },
   { lane: 0, status: "done", title: "SIEM : règles d'alerte et dashboard Cyber", tag: "CYBER", fork: 2,
     detail: "Règles Loki sur les journaux du WAF et des services, dashboard dédié." },
   { lane: 2, status: "done", title: "Moteur de remédiation aux droits réduits", tag: "",
@@ -189,10 +189,14 @@ const ITEMS = [
     detail: "Le freinage de la force brute vise l'attaquant, plus tous les clients à la fois." },
   { lane: 0, status: "done", title: "Assistant opérateur RAG local", tag: "IA", fork: 4,
     detail: "Ollama + LangChain, llama3.2:3b, en lecture seule sur une VM isolée, avec les procédures de l'équipe. Réponse en 17 à 30 s sur CPU." },
-  { lane: 4, status: "blocked", title: "Délestage du modèle sur un GPU", tag: "",
-    detail: "PC d'un membre raccordé par VPN, tunnel SSH, secours automatique sur CPU. En attente du PC distant." },
-  { lane: 4, status: "idea", title: "Accès MCP Grafana en lecture seule", tag: "",
-    detail: "L'assistant croiserait les procédures avec l'état réel du système. Présenté comme étape suivante." },
+  { lane: 4, status: "done", title: "Modèle de 27B sur le GPU d'un membre", tag: "",
+    detail: "Qwen 27B (dérogation validée par le coach) via un tunnel SSH lancé à la demande, secours automatique sur le CPU du serveur. Réponses justes en 11 à 30 s." },
+  { lane: 4, status: "done", title: "Assistant relié à la supervision (MCP)", tag: "",
+    detail: "Outils en lecture seule : alertes récentes, état de la plateforme et de la base, IP bannies, événements de remédiation. L'assistant ne peut rien modifier." },
+  { lane: 4, status: "done", title: "Bot Discord de l'équipe", tag: "",
+    detail: "« @Qwen quelles alertes ces 2 dernières heures ? » dans le salon de l'équipe : réponse avec la source et les outils utilisés." },
+  { lane: 4, status: "wip", title: "Documentation de l'assistant synchronisée avec GitHub", tag: "",
+    detail: "Toutes les 15 min, réindexation à côté puis bascule : l'assistant connaît la doc à jour, le code reste figé sur un commit validé." },
   { lane: 0, status: "done", title: "Tests de chaos : application et conteneurs", tag: "INFRA", fork: 3,
     detail: "10 pannes provoquées, toutes réparées sans humain. API arrêtée 10 s, base tuée 7,5 s sans perte, rafale 0 s, worker perdu 3 s." },
   { lane: 3, status: "done", title: "chaos.sh et demo-check.sh", tag: "",
@@ -206,13 +210,25 @@ const ITEMS = [
   { lane: 0, status: "wip", title: "Attaque depuis le PC attaquant", tag: "CYBER",
     detail: "Accès VPN « PC admin compromis » créé sur EPSI-WG. La segmentation l'oblige à passer par le WAF et la détection. Scénario à répéter, depuis une autre connexion Internet que l'écran de démo." },
   { lane: 0, status: "wip", title: "Tests de chaos : virtualisation", tag: "INFRA",
-    detail: "Supervision tuée : 0 s de panne. Restauration PBS : 40 s. Hyperviseur coupé : l'application a répondu pendant toute la coupure ; déplacement des machines par la HA à mesurer." },
+    detail: "Supervision tuée : 0 s de panne. Restauration PBS : 40 s. Hyperviseur coupé : l'application et la base ont répondu pendant toute la coupure ; déplacement des machines par la HA à mesurer." },
   { lane: 0, status: "wip", title: "Gouvernance : EBIOS RM, NIS2/DORA, PCA/PRA", tag: "GOUV",
     detail: "En rédaction. Fiche PCA/PRA technique prête (19 scénarios, RTO/RPO mesurés, risques résiduels)." },
+  { lane: 0, status: "wip", title: "Consigne additionnelle : reconnaissance faciale des opérateurs", tag: "DEV · INFRA", fork: 2,
+    detail: "Connexion du back-office en trois temps : identifiant, visage devant la caméra du navigateur, mot de passe. YuNet et SFace sur CPU dans auth, aucune image conservée. Pas de webcam sur un serveur : auth tourne sur n'importe quel worker." },
+  { lane: 2, status: "done", title: "Exposition de la caméra par le WAF", tag: "",
+    detail: "4 Mo sur les seules routes caméra (1 Mo ailleurs). ModSecurity actif sans exclusion : images de test et rafale transmises, aucun 403, aucun bannissement." },
+  { lane: 2, status: "wip", title: "Compte de la sonde dispensé depuis l'interne seulement", tag: "",
+    detail: "Le réglage par défaut dispensait aussi le VPN de la red team et Internet. Restreint aux réseaux internes." },
+  { lane: 2, status: "wip", title: "Déploiement, ressources et alertes", tag: "",
+    detail: "Modèles dans l'image, empreinte SHA-256 vérifiée. auth à 1 CPU et 768 Mo, une réplica. Alertes moteur indisponible et rafale de refus, panneaux Démo et Cyber." },
+  { lane: 2, status: "wip", title: "Données biométriques (RGPD art. 9)", tag: "",
+    detail: "Gabarits de l'équipe seulement, avec consentement. Présents dans la base répliquée, les dumps et les sauvegardes : purge prévue après la démo." },
+  { lane: 2, status: "todo", title: "Tests de panne de la connexion par visage", tag: "",
+    detail: "auth tué pendant une identification, bascule de la base, restauration d'un dump, connexion en 4G, blocage sans bannissement au WAF." },
   { lane: 0, status: "todo", title: "Répétition de la démo et Clip Chrono 60 s", tag: "TOUS",
     detail: "Une prise continue, sans coupe. Éviter les créneaux de sauvegarde (13h00, 15h36, 21h00)." },
   { lane: 0, status: "wip", title: "Rendus : dossier PDF, présentation, archive du code", tag: "TOUS",
-    detail: "Prêts : rapport des tests de résilience, documentation d'API, README de l'archive, procédure de démo et du clip. En cours : partie infra du dossier, diapos. À faire : fusion des branches, scan anti-secrets de l'archive." },
+    detail: "Prêts : rapport des tests de résilience, fiche PCA/PRA technique, documentation d'API, README de l'archive, procédure de démo et du clip, partie infra du dossier, contenu des diapos. À faire : fusion des branches, archive et scan anti-secrets, assemblage du dossier et du PPTX." },
 
   { phase: "Vendredi", sub: "Jury local" },
   { lane: 0, status: "todo", title: "Démonstration en direct", tag: "TOUS",

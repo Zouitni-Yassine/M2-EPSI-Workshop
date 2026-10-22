@@ -13,4 +13,7 @@ cat > "$DIR/.app_vip.prom.$$" <<EOF
 # TYPE app_vip_master gauge
 app_vip_master{vip="{{ app_vip }}"} $v
 EOF
+# keepalived lance ce script avec un umask 077 : sans chmod, node_exporter (utilisateur
+# prometheus) ne lit pas le fichier et app_vip_master manque (constaté le 22/10).
+chmod 0644 "$DIR/.app_vip.prom.$$"
 mv "$DIR/.app_vip.prom.$$" "$DIR/app_vip.prom"

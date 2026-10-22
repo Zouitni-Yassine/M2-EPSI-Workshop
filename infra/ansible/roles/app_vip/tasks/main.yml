@@ -38,3 +38,9 @@
     /usr/local/sbin/app-vip-state INSTANCE APP "$s" 0
   args:
     creates: "{{ app_vip_textfile_dir }}/app_vip.prom"
+
+# Fichiers écrits avant le 22/10 en 0600 (umask de keepalived) : illisibles par node_exporter
+- name: Fichier d'état lisible par node_exporter
+  ansible.builtin.file:
+    path: "{{ app_vip_textfile_dir }}/app_vip.prom"
+    mode: "0644"

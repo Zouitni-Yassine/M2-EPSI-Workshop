@@ -1,0 +1,101 @@
+# Documentation de l'assistant synchronisée avec GitHub (docs/rag.md, section 12) : le code reste
+# figé (rag_git_ref), l'index suit les branches IA et INFRA. Service oneshot rag-docs-sync
+# (utilisateur rag) et minuterie ; le premier index est construit ici par le même service.
+
+- name: Répertoires de la synchronisation (index par génération, clones)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: rag
+    group: rag
+    mode: "0750"
+  loop:
+    - "{{ rag_data_dir }}/index"
+    - "{{ rag_data_dir }}/sync"
+
+- name: Répertoire du script
+  ansible.builtin.file:
+    path: /usr/local/lib/rag
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Script à root, exécuté en rag : le service ne peut pas le modifier
+- name: Script de synchronisation
+  ansible.builtin.copy:
+    src: rag-docs-sync.py
+    dest: /usr/local/lib/rag/rag-docs-sync.py
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configuration de la synchronisation (sources, exclusions, garde-fous)
+  ansible.builtin.template:
+    src: docs-sync.json.j2
+    dest: "{{ rag_secrets_dir }}/docs-sync.json"
+    owner: root
+    group: rag
+    mode: "0640"
+
+# Seul droit donné à rag : redémarrer rag-api (et l'interface) après la bascule de l'index
+- name: Règle polkit (redémarrage de l'API par la synchronisation)
+  ansible.builtin.template:
+    src: rag-docs-sync.rules.j2
+    dest: /etc/polkit-1/rules.d/50-rag-docs-sync.rules
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Unités systemd de la synchronisation
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [ollama-index.service, rag-docs-sync.service, rag-docs-sync.timer]
+  register: rag_docs_sync_units
+
+- name: Recharger systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: rag_docs_sync_units is changed
+
+# Instance d'Ollama de l'indexation : redémarrée si son unité change
+- name: Ollama d'indexation actif
+  ansible.builtin.systemd_service:
+    name: ollama-index
+    enabled: true
+    state: "{{ 'restarted' if rag_docs_sync_units.results[0] is changed else 'started' }}"
+
+- name: Ollama d'indexation joignable
+  ansible.builtin.uri:
+    url: "http://{{ rag_index_ollama_listen }}/api/version"
+  register: rag_index_ollama_api
+  until: rag_index_ollama_api.status == 200
+  retries: 15
+  delay: 2
+
+# Premier index (nouvelle machine, ou passage de l'index construit par Ansible à la synchro)
+- name: Index synchronisé en place
+  ansible.builtin.stat:
+    path: "{{ rag_data_dir }}/chroma_db"
+  register: rag_index_link
+
+- name: Construire le premier index (rag-docs-sync)
+  ansible.builtin.command: systemctl start rag-docs-sync.service
+  when: not (rag_index_link.stat.islnk | default(false))
+  changed_when: true
+
+# L'ancienne empreinte (index construit par Ansible) n'est plus utilisée
+- name: Ancienne empreinte du corpus
+  ansible.builtin.file:
+    path: "{{ rag_data_dir }}/corpus.id"
+    state: absent
+
+- name: Minuterie de synchronisation
+  ansible.builtin.systemd_service:
+    name: rag-docs-sync.timer
+    enabled: "{{ rag_docs_sync_enabled | bool }}"
+    state: "{{ 'started' if rag_docs_sync_enabled | bool else 'stopped' }}"

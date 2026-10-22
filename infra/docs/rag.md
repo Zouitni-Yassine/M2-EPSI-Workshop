@@ -50,7 +50,7 @@ dispose pas, sans contrôle, d'accès privilégiés au système. D'où :
 | Code en lecture seule | Code et venv appartiennent à root ; le service n'écrit que dans `/var/lib/rag` |
 | Services durcis (systemd) | `NoNewPrivileges`, `ProtectSystem=strict` + `ReadWritePaths`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`, aucune capacité |
 | Ollama local uniquement | API sur **127.0.0.1:11434** : ni le réseau ni les autres VM ne parlent aux modèles |
-| Pas d'appel sortant de l'appli | Télémétrie de ChromaDB et de Streamlit coupée. Seul le bot sort vers Internet (Discord) |
+| Pas d'appel sortant de l'appli | Télémétrie de ChromaDB et de Streamlit coupée. Sortent vers Internet : le bot (Discord) et la synchronisation de la documentation (GitHub en HTTPS, dépôt public, sans jeton, section 12) |
 
 ## 3. Composants
 
@@ -64,23 +64,27 @@ dispose pas, sans contrôle, d'accès privilégiés au système. D'où :
 | Outils de supervision | serveur MCP, service `rag-mcp` | `infra/rag/mcp_supervision/server.py` (dépôt INFRA) → `/opt/rag/mcp_supervision`, **127.0.0.1:8610** (section 8) |
 | API du bot | FastAPI, service `rag-api` | `api.py` de l'équipe IA, **0.0.0.0:8600** filtré par nftables (section 9) |
 | Bot Discord | discord.py 2.7.1, service `discord-bot` | `infra/rag/discord_bot/` → `/opt/discord-bot` (venv dédié), utilisateur `qwen-bot` (section 10) |
-| Base vectorielle | ChromaDB | `/var/lib/rag/chroma_db` (lien `chroma_db` dans le code, qui utilise un chemin relatif) |
-| Interface web | Streamlit, service `rag-assistant` | **Désactivée** (`rag_ui_enabled: false` : service arrêté, 8501 fermé). Code installé ; l'index est construit par Ansible, pas par ce service |
+| Base vectorielle | ChromaDB | Lien `/var/lib/rag/chroma_db` → `/var/lib/rag/index/<génération>/chroma_db` (lien `chroma_db` dans le code, qui utilise un chemin relatif), construite par la synchronisation (section 12) |
+| Synchronisation de la documentation | service `rag-docs-sync` + minuterie, `ollama-index` | Index tenu à jour depuis GitHub toutes les 15 min (section 12) |
+| Interface web | Streamlit, service `rag-assistant` | **Désactivée** (`rag_ui_enabled: false` : service arrêté, 8501 fermé). Code installé ; l'index est celui de la synchronisation |
 
 Les modèles restent chargés en mémoire (`OLLAMA_KEEP_ALIVE=-1`) : pas de rechargement entre deux
 questions.
 
 ### Corpus
 
-`ingest.py` indexe tout `docs/**/*.md` et `docs/**/*.pdf` du code. Il contient :
+`ingest.py` indexe tout `docs/**/*.md` et `docs/**/*.pdf` du répertoire courant. Depuis le
+22/10/2026, ce répertoire est assemblé depuis **GitHub** par la synchronisation (section 12), et
+non plus à partir du commit figé du code :
 
-- les documents de l'équipe IA (`rag/docs/` de la branche `IA`) ;
-- les **fiches de procédures de l'infra**, rangées dans
-  [`infra/rag/corpus/`](../rag/corpus/) et copiées dans `docs/infra/` de l'appli.
+- `docs/` : documents de l'équipe IA (`rag/docs/` de la branche `IA`) ;
+- `docs/infra/` : **fiches de procédures de l'infra** ([`infra/rag/corpus/`](../rag/corpus/) de la
+  branche `INFRA`), placées en tête des résultats par `chain.is_procedure` ;
+- `docs/doc-infra/` : **toute la documentation de l'infra** (`infra/docs/**/*.md` de `INFRA` :
+  tests de résilience, PCA/PRA, WAF, réseau, supervision, dossier...). Les OpenAPI JSON et tout
+  fichier non Markdown/PDF sont exclus.
 
-L'index est reconstruit **seulement si le corpus change** : empreinte de l'arbre `rag/docs` du
-commit, des fiches de l'infra et du modèle d'embeddings, comparée à `/var/lib/rag/corpus.id`.
-`ingest.py` ajoute à la base existante, la base est donc vidée avant chaque indexation.
+Le **code** reste figé sur `rag_git_ref` ; seule la **connaissance** suit le dépôt.
 
 ## 4. Accès
 
@@ -128,12 +132,14 @@ vault-env ansible-playbook rag.yml -e rag_git_ref=<sha>   # ou changer rag_git_r
 ```
 
 Le nouveau code est extrait dans un nouveau répertoire de `releases/`, le lien `app` bascule, le
-service redémarre, et l'index est reconstruit si les documents ont changé. Si `requirements.txt`
+service redémarre ; l'index est reconstruit au passage suivant de la synchronisation si `ingest.py`
+a changé (il fait partie de l'empreinte). Si `requirements.txt`
 ajoute une dépendance : déployer une fois avec `-e rag_pip_constraints=false`, puis régénérer
 `constraints.txt` par `pip freeze` dans `/opt/rag/venv`.
 
-**Ajouter une fiche infra** : la déposer dans `infra/rag/corpus/`, relancer `rag.yml` (réindexation
-automatique).
+**Ajouter une fiche infra ou un document** : le pousser sur GitHub (`infra/rag/corpus/` ou
+`infra/docs/` de `INFRA`, `rag/docs/` de `IA`) ; il est indexé au plus tard 15 min après, **sans
+passage du playbook** (section 12).
 
 ## 6. Vérifications du 21/10/2026
 
@@ -333,3 +339,73 @@ heures ?` ; la réponse arrive en réponse au message, avec le pied modèle · o
 | « que faire si Vault est scellé ? » | `chercher_documentation` | 41 s | `vault-unseal` sur 10.0.1.110, puis tuile Vault du dashboard Démo [doc : infra-20...] |
 | Repli : modèle CPU (3,2 B) | aucun | 26 s | « [Mode dégradé : modèle de secours sans appel d'outils...] » |
 | Repli : serveur MCP injoignable | aucun | 41 s | « [Mode dégradé : supervision ou outil en erreur...] » |
+
+## 12. Synchronisation de la documentation avec GitHub (22/10/2026)
+
+Le **code** de l'assistant reste figé sur un commit validé (`rag_git_ref`) ; sa **connaissance**
+suit GitHub automatiquement, sans passage du playbook.
+
+| | |
+|---|---|
+| Sources (dépôt public, HTTPS, sans jeton) | Branche `IA` : `rag/docs/**` (Markdown, PDF) → `docs/`. Branche `INFRA` : `infra/rag/corpus/*.md` → `docs/infra/` (fiches de procédures) et `infra/docs/**/*.md` → `docs/doc-infra/` (toute la doc infra). Rien d'autre : Markdown et PDF seulement (imposé par le script, les OpenAPI JSON sont donc exclus), liens symboliques ignorés, 20 Mo par fichier et 500 fichiers au plus |
+| Exclusions | `rag_docs_sync_exclude` (motifs sur le chemin dans le dépôt, ex. `infra/docs/livraison/*`) |
+| Fréquence | Minuterie `rag-docs-sync.timer` : 3 min après le démarrage, puis 15 min après la fin du passage précédent (`rag_docs_sync_interval`) ; `rag_docs_sync_enabled: false` l'arrête (l'index reste celui du dernier passage) |
+| Service | `rag-docs-sync.service` (oneshot, utilisateur **`rag`**, durci comme les autres : `ProtectSystem=strict`, seul `/var/lib/rag` inscriptible, aucune capacité, priorité basse). Script `/usr/local/lib/rag/rag-docs-sync.py` (root, `roles/rag/files/`), configuration `/etc/rag/docs-sync.json` (générée par Ansible) |
+| Récupération | Clone superficiel et partiel (`--depth 1 --filter=blob:none`, extraction limitée aux dossiers utiles) dans `/var/lib/rag/sync/git-<branche>`, mis à jour par `git fetch` à chaque passage |
+| Empreinte | sha256 du contenu des fichiers retenus (chemin + contenu), du modèle d'embeddings et de `ingest.py`. Identique à celle de l'index en place : rien à faire (`sync ok inchange`) |
+| Indexation | `ingest.py` de l'équipe IA, **inchangé**, lancé dans un répertoire neuf `/var/lib/rag/index/.build-<pid>` (il lit `docs/` et écrit `chroma_db/` relativement au répertoire courant), sur une **instance d'Ollama dédiée** (`ollama-index`, 127.0.0.1:11436, priorité CPU basse, modèle déchargé après 2 min) : le lot d'embeddings de tout le corpus ne bloque pas les questions, qui passent par l'instance principale |
+| Garde-fou | Nouvel index ≥ max(50, 50 % du précédent) morceaux (`rag_docs_sync_min_chunks`, `rag_docs_sync_min_ratio`), sinon rejeté |
+| Bascule | Répertoire renommé `index/<empreinte>-<date>`, puis **remplacement atomique** du lien `/var/lib/rag/chroma_db` (rename(2)) une fois l'API sans connexion en cours (attente de 150 s au plus), puis redémarrage de `rag-api` (et de `rag-assistant` s'il est actif) : `chain.py` ouvre Chroma au chargement. Seul droit donné à `rag` : une règle polkit (`/etc/polkit-1/rules.d/50-rag-docs-sync.rules`) limitée à `restart`/`try-restart` de ces deux unités. `/health` contrôlé après redémarrage : en cas d'échec, retour automatique au précédent index |
+| Rétention | Index en place + **une** génération précédente ; les plus anciennes sont supprimées |
+| Échec (GitHub injoignable, indexation en erreur, index trop petit) | Index actuel gardé, ligne `sync echec cause=…`, code de retour non nul (unité en `failed`) |
+| État | `/var/lib/rag/sync-state.json` : dernier passage, dernière réussite, dernière réindexation, commits IA et INFRA, nombre de fichiers et de morceaux, index en place et précédent, dernière erreur. Lu par `infra/demo/demo-check.sh` (ATTENTION si plus d'une heure) |
+
+**Journaux** (journald, donc Loki `{host="rag01", unit="rag-docs-sync.service"}`), une ligne par
+passage :
+
+```text
+sync ok inchange commit_ia=2e3c0c2 commit_infra=7a84b6c
+sync ok reindexe fichiers=33 morceaux=736 duree=198.1s commit_ia=2e3c0c2 commit_infra=7a84b6c
+sync echec cause=github detail="git fetch : fatal: unable to access ..."
+```
+
+**Exploitation** (sur rag01, `ssh -i /root/.ssh/id_ed25519_infra debian@10.30.1.230`) :
+
+```bash
+sudo systemctl start rag-docs-sync          # forcer un passage maintenant (bloquant)
+sudo journalctl -u rag-docs-sync -n 20      # derniers passages
+sudo cat /var/lib/rag/sync-state.json       # état
+systemctl list-timers rag-docs-sync.timer   # prochain passage
+# Réindexer même sans changement :
+sudo systemd-run --wait --pipe -p User=rag -p Group=rag -E HOME=/var/lib/rag -E LANG=C.UTF-8 -E ANONYMIZED_TELEMETRY=False \
+  -E OLLAMA_HOST=http://127.0.0.1:11436 /opt/rag/venv/bin/python -I /usr/local/lib/rag/rag-docs-sync.py --force
+```
+
+**Retour arrière** (index précédent, par exemple après une documentation erronée poussée) :
+
+```bash
+cd /var/lib/rag && sudo cat sync-state.json | grep previous_index
+sudo -u rag ln -sfn /var/lib/rag/index/<previous_index>/chroma_db chroma_db.tmp
+sudo -u rag mv -T chroma_db.tmp chroma_db && sudo systemctl restart rag-api
+sudo systemctl stop rag-docs-sync.timer     # sinon le passage suivant réindexe GitHub
+```
+
+Corriger plutôt la documentation sur GitHub : elle est réindexée au passage suivant.
+
+**Vérifications du 22/10/2026.**
+
+| Test | Résultat |
+|---|---|
+| Premier passage (index Ansible de 97 morceaux → GitHub) | `reindexe fichiers=33 morceaux=736 duree=198s` ; l'ancien index gardé comme génération précédente |
+| Passage suivant | `sync ok inchange` (≈ 3 s) |
+| Modification simulée (exclusion de test `infra/docs/livraison/*`, sans pousser sur GitHub), puis retour | `reindexe fichiers=32 morceaux=703` puis `fichiers=33 morceaux=736` ; bascule et retour sans erreur, une génération précédente gardée |
+| API pendant l'indexation / après la bascule | 200 (43 s, modèle de secours CPU) / 200 (13 s) ; `/health` indisponible **5 s** pendant le redémarrage de `rag-api` |
+| Nouvelle documentation trouvée par `chercher_documentation` | « RTO worker-crash quand le worker porte la base » → `doc-infra/tests-resilience.md`, `doc-infra/pca-pra-technique.md` (absents de l'index précédent) |
+| GitHub injoignable (URL invalide) | `sync echec cause=github …`, code 1, lien `chroma_db` inchangé, API 200, passage normal suivant OK |
+| Second passage de `rag.yml` | `changed=0` |
+
+**Limites.** Le redémarrage de `rag-api` coupe l'API ~5 s à chaque réindexation (question en
+cours attendue, pas les nouvelles). L'indexation prend 3 à 12 min selon la charge (instance
+dédiée plafonnée à 2,5 vCPU, `rag_index_cpu_quota`) ; sans GPU, le modèle de secours sur CPU
+répond plus lentement pendant ce temps. La documentation n'est pas relue : ce qui est poussé
+sur `IA` ou `INFRA` devient la connaissance de l'assistant au passage suivant.

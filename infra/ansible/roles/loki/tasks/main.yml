@@ -88,10 +88,53 @@
     content: |
       {{ monitoring_auth_user }}:{{ loki_auth_password | password_hash('sha512', salt=((inventory_hostname ~ '-loki') | hash('sha256'))[:16], rounds=5000) }}
       {{ rag_readonly_user }}:{{ rag_loki_read_password | password_hash('sha512', salt=((inventory_hostname ~ '-loki-ro') | hash('sha256'))[:16], rounds=5000) }}
+      {{ app_ops_user }}:{{ app_ops_read_password | password_hash('sha512', salt=((inventory_hostname ~ '-loki-app-ops') | hash('sha256'))[:16], rounds=5000) }}
     owner: root
     group: www-data
     mode: "0640"
   no_log: true
+
+# Relais en lecture seule vers Alertmanager (compte {{ app_ops_user }}) : en-tête lu par nginx
+# (processus maître, root) au chargement, dans un fichier séparé de la configuration
+- name: Identifiants Alertmanager du relais en lecture seule
+  ansible.builtin.copy:
+    dest: /etc/nginx/alertmanager-app-ops.auth
+    content: |
+      proxy_set_header Authorization "Basic {{ (app_ops_user ~ ':' ~ app_ops_am_password) | b64encode }}";
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Recharger nginx
+
+# Journal des notifications Discord (copie webhook d'Alertmanager), suivi par Alloy
+- name: Répertoire du journal des notifications
+  ansible.builtin.file:
+    path: "{{ alertmanager_notify_log_dir }}"
+    state: directory
+    owner: root
+    group: adm
+    mode: "0750"
+
+- name: Rotation du journal des notifications
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/alertmanager-notify
+    content: |
+      # Géré par Ansible (rôle loki)
+      {{ alertmanager_notify_log_dir }}/*.log {
+          daily
+          rotate 7
+          missingok
+          notifempty
+          compress
+          delaycompress
+          create 0640 root adm
+          sharedscripts
+          postrotate
+              invoke-rc.d nginx rotate >/dev/null 2>&1 || true
+          endscript
+      }
+    mode: "0644"
 
 - name: Reverse proxy authentifiant
   ansible.builtin.template:

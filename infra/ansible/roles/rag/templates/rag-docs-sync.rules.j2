@@ -1,0 +1,13 @@
+// {{ ansible_managed }}
+// Synchronisation de la documentation (service rag-docs-sync, utilisateur rag) : seul droit
+// accordé, redémarrer l'API et l'interface de l'assistant après la bascule de l'index.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" && subject.user == "rag") {
+        var unit = action.lookup("unit");
+        var verb = action.lookup("verb");
+        if ((unit == "rag-api.service" || unit == "rag-assistant.service") &&
+            (verb == "restart" || verb == "try-restart")) {
+            return polkit.Result.YES;
+        }
+    }
+});

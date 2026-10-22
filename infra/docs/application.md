@@ -150,7 +150,7 @@ L'application « Resilience Pay » (code à la racine du dépôt) tourne sur le 
 | Service Swarm | Image | Réseaux | Exposition | Réplicas, redémarrage |
 |---|---|---|---|---|
 | `paiement_frontend` | `<registre>/frontend` (nginx : SPA + relais) | resilience | **port 5173** (ingress, tous les nœuds) | 1, any |
-| `paiement_auth` | `<registre>/auth` | resilience, data, **monitoring** | aucun (relais `/auth/`) ; `/metrics` :8300 | 1 (freinage force brute en mémoire), any |
+| `paiement_auth` | `<registre>/auth` | resilience, data, **monitoring** | aucun (relais `/auth/`) ; `/metrics` :8300 | 1 (freinage force brute et identifications faciales en mémoire), any |
 | `paiement_payment-api` | `<registre>/payment-api` | resilience, data, **monitoring** | aucun (relais `/api/`) ; `/metrics` :8000 | 1, **on-failure** |
 | `paiement_detector` | `<registre>/detector` | resilience | aucun (relais `/detector/score`, opérateurs) | 1 (modèle en mémoire), any |
 | `paiement_remediation` | `<registre>/remediation` | resilience | aucun (relais `/remediation/state`, opérateurs) | 1 (un seul décideur), any |
@@ -271,6 +271,155 @@ vault-env ansible-playbook app-deploy.yml                   # second passage : c
   `docker exec` dans le conteneur ou publier temporairement le port avec un filtrage amont.
 - Les clés Stripe/PayPal publiques sont intégrées **à la construction** du frontend
   (`VITE_*`, app-build.yml) : les changer impose de reconstruire l'image `frontend`.
+
+## Reconnaissance faciale du back-office (consigne additionnelle)
+
+Consigne ajoutée par l'école le 21/10/2026 : les opérateurs se connectent avec leur visage.
+Le code est celui de l'équipe applicative (`auth/app/face.py`, commit `c777375` de `dev`,
+détail fonctionnel dans `auth/README.md`). Cette section décrit ce que l'infrastructure fait
+autour : exposition, ressources, réseau, sauvegardes.
+
+### Flux
+
+```text
+ Navigateur du poste opérateur (caméra du navigateur, HTTPS ou localhost)
+   │ 1. POST /auth/identify            identifiant : opérateur → étape « visage »
+   │ 2. POST /auth/identify/<id>/probe guidage, quelques images par seconde (détection seule)
+   │ 3. POST /auth/identify/<id>/frames 5 images au jugement, puis caméra éteinte
+   │ 4. POST /auth/login               mot de passe, avec le challenge (120 s)
+   ▼
+ NPM ─> WAF waf01 ─> VIP 10.30.1.200:5173 ─> frontal (nginx) ─> auth:8300
+                                                          YuNet + SFace (ONNX, CPU)
+                                                          gabarits : base auth (Patroni)
+```
+
+- Les images ne font que traverser : auth les décode en mémoire, en tire un vecteur de 128
+  nombres (SFace) et le compare aux gabarits du compte. **Aucune image n'est écrite**, ni par
+  auth (conteneur en lecture seule) ni par le frontal ou le WAF (corps des requêtes non
+  journalisés).
+- Tables ajoutées à la base `auth` : `face_templates` (gabarits, 3 par enrôlement : face et
+  deux profils), `access_policies` (comptes de service), `auth_events` (journal des accès
+  affiché dans les habilitations).
+- Métrique `auth_face_total{result}` (`recognized`, `rejected`, `locked`, `enrolled`, …)
+  collectée par le vmagent du Swarm, et une ligne JSON par événement dans Loki
+  (`event="face"`).
+
+### Routes et taille des requêtes
+
+| Route (relais du frontal) | Rôle | Corps accepté |
+|---|---|---|
+| `/auth/identify/<id>/probe`, `/auth/identify/<id>/frames` | Guidage et jugement à la connexion | **4 Mo** |
+| `/auth/admin/face/probe`, `/auth/admin/accounts/<compte>/face(/scan)` | Guidage et enrôlement (opérateur connecté) | **4 Mo** |
+| Toutes les autres routes | API, connexion classique, pages | 16 ko au frontal, 1 Mo au WAF |
+
+La limite de 4 Mo est posée sur ces seules routes, au frontal (`frontend/nginx.conf`) et au
+WAF (`client_max_body_size`). Le reste du site garde sa limite basse : un attaquant ne peut
+pas envoyer de gros corps ailleurs. Les règles ModSecurity ont été vérifiées sur ces routes
+le 22/10, sans exclusion nécessaire ([waf.md](waf.md#6-routes-de-la-caméra-reconnaissance-faciale-22102026)) :
+un faux positif aurait donné des 403, comptés par la règle de bannissement automatique, et
+aurait pu bannir le présentateur en pleine démo. Le navigateur s'arrête
+au premier refus et le guidage est borné à `FACE_MAX_PROBES` images : un faux positif coûte un
+refus par essai, loin du seuil de bannissement (10 refus en 2 minutes).
+
+### Ressources et réplicas
+
+- **Image `auth` plus lourde** : OpenCV (`opencv-python-headless`), numpy et les deux modèles
+  (YuNet ≈ 230 ko, SFace ≈ 37 Mo). Pré-téléchargée sur les workers par `app-deploy.yml`, comme
+  les autres : une relance par Swarm ne dépend pas du registre.
+- **Modèles dans l'image, vérifiés par SHA-256** : `scripts/fetch_models.py` les télécharge
+  depuis OpenCV Zoo au build et arrête le build si l'empreinte diffère de celle figée dans le
+  script. Rien n'est téléchargé au démarrage (conteneur en lecture seule, réseau `data` sans
+  sortie). Sans modèles, l'identification d'un opérateur répond 503.
+- **Limites portées à 1 CPU et 768 Mo** (0,5 CPU et 256 Mo avant). L'inférence se fait sur CPU,
+  image par image ; le chargement des modèles et les tampons d'images demandent de la mémoire.
+- **Une seule réplica.** Le challenge d'une identification en cours, les délais après un refus
+  (30 s) et les blocages (5 min après deux cycles ratés) sont en mémoire, comme le freinage de
+  la force brute. Avec deux réplicas, le maillage de routage enverrait le `probe`, les `frames`
+  et le `login` d'une même connexion à des réplicas différentes : le challenge serait inconnu,
+  et un attaquant contournerait les blocages en tombant sur l'autre réplica. Passer à
+  plusieurs réplicas demande un état partagé (base ou cache), côté application.
+
+### Comptes de service et `FACE_SERVICE_NETS`
+
+Le compte `operateur` (sonde de transaction, premier enrôlement) est dispensé de caméra
+**depuis le réseau interne seulement**. La valeur par défaut du code, toutes les plages
+RFC 1918, dispensait aussi le VPN de la red team (EPSI-WG, 10.250.90.0/24) et NPM
+(172.16.1.10), donc toute requête venue d'Internet. La stack restreint `FACE_SERVICE_NETS`
+aux réseaux internes d'où partent la sonde et le tunnel d'enrôlement (Swarm, poste de
+contrôle). Depuis Internet ou le VPN, `operateur` doit passer la caméra comme les autres. L'adresse vue par auth est
+l'adresse réelle du client (chaîne `X-Forwarded-For` de confiance : WAF, frontal,
+`FORWARDED_ALLOW_IPS`).
+
+### Premier enrôlement
+
+Le navigateur n'ouvre la caméra qu'en HTTPS ou sur `localhost`. Le premier enrôlement passe
+par un tunnel SSH depuis le poste de démo, qui fait de l'application une page `localhost` vue
+depuis le réseau interne :
+
+```sh
+ssh -L 5173:10.30.1.200:5173 root@10.0.1.110
+# puis http://localhost:5173 : connexion en operateur (sans caméra, source interne),
+# Habilitations > comptes nominatifs > scan du visage de chaque membre
+```
+
+Ensuite, chaque membre se connecte normalement par `https://app.slabreze.fr` (WAF), caméra
+comprise.
+
+**La caméra est celle du navigateur du poste de démo.** Aucune webcam n'est branchée sur un
+serveur : pas de passthrough USB vers une VM, pas de dépendance à un hyperviseur précis. La
+stack « PC hôte » du sujet aurait lié la connexion des opérateurs à une machine physique ;
+ici, auth peut être relancé sur n'importe quel worker.
+
+### Alertes et tableaux de bord
+
+- `AuthFaceUnavailable` : identifications en 503 (modèles absents, moteur en erreur).
+- `AuthFaceRejectBurst` : rafale de visages refusés ou de blocages (essai d'usurpation).
+- Panneaux ajoutés aux dashboards « Démo / Remédiation » et « Cyber » (issues par minute,
+  blocages, journal des accès dans Loki).
+
+### Données biométriques (RGPD) et conservation
+
+Un gabarit facial sert à identifier une personne : c'est une donnée biométrique, catégorie
+particulière de l'**article 9 du RGPD**. Son traitement est interdit sauf exception ; ici,
+le **consentement explicite** des membres de l'équipe, seuls enrôlés, pour la durée du
+workshop. Aucun client de la boutique n'est concerné.
+
+Où se trouvent les gabarits :
+
+| Emplacement | Durée de vie |
+|---|---|
+| Base `auth`, table `face_templates`, sur les 3 membres Patroni (volumes locaux des 3 workers) | Jusqu'à suppression du compte ou du gabarit |
+| `pg_dump` de la base `auth` toutes les 15 min sur .110 (`/var/backups/paiement`) | 96 dumps, 24 h glissantes |
+| Sauvegardes PBS des workers (job 13h00) et de .110 (job 21h00, dumps compris) | Rétention des jobs PBS |
+| Copie de migration `/root/db-migration/` sur .110 | Antérieure à la consigne : pas de gabarit |
+
+Après la démo du 23/10 :
+
+1. Supprimer les gabarits depuis les habilitations (ou `DELETE FROM face_templates` sur le
+   primaire) et vérifier que la table est vide sur les trois membres.
+2. Purger les dumps de la base `auth` dans `/var/backups/paiement` postérieurs au premier
+   enrôlement.
+3. Supprimer les sauvegardes PBS des workers et de .110 prises entre le premier enrôlement
+   et la purge (ou écourter leur rétention).
+
+Accès : les gabarits ne sortent de la base que par auth (aucune route ne les renvoie). Les
+dumps sont lisibles par root sur .110 seulement ; la base par les comptes `postgres` et `auth`
+sur le réseau interne `data`.
+
+### Limites
+
+- **Pas de détection du vivant** : une photo ou une vidéo du visage peut tromper la caméra.
+  Le mot de passe reste exigé après le visage : la caméra ajoute un facteur, elle n'en
+  remplace aucun.
+- **État en mémoire, une réplica** : auth est un point de défaillance de la connexion au
+  back-office. Swarm le relance en ≈ 20 s (`kill-auth` : 21,9 s le 21/10) ; une
+  identification en cours est perdue et doit être recommencée. Les sessions ouvertes
+  continuent : payment-api vérifie les jetons localement.
+- **Gabarits en clair dans la base** : pas de chiffrement applicatif. Ils sont protégés par
+  le réseau `data` (interne, chiffré) et les droits sur la base et les dumps.
+- **Seuil fixe** (similarité 0,363, valeur recommandée par OpenCV), non calibré sur l'équipe.
+- **Le compte `operateur` reste sans caméra** depuis le réseau interne : un attaquant déjà
+  dans RA-APP n'aurait besoin que de son mot de passe (rangé dans Vault).
 
 ## Base de données haute disponibilité (PostgreSQL + Patroni)
 
@@ -428,6 +577,45 @@ retour arrière `RETOUR-ARRIERE.txt`).
   trois hôtes (2 s chacun au plus).
 - **Version majeure de PostgreSQL** : changement par dump/restauration (pas de `pg_upgrade`
   automatisé).
+
+## Page Supervision du back-office (22/10/2026)
+
+La vue `ops` du frontal (`frontend/src/ops/OpsPage.tsx`, mode `VITE_DATA_SOURCE=api`) mélange
+deux sources :
+
+- **direct, chaque seconde** (inchangé) : bandeau d'état, ruban de transactions, courbe du
+  détecteur (`/detector/score`), frise du moteur (`/remediation/state`), tuiles de services ;
+- **supervision de la plateforme, 10 à 15 s** (`frontend/src/data/opsSource.ts`) : débit,
+  taux d'erreur et p95, blocages WAF et IP bannies, ligne **Infrastructure**, panneau
+  **Alertes**. Une source muette affiche « n/d », le reste de la page continue.
+
+**Routes fixes du relais nginx** (`frontend/nginx.conf`, fragment commun
+`frontend/ops-proxy.conf`) : session d'opérateur (`auth_request /_operator`), `GET` seulement,
+tout paramètre refusé (400). La requête PromQL/LogQL est écrite en dur dans la route et envoyée
+en corps POST ; aucun en-tête du navigateur (cookie, jeton) ne part vers la supervision. Micro
+cache de 5 s partagé entre opérateurs.
+
+| Route | Source | Requête (résumé) |
+|---|---|---|
+| `/ops/m/traffic` | VictoriaMetrics | `rate(http_requests_total{service="paiement_payment-api"}[2m])` : débit, part de `code=~"5.."`, `histogram_quantile(0.95, …)` : toutes les requêtes de payment-api |
+| `/ops/m/infra` | VictoriaMetrics | `pve_up{id=~"node/.*"}`, `swarm_manager_nodes{state="ready"}`, `app_vip_master == 1`, `ceph_health_status`, `vault_core_unsealed` (absente = scellé), `paiement_probe_last_success_timestamp_seconds{check="transaction"}`, `time()` |
+| `/ops/m/waf_blocks` | Loki | 403 du WAF sur 15 min (`{host="waf01",container="resilience-waf"} \|= "status":403`), bannies comprises |
+| `/ops/m/waf_bans` | Loki | décisions de `waf-ban` (`ban`, `expiration`, `deban`) sur 30 min : IP encore bannies et fin du bannissement |
+| `/ops/m/alerts` | Alertmanager | `GET /api/v2/alerts` (Watchdog écarté par la page) : nom, gravité, domaine, depuis, résumé, `action="ban"` |
+| `/ops/m/notifications` | Loki | journal des notifications envoyées sur Discord, 6 h (voir [supervision.md](supervision.md), section 7) |
+
+**Compte** : `app-ops`, en lecture seule (vmauth : `/api/v1/query` ; nginx de Loki : requêtes
+Loki et `/alertmanager/alerts` en GET). Mots de passe dans Vault `secret/infra/app-ops`
+(`APP_OPS_READ_PASSWORD`, `APP_OPS_AM_PASSWORD`), créés par `infra/app/app-ops-credentials.py`.
+Le frontal reçoit l'en-tête `Authorization` dans le **secret Swarm** `ops_monitoring_auth`
+(`/run/secrets/ops_monitoring_auth.conf`, inclus par nginx), jamais dans l'image ni dans la spec.
+Flux : `ra-app-to-monitoring` (RA-APP → 10.0.1.233, 3100 et 8428) existait déjà, rien d'ouvert.
+
+Limites : débit et p95 sont ceux de payment-api, sondes de supervision comprises (le frontal
+nginx n'expose pas de métriques) ; fenêtre de 2 min et scrape de 30 s, donc moins réactifs que
+la sonde directe (si payment-api ne répond plus, la page affiche 100 % d'erreurs) ; le champ
+`wafBlocks` de `/api/status` reste à 0 côté backend (la page ne l'utilise plus) ; l'historique
+des notifications commence au 22/10/2026 (mise en place du journal).
 
 ## Moteur de remédiation en mode SSH
 

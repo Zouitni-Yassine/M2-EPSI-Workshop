@@ -21,3 +21,12 @@ fw_grafana_allowed:
 fw_segment_rules:
   - { source: "{{ ra_app_cidr }}", ports: [3100, 8428, 9093], comment: "RA-APP : logs, metriques, alertes" }
   - { source: "{{ ra_dmz_cidr }}", ports: [3100], comment: "RA-DMZ : logs" }
+
+# Journal des notifications envoyées sur Discord (panneau Alertes du back-office) : le
+# récepteur discord d'Alertmanager en envoie aussi une copie webhook au nginx local (port
+# 127.0.0.1 seulement), qui l'écrit dans ce fichier, suivi par Alloy (job alertmanager-notify).
+alertmanager_notify_port: 9097
+alertmanager_notify_log_url: "http://127.0.0.1:{{ alertmanager_notify_port }}/notify"
+alertmanager_notify_log_dir: /var/log/alertmanager-notify
+alloy_log_files:
+  - { path: "{{ alertmanager_notify_log_dir }}/notifications.log", job: alertmanager-notify, mkdir: true }

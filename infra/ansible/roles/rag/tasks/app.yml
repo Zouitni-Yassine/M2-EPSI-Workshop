@@ -24,7 +24,6 @@
     - { path: "{{ rag_dir }}", owner: root, mode: "0755" }
     - { path: "{{ rag_dir }}/releases", owner: root, mode: "0755" }
     - { path: "{{ rag_data_dir }}", owner: rag, mode: "0750" }
-    - { path: "{{ rag_data_dir }}/chroma_db", owner: rag, mode: "0750" }
 
 # Unité installée avant le code : les tâches suivantes peuvent notifier son redémarrage
 - name: Service systemd rag-assistant
@@ -73,42 +72,9 @@
     group: root
     creates: "{{ rag_dir }}/releases/{{ rag_git_ref }}/chain.py"
 
-# Fiches de l'infra dans docs/infra/ : ingest.py lit docs/**/*.md
-- name: Répertoire du corpus infra
-  ansible.builtin.file:
-    path: "{{ rag_dir }}/releases/{{ rag_git_ref }}/docs/infra"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: Fiches de procédures de l'infra
-  ansible.builtin.copy:
-    src: "{{ item }}"
-    dest: "{{ rag_dir }}/releases/{{ rag_git_ref }}/docs/infra/"
-    owner: root
-    group: root
-    mode: "0644"
-  loop: "{{ query('ansible.builtin.fileglob', rag_infra_corpus_dir ~ '/*.md') | sort }}"
-  loop_control:
-    label: "{{ item | basename }}"
-
-- name: Fiches de l'infra présentes sur rag01
-  ansible.builtin.find:
-    paths: "{{ rag_dir }}/releases/{{ rag_git_ref }}/docs/infra"
-    patterns: "*.md"
-  register: rag_infra_deployed
-
-# Une fiche retirée du dépôt est retirée du corpus
-- name: Retirer les fiches supprimées du dépôt
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop: "{{ rag_infra_deployed.files | map(attribute='path') | list }}"
-  when: (item | basename) not in (query('ansible.builtin.fileglob', rag_infra_corpus_dir ~ '/*.md') | map('basename') | list)
-
-# chain.py et ingest.py utilisent le chemin relatif "chroma_db" : lien vers le répertoire
-# de données, seul emplacement inscriptible par le service
+# chain.py utilise le chemin relatif "chroma_db" : lien vers {{ rag_data_dir }}/chroma_db, lui-même
+# lien vers l'index en place, construit et basculé par la synchronisation (docs_sync.yml). Le
+# dossier docs/ de la révision n'est plus indexé : la documentation vient de GitHub.
 - name: Base vectorielle dans {{ rag_data_dir }}
   ansible.builtin.file:
     src: "{{ rag_data_dir }}/chroma_db"
@@ -141,53 +107,12 @@
     extra_args: "{{ '-c ' ~ rag_dir ~ '/constraints.txt' if rag_pip_constraints | bool else omit }}"
   notify: Redémarrer l'assistant
 
-# --- Indexation --------------------------------------------------------------------------
-# ingest.py ajoute à la base existante (doublons s'il est relancé) : la base est recréée,
-# et seulement si le corpus a changé. Empreinte : arbre docs/ de la révision IA, fiches de
-# l'infra, modèle d'embeddings.
-- name: Empreinte du corpus
-  ansible.builtin.set_fact:
-    rag_corpus_id: >-
-      {{ lookup('ansible.builtin.pipe', 'git -C ' ~ rag_repo_dir ~ ' rev-parse ' ~ rag_git_ref ~ ':rag/docs') }}
-      {{ lookup('ansible.builtin.pipe', 'cd ' ~ rag_infra_corpus_dir ~ ' && sha1sum -- *.md | sha1sum | cut -c1-40') }}
-      {{ rag_embed_model }}
-
-- name: Empreinte de l'index en place
-  ansible.builtin.slurp:
-    src: "{{ rag_data_dir }}/corpus.id"
-  register: rag_index_id
-  failed_when: false
-
-- name: Réindexer le corpus
-  when: (rag_index_id.content | default('') | b64decode | trim) != (rag_corpus_id | trim)
-  block:
-    - name: Vider la base vectorielle
-      ansible.builtin.shell: find {{ rag_data_dir }}/chroma_db -mindepth 1 -delete
-      changed_when: true
-
-    - name: Indexer les documents (ingest.py)
-      ansible.builtin.command:
-        cmd: "{{ rag_dir }}/venv/bin/python ingest.py"
-        chdir: "{{ rag_dir }}/app"
-      environment: "{{ rag_env }}"
-      become_user: rag
-      changed_when: true
-      notify: Redémarrer l'assistant
-
-    - name: Enregistrer l'empreinte de l'index
-      ansible.builtin.copy:
-        dest: "{{ rag_data_dir }}/corpus.id"
-        content: "{{ rag_corpus_id | trim }}\n"
-        owner: root
-        group: rag
-        mode: "0644"
-
 # --- Service -----------------------------------------------------------------------------
 - name: Appliquer les changements de l'assistant
   ansible.builtin.meta: flush_handlers
 
 # Interface web (rag_ui_enabled) : désactivée par défaut, le bot Discord et l'API sont le seul
-# accès. Le code reste installé et l'index est construit par Ansible (ingest.py ci-dessus).
+# accès. Le code reste installé ; l'index est celui de la synchronisation (docs_sync.yml).
 - name: Interface web de l'assistant (Streamlit)
   ansible.builtin.systemd_service:
     name: rag-assistant

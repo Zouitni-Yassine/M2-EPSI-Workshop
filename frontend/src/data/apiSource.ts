@@ -8,6 +8,7 @@ import type {
   SystemState,
   TimelineEvent,
 } from '../types'
+import { infraNow, startOpsPolling, type OpsState } from './opsSource'
 
 const RIBBON = 120
 const TICK_MS = 1000
@@ -76,6 +77,12 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
       const canary: CanaryTick[] = []
       let events: TimelineEvent[] = []
       let stopped = false
+      // Supervision de la plateforme (VictoriaMetrics, Loki, Alertmanager), relevée toutes les
+      // 10 à 15 s à côté des sondes directes de chaque seconde.
+      let ops: OpsState | null = null
+      const stopOps = startOpsPolling((s) => {
+        ops = s
+      })
 
       const push = (kind: TimelineEvent['kind'], text: string) => {
         const event: TimelineEvent = { at: clock(), kind, text, actor: 'plateforme' }
@@ -224,8 +231,11 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
           detector,
           services,
           events,
-          metrics: apiUp ? metrics : { ...metrics, errRate: 1 },
+          metrics: withPlatformMetrics(metrics, ops, apiUp),
           humanActions,
+          infra: infraNow(ops?.infra ?? null),
+          alerts: ops?.alerts,
+          waf: ops?.waf,
         })
       }
 
@@ -234,7 +244,18 @@ export function createApiSource(apiUrl: string, detectorUrl?: string, remediatio
       return () => {
         stopped = true
         clearInterval(id)
+        stopOps()
       }
     },
   }
+}
+
+/**
+ * Débit, erreurs et p95 : VictoriaMetrics (toutes les requêtes de payment-api, 2 min) quand il
+ * répond, sinon la fenêtre de 10 s de /api/status. payment-api muet : 100 % d'erreurs, quelle
+ * que soit la source (ses dernières métriques ne disent rien de la panne en cours).
+ */
+function withPlatformMetrics(api: Metrics, ops: OpsState | null, apiUp: boolean): Metrics {
+  const base: Metrics = ops?.traffic ? { ...api, ...ops.traffic, source: 'victoriametrics' } : { ...api, source: 'api' }
+  return apiUp ? base : { ...base, errRate: 1 }
 }

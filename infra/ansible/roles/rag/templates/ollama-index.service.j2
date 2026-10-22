@@ -1,0 +1,43 @@
+# {{ ansible_managed }}
+# Seconde instance d'Ollama réservée à l'indexation (rag-docs-sync), sur {{ rag_index_ollama_listen }} :
+# un lot d'embeddings de tout le corpus occuperait l'instance principale plusieurs minutes et
+# bloquerait les questions. Mêmes modèles (lecture seule), priorité CPU basse, modèle déchargé
+# après usage : les questions passent avant l'indexation.
+[Unit]
+Description=Ollama d'indexation de l'assistant RAG (priorité basse)
+After=network-online.target ollama.service
+
+[Service]
+User=ollama
+Group=ollama
+ExecStart={{ ollama_dir }}/{{ ollama_version }}/bin/ollama serve
+Environment=HOME={{ ollama_data_dir }}
+Environment=OLLAMA_HOST={{ rag_index_ollama_listen }}
+Environment=OLLAMA_MODELS={{ ollama_data_dir }}/models
+Environment=OLLAMA_KEEP_ALIVE=2m
+Environment=OLLAMA_NOPRUNE=1
+Restart=on-failure
+RestartSec=3
+Nice=10
+CPUWeight=20
+# Plafond : l'indexation garde au plus {{ rag_index_cpu_quota }} des 8 vCPU, le reste pour les
+# questions (le secours CPU du modèle de génération en a besoin quand le GPU est absent)
+CPUQuota={{ rag_index_cpu_quota }}
+IOSchedulingClass=idle
+
+# Durcissement : aucun répertoire inscriptible (les modèles sont gérés par l'instance principale)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

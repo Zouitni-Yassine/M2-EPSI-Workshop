@@ -53,6 +53,12 @@ receivers:
 {% endif %}
 {% if discord_webhook_url | length > 0 %}
   - name: discord
+    # Copie de chaque notification Discord pour le journal du back-office (page Supervision,
+    # panneau Alertes) : nginx local de monitoring01, une ligne JSON par envoi, lue par Alloy
+    # puis Loki (job alertmanager-notify). Même groupe, même moment, résolutions comprises.
+    webhook_configs:
+      - url: {{ alertmanager_notify_log_url }}
+        send_resolved: true
     discord_configs:
       - webhook_url_file: /etc/prometheus/discord_webhook_url
         send_resolved: true

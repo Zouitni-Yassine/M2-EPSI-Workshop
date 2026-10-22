@@ -1,5 +1,6 @@
-# vmauth sur le port public de VictoriaMetrics : compte complet ({{ monitoring_auth_user }}) et
-# compte en lecture seule de l'assistant RAG ({{ rag_readonly_user }}, docs/rag.md).
+# vmauth sur le port public de VictoriaMetrics : compte complet ({{ monitoring_auth_user }}),
+# comptes en lecture seule de l'assistant RAG ({{ rag_readonly_user }}, docs/rag.md) et de la
+# page Supervision du back-office ({{ app_ops_user }}, docs/application.md).
 - name: Installer vmauth
   ansible.builtin.include_role:
     name: vm_install
@@ -15,6 +16,7 @@
       VM_AUTH_PASSWORD={{ vm_auth_password }}
       VM_BACKEND_AUTH={{ (monitoring_auth_user ~ ':' ~ vm_auth_password) | b64encode }}
       RAG_VM_READ_PASSWORD={{ rag_vm_read_password }}
+      APP_OPS_READ_PASSWORD={{ app_ops_read_password }}
     owner: root
     group: root
     mode: "0600"

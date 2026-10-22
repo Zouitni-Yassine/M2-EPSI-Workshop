@@ -213,6 +213,22 @@ groups:
           action: none
         annotations:
           summary: "{{ $value | humanize }} échecs de connexion par seconde sur le service d'authentification : force brute ?"
+      # Refus de visage ou identifiants bloqués en rafale sur le back-office (auth_face_total) :
+      # quelqu'un tente de passer pour un opérateur (photo, autre personne) ou essaie plusieurs
+      # identifiants. Un opérateur légitime est bloqué après deux cycles ratés : 5 refus ou
+      # blocages en 5 min dépassent ce qu'il produit seul. Pas d'action="ban" : un vrai
+      # opérateur mal éclairé ne doit pas bannir l'adresse du présentateur au WAF (IP sources
+      # dans le dashboard Cyber). Le cas « indisponible » (503) est une règle Loki (auth-face.yml).
+      - alert: AuthFaceRejectBurst
+        expr: |
+          sum by (service, stack) (increase(auth_face_total{service="paiement_auth", result=~"rejected|locked"}[5m])) >= 5
+        labels:
+          severity: warning
+          domain: cyber
+          remediation: manual
+          action: none
+        annotations:
+          summary: "{{ $value | humanize }} refus de visage ou blocages en 5 min sur le back-office : tentative d'usurpation d'un opérateur ?"
 
       # Sonde de transaction (stack probe, infra/monitoring/probe) : un client réel passe par le
       # relais public toutes les 30 s (connexion, création, confirmation carte de test). Elle
