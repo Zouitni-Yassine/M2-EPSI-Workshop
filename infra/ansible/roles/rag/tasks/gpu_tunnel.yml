@@ -1,0 +1,66 @@
+# Délestage IA (docs/rag.md) : le PC à GPU d'un membre de l'équipe ouvre un tunnel SSH inverse
+# vers rag01 et y publie son Ollama sur {{ rag_gpu_tunnel_listen }}. Un relais nginx local
+# ({{ rag_relay_listen }}) l'utilise en priorité et retombe sur l'Ollama local (CPU) si le
+# tunnel est absent : l'assistant ne dépend jamais du PC distant.
+
+- name: Compte du tunnel (aucun shell, aucun mot de passe)
+  ansible.builtin.user:
+    name: "{{ rag_gpu_tunnel_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    password: "!"
+    create_home: true
+    home: "/var/lib/{{ rag_gpu_tunnel_user }}"
+
+# Clé limitée à une seule redirection inverse, depuis le VPN du PC à GPU uniquement
+- name: Clés autorisées du tunnel
+  ansible.posix.authorized_key:
+    user: "{{ rag_gpu_tunnel_user }}"
+    key: "{{ rag_gpu_tunnel_keys | join('\n') }}"
+    key_options: 'from="{{ rag_gpu_vpn_cidr }}",restrict,port-forwarding,permitlisten="{{ rag_gpu_tunnel_listen }}"'
+    exclusive: true
+
+- name: SSH du compte de tunnel (redirection inverse vers une seule adresse, pas de session)
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/20-gpu-tunnel.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Géré par Ansible (rôle rag, tasks/gpu_tunnel.yml)
+      Match User {{ rag_gpu_tunnel_user }}
+          AllowTcpForwarding remote
+          PermitListen {{ rag_gpu_tunnel_listen }}
+          GatewayPorts no
+          PermitTTY no
+          X11Forwarding no
+          AllowAgentForwarding no
+          ForceCommand /usr/sbin/nologin
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Recharger SSH
+
+- name: Relais nginx
+  ansible.builtin.apt:
+    name: nginx-light
+    state: present
+
+- name: Pas de site par défaut
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Recharger nginx
+
+- name: Relais vers Ollama (GPU distant d'abord, CPU local en secours)
+  ansible.builtin.template:
+    src: ollama-relay.conf.j2
+    dest: /etc/nginx/conf.d/ollama-relay.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recharger nginx
+
+- name: Relais actif
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started

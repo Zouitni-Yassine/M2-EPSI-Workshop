@@ -1,0 +1,36 @@
+# Registre d'images privé du Swarm + construction des images de Resilience Pay
+#   cd /srv/M2-EPSI-Workshop/infra/ansible
+#   vault-env ansible-playbook app-build.yml
+#   vault-env ansible-playbook app-build.yml -e '{"app_build_images": ["remediation"]}'   # une image
+#   vault-env ansible-playbook app-build.yml -e app_git_ref=<sha complet>                # autre révision
+#   vault-env ansible-playbook app-build.yml --tags registry                             # registre seul
+# Identifiants du registre : secret/infra/registry (roles/app_registry/files/registry-credentials.py)
+# Clés du frontend : secret/infra/paiement (facultatif). Voir docs/application.md.
+
+- name: Registre d'images (stack "registry")
+  hosts: swarm
+  tags: [registry]
+  pre_tasks:
+    - name: Identifiants du registre présents dans l'environnement
+      ansible.builtin.assert:
+        that:
+          - app_registry_username | length > 0
+          - app_registry_password | length >= 32
+        fail_msg: >-
+          REGISTRY_USERNAME/REGISTRY_PASSWORD absents : créer secret/infra/registry
+          (python3 roles/app_registry/files/registry-credentials.py) puis lancer par vault-env
+        quiet: true
+      run_once: true
+      delegate_to: localhost
+      become: false
+  roles:
+    - app_registry
+
+- name: Construction des images
+  hosts: swarm_managers[0]
+  tags: [build]
+  # Adresse et identifiants du registre (mêmes valeurs que le rôle app_registry)
+  vars_files:
+    - roles/app_registry/defaults/main.yml
+  roles:
+    - app_build

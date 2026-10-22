@@ -1,0 +1,17 @@
+# VictoriaMetrics n'écoute qu'en local ; vmauth publie l'API sur le port historique (8428),
+# inchangé pour les vmagents, vmalert, Grafana et les règles de pare-feu.
+vm_public_port: 8428
+vm_backend_listen: 127.0.0.1:8427
+# API interne de vmauth (/health, /metrics de vmauth, /-/reload) : locale uniquement
+vmauth_internal_listen: 127.0.0.1:8426
+
+# Routes autorisées au compte en lecture seule (rag_readonly_user) : requêtes PromQL et
+# métadonnées. Ni écriture, ni export, ni suppression, ni vmui, ni /metrics.
+vmauth_readonly_paths:
+  - /api/v1/query
+  - /api/v1/query_range
+  - /api/v1/series
+  - /api/v1/labels
+  - /api/v1/label/[^/]+/values
+  - /api/v1/status/buildinfo
+vmauth_readonly_max_concurrent: 2

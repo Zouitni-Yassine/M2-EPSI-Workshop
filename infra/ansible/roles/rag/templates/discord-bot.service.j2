@@ -1,0 +1,41 @@
+# {{ ansible_managed }}
+# Bot Discord de l'équipe : serveur {{ discord_guild_id }}, salon {{ discord_channel_id }} uniquement.
+# Sorties : Discord (HTTPS, WebSocket) et l'API locale de l'assistant. Aucun autre accès.
+[Unit]
+Description=Bot Discord de l'assistant opérateur
+After=network-online.target rag-api.service
+Wants=network-online.target
+
+[Service]
+User={{ discord_bot_user }}
+Group={{ discord_bot_user }}
+WorkingDirectory={{ discord_bot_dir }}
+Environment=LANG=C.UTF-8
+Environment=DISCORD_GUILD_ID={{ discord_guild_id }}
+Environment=DISCORD_CHANNEL_ID={{ discord_channel_id }}
+Environment=DISCORD_TOKEN_FILE=/etc/discord-bot/discord_token
+Environment=RAG_API_TOKEN_FILE=/etc/discord-bot/api_token
+Environment=RAG_API_URL=http://127.0.0.1:{{ rag_api_port }}/ask
+Environment=DISCORD_ANNOUNCE={{ '1' if discord_bot_announce | bool else '0' }}
+# /var/lib/discord-bot (marqueur de l'annonce) : seul emplacement inscriptible
+StateDirectory=discord-bot
+StateDirectoryMode=0750
+ExecStart={{ discord_bot_dir }}/venv/bin/python {{ discord_bot_dir }}/bot.py
+Restart=on-failure
+RestartSec=10
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

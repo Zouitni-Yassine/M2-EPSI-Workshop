@@ -15,6 +15,20 @@ route:
       group_wait: 0s
       group_interval: 1m
       repeat_interval: 1m
+    # Bannissement automatique au WAF (règles Loki waf-ban.yml, label action="ban") : une
+    # notification par IP, envoyée vite au récepteur de waf01 (sans les résolutions : le
+    # bannissement expire seul), puis aussi vers Discord pour prévenir les humains
+    - matchers: ['action="ban"']
+      receiver: {{ 'waf-ban' if waf_ban_token | length > 0 else 'blackhole' }}
+      group_by: [alertname, source_ip]
+      group_wait: 5s
+      group_interval: 1m
+      repeat_interval: 15m
+      continue: true
+    - matchers: ['action="ban"']
+      receiver: {{ 'discord' if discord_webhook_url | length > 0 else 'default' }}
+      group_by: [alertname, source_ip]
+      group_wait: 5s
 
 receivers:
   # À brancher plus tard : moteur de remédiation (webhook)
@@ -25,6 +39,17 @@ receivers:
     webhook_configs:
       - url_file: /etc/prometheus/healthchecks_url
         send_resolved: false
+{% endif %}
+{% if waf_ban_token | length > 0 %}
+  - name: waf-ban
+    webhook_configs:
+      - url: {{ waf_ban_url }}
+        send_resolved: false
+        max_alerts: 20
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/prometheus/waf_ban_token
 {% endif %}
 {% if discord_webhook_url | length > 0 %}
   - name: discord

@@ -4,7 +4,7 @@
 # À lancer sur le poste de contrôle. Déploie la stack "demo" si elle est absente.
 #   sh infra/remediation/test-passerelle.sh [ip-manager]
 set -eu
-MGR=${1:-10.0.1.211}
+MGR=${1:-10.30.1.211}
 KEY=/root/.ssh/id_ed25519_infra
 DIR=$(dirname "$0")
 on_mgr() { ssh -n -i $KEY debian@$MGR "$@"; }
@@ -44,11 +44,13 @@ EOS
 B64=$(printf '%s\n' "$INNER" | base64 -w0)
 
 on_mgr sudo docker service rm remediation-test >/dev/null 2>&1 || true
+# Config d'empreintes à nom versionné (rôle remediation_gateway) : la plus récente
+KH=$(on_mgr "sudo docker config ls --filter label=com.epsi.remediation=known_hosts --format '{{.CreatedAt}} {{.Name}}'" | sort | tail -n 1 | awk '{print $NF}')
 echo "== job de test sur un worker (environ 3 min)"
 on_mgr "sudo docker service create -q --name remediation-test --mode replicated-job \
   --constraint node.role==worker --restart-condition none \
   --secret source=remediation_ssh_key,target=id_ed25519,mode=0400 \
-  --config source=remediation_known_hosts,target=/etc/ssh/ssh_known_hosts,mode=0444 \
+  --config source=$KH,target=/etc/ssh/ssh_known_hosts,mode=0444 \
   --env S=$B64 alpine:3.22 sh -c 'echo \"\$S\" | base64 -d | sh'" >/dev/null
 on_mgr sudo docker service logs --raw remediation-test
 on_mgr sudo docker service rm remediation-test >/dev/null

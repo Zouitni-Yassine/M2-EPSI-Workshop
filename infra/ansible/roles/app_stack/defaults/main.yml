@@ -1,0 +1,83 @@
+# Stack applicative "Resilience Pay" (template : infra/app/paiement-stack.yml.j2)
+app_stack_name: paiement
+app_stack_dir: /etc/swarm-stacks/{{ app_stack_name }}
+app_stack_template: "{{ playbook_dir | dirname }}/app/paiement-stack.yml.j2"
+# Racine du dépôt : db/init/01-roles.sh (script d'initialisation de la base)
+app_repo_dir: "{{ playbook_dir | dirname | dirname }}"
+
+# Registre privé (app_registry) : défini par le rôle app_registry, chargé par app-deploy.yml.
+# Tags figés produits par app-build.yml, recalculés par app-deploy.yml de la même façon :
+# <version du docker-compose.yml>-<commit court>[-<empreinte des build args>], le commit étant
+# par défaut celui du dépôt sur le poste de contrôle (comme app-build.yml).
+# Autre révision : -e app_git_ref=<sha> ; tags explicites : -e '{"app_image_tags": {"auth": "...", ...}}'.
+app_git_ref: "{{ lookup('ansible.builtin.pipe', 'git -C ' ~ app_repo_dir ~ ' rev-parse HEAD') }}"
+app_images: [auth, payment-api, detector, remediation, frontend]
+# Images publiques (Docker Hub), versions figées comme dans docker-compose.yml
+app_postgres_image: postgres:16-alpine
+app_mailpit_image: axllent/mailpit:v1.20
+
+# Adresse publique de l'application : liens des e-mails (APP_URL), CORS, cookie Secure en https.
+# En attendant https://app.slabreze.fr (WAF), accès direct au port publié d'un worker.
+app_url: http://10.30.1.221:5173
+app_cors_origins: "{{ app_url }}"
+app_frontend_port: 5173
+
+# Base de données (docs/application.md, "Base de données") :
+#   ha        PostgreSQL + Patroni + etcd, un membre par worker de app_db_nodes, bascule auto ;
+#   single    ancienne base unique épinglée sur app_db_node, volume db-data (retour arrière) ;
+#   migration les deux à la fois, clients sur la base unique (le temps d'importer les données).
+app_db_mode: ha
+# Un membre Patroni et un membre etcd par nœud (3 : quorum etcd de 2, perte d'un nœud tolérée)
+app_db_nodes: [dockerwrk01, dockerwrk02, dockerwrk03]
+# Base unique (single / migration) : volume local db-data sur ce worker
+app_db_node: dockerwrk01
+# Image PostgreSQL 16 + Patroni, construite sur le manager depuis infra/app/postgres-ha
+# (pas de GitHub : c'est de l'infra) ; tag = empreinte des sources, comme la sonde
+app_db_image_name: paiement-postgres
+app_db_image_src: "{{ playbook_dir | dirname }}/app/postgres-ha"
+app_db_image_files: [Dockerfile, entrypoint.sh, pctl]
+app_db_build_dir: /var/lib/paiement-postgres-build
+app_etcd_image: quay.io/coreos/etcd:v3.6.15
+# Options libpq des clients (auth, payment-api) en mode ha : seul le primaire est retenu ;
+# une connexion vers un nœud disparu (VM coupée) échoue en quelques secondes au lieu de
+# plusieurs minutes (tcp_user_timeout en ms, keepalives en s)
+app_db_url_options: target_session_attrs=read-write&tcp_user_timeout=5000&keepalives_idle=5&keepalives_interval=2&keepalives_count=3
+
+# Comptes semés au démarrage d'auth ; mot de passe de chacun : secret auth_password_<compte>
+app_seed_users:
+  - { username: operateur, role: operator }
+  - { username: client, role: client }
+app_token_ttl_minutes: 120
+app_detector_warmup_seconds: 60
+# Utilisateur de l'image remediation (remediation/Dockerfile) : propriétaire de la clé SSH montée
+app_remediation_uid: "10003"
+
+# Stripe obligatoire par défaut. -e app_require_stripe=false : déploiement sans paiement réel
+# (le frontal passe en simulation locale), le temps que la clé soit rangée dans Vault.
+app_require_stripe: true
+# PayPal facultatif : identifiant public en variable, secret en secret Swarm
+app_paypal_client_id: "{{ lookup('ansible.builtin.env', 'PAYPAL_CLIENT_ID') }}"
+
+# Valeurs lues dans Vault par vault-env (jamais versionnées) :
+#   secret/infra/paiement-app (générées par infra/app/init-secrets-vault.py) ;
+#   secret/infra/paiement (fournies par l'utilisateur : Stripe, PayPal) ;
+#   secret/infra/registry (identifiants du registre, rôle app_registry).
+# Clé = nom du secret dans la stack (et du fichier /run/secrets/<clé> dans le conteneur).
+app_secret_values:
+  postgres_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_POSTGRES_PASSWORD') }}"
+  auth_db_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_AUTH_DB_PASSWORD') }}"
+  payments_db_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_PAYMENTS_DB_PASSWORD') }}"
+  # Base haute disponibilité : réplication (standbys) et API REST de Patroni (bascule manuelle)
+  replication_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_REPLICATION_PASSWORD') }}"
+  patroni_api_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_PATRONI_API_PASSWORD') }}"
+  jwt_private_key: "{{ lookup('ansible.builtin.env', 'PAIEMENT_JWT_PRIVATE_KEY') }}"
+  detector_admin_token: "{{ lookup('ansible.builtin.env', 'PAIEMENT_DETECTOR_ADMIN_TOKEN') }}"
+  auth_password_operateur: "{{ lookup('ansible.builtin.env', 'PAIEMENT_AUTH_PASSWORD_OPERATEUR') }}"
+  auth_password_client: "{{ lookup('ansible.builtin.env', 'PAIEMENT_AUTH_PASSWORD_CLIENT') }}"
+  stripe_secret_key: "{{ lookup('ansible.builtin.env', 'STRIPE_SECRET_KEY') }}"
+  paypal_client_secret: "{{ lookup('ansible.builtin.env', 'PAYPAL_CLIENT_SECRET') }}"
+# Secrets facultatifs : absents de Vault = pas de secret Swarm (fonction désactivée)
+app_optional_secrets: [stripe_secret_key, paypal_client_secret]
+
+app_registry_username: "{{ lookup('ansible.builtin.env', 'REGISTRY_USERNAME') }}"
+app_registry_password: "{{ lookup('ansible.builtin.env', 'REGISTRY_PASSWORD') }}"

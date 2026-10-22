@@ -1,0 +1,24 @@
+host_role: rag
+
+# Interface de l'assistant (Streamlit, rag_port) si rag_ui_enabled : LAN MANAGEMENT
+# (fw_monitoring_allowed) et VPN d'administration (fw_admin_web_allowed). Désactivée par défaut :
+# aucun port. API (8600) : rag_api_allowed. node_exporter : collecteurs uniquement (scrapers).
+fw_open_ports: "{{ [rag_port] if rag_ui_enabled | bool else [] }}"
+fw_admin_ports: "{{ [rag_port] if rag_ui_enabled | bool else [] }}"
+
+# Délestage IA : tunnel SSH vers Ollama depuis le PC à GPU de l'équipe (VPN EPSI-WS-IA,
+# règles UniFi ra-iapc-to-rag*). SSH (et interface web si rag_ui_enabled) ; ICMP accepté pour tous.
+rag_gpu_vpn_cidr: 192.168.2.0/24
+
+# Clé publique du PC à GPU (tunnel uniquement : from=, restrict, permitlisten ; voir gpu_tunnel.yml)
+rag_gpu_tunnel_keys:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBOGW0G1cmUuuCLw87vxES3ckxwcSlw8TuRODFiqG1cz pc-gpu-remi
+
+# Jeton de l'API de l'assistant (rag-api) et du bot Discord : Vault (secret/infra/rag-api,
+# secret/infra/discord-bot), lus par vault-env. Comptes lecture seule de la supervision : all.yml.
+rag_api_token: "{{ lookup('ansible.builtin.env', 'RAG_API_TOKEN') }}"
+discord_bot_token: "{{ lookup('ansible.builtin.env', 'DISCORD_BOT_TOKEN') }}"
+
+# Bot Discord de l'équipe : seul serveur / salon autorisés
+discord_guild_id: "1562456667138818081"
+discord_channel_id: "1562456703012839575"

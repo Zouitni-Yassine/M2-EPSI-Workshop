@@ -1,0 +1,19 @@
+# Registre d'images privé du Swarm (stack "registry"), voir docs/application.md
+#
+# Un seul nœud porte le registre et ses données (volume local) : le service y est épinglé et
+# publie son port en mode host, sur l'adresse de ce nœud. C'est cette adresse qui figure dans
+# le certificat (SAN) et dans le nom des images : <app_registry>/<image>:<tag>.
+app_registry_node: dockerwrk01
+app_registry_port: 5000
+app_registry: "{{ hostvars[app_registry_node].ansible_host }}:{{ app_registry_port }}"
+
+app_registry_image: registry:2.8.3
+app_registry_stack: registry
+
+# Identifiants (authentification Basic) : secret/infra/registry dans Vault, exportés par vault-env.
+# Création : python3 roles/app_registry/files/registry-credentials.py
+app_registry_username: "{{ lookup('ansible.builtin.env', 'REGISTRY_USERNAME') }}"
+app_registry_password: "{{ lookup('ansible.builtin.env', 'REGISTRY_PASSWORD') }}"
+
+# Fichiers du registre sur son nœud (certificat TLS émis par la CA interne)
+app_registry_tls_dir: /etc/registry/tls

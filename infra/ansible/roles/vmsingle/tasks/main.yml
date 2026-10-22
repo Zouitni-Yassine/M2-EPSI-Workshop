@@ -59,3 +59,6 @@
     enabled: true
     state: started
     daemon_reload: true
+
+- name: vmauth (comptes et routes)
+  ansible.builtin.import_tasks: vmauth.yml

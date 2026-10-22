@@ -1,0 +1,60 @@
+# Sonde de transaction de Resilience Pay (stack Swarm "probe"), voir docs/application.md
+#   cd /srv/M2-EPSI-Workshop/infra/ansible
+#   vault-env ansible-playbook probe.yml
+# Prérequis : stack paiement déployée (comptes client et operateur semés), registre privé
+# (app-build.yml --tags registry), réseau overlay "monitoring" (swarm.yml). Collecte : cible
+# probe_transactions de swarm_scrape_targets (vault-env ansible-playbook swarm.yml --limit 'swarm_managers[0]').
+
+- name: Sonde de transaction (stack probe)
+  hosts: swarm_managers[0]
+  vars_files:
+    - roles/app_registry/defaults/main.yml # adresse du registre (app_registry)
+  pre_tasks:
+    - name: Secrets présents dans l'environnement
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'PAIEMENT_AUTH_PASSWORD_CLIENT') | length >= 16
+          - lookup('ansible.builtin.env', 'PAIEMENT_AUTH_PASSWORD_OPERATEUR') | length >= 16
+          - lookup('ansible.builtin.env', 'REGISTRY_USERNAME') | length > 0
+          - lookup('ansible.builtin.env', 'REGISTRY_PASSWORD') | length > 0
+        fail_msg: "Secrets absents : lancer le playbook par vault-env (vault-env ansible-playbook probe.yml)"
+        quiet: true
+      run_once: true
+      delegate_to: localhost
+      become: false
+  roles:
+    - probe
+
+# Image téléchargée d'avance sur chaque worker, comme celles de l'application (app-deploy.yml) :
+# la sonde se replace sur un autre nœud même si le registre (dockerwrk01) est indisponible.
+- name: Image de la sonde présente sur tous les workers
+  hosts: swarm_workers
+  vars_files:
+    - roles/app_registry/defaults/main.yml
+  vars:
+    probe_image: "{{ hostvars[groups['swarm_managers'][0]].probe_image_ref }}"
+  tasks:
+    - name: Image déjà présente
+      community.docker.docker_image_info:
+        name: "{{ probe_image }}"
+      register: probe_image_info
+
+    - name: Téléchargement
+      when: probe_image_info.images | length == 0
+      block:
+        - name: Connexion au registre
+          community.docker.docker_login:
+            registry_url: "{{ app_registry }}"
+            username: "{{ lookup('ansible.builtin.env', 'REGISTRY_USERNAME') }}"
+            password: "{{ lookup('ansible.builtin.env', 'REGISTRY_PASSWORD') }}"
+          no_log: true
+
+        - name: Télécharger l'image
+          community.docker.docker_image:
+            name: "{{ probe_image }}"
+            source: pull
+      always:
+        - name: Déconnexion du registre (aucun identifiant laissé sur le worker)
+          community.docker.docker_login:
+            registry_url: "{{ app_registry }}"
+            state: absent

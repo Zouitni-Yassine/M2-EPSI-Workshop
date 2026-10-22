@@ -6,10 +6,17 @@ fw_ssh_allowed:
 fw_monitoring_allowed:
   - 10.0.1.0/24
 
+# Segments RESILIENCE-ALPHA (infra/unifi/ra-network.yml) : les flux autorisés vers les LXC
+# (fw_segment_rules de chaque groupe) reprennent exactement les règles de la passerelle UniFi
+ra_app_cidr: 10.30.1.0/24 # Swarm
+ra_dmz_cidr: 10.30.2.0/24 # exposé (NetBird, WAF)
+ra_vpn_cidr: 10.30.3.0/24 # passerelle VPN
+
 # VPN d'administration : uniquement les interfaces web (fw_admin_ports de chaque groupe).
 # SSH et ports internes restent limités au LAN (rebond par le poste de contrôle).
 fw_admin_web_allowed:
-  - 10.10.0.0/24
+  - 10.10.0.0/24   # VPN LSN - UGC (administrateur)
+  - 10.250.90.0/24 # VPN EPSI-WG (équipe)
 
 # Autorité de certification interne (rôle internal_ca) : clé et certificats générés sur le
 # poste de contrôle, certificat de la CA installé dans le magasin de confiance des hôtes
@@ -26,7 +33,7 @@ monitoring_scrapers: "{{ groups['vmagents'] | map('extract', hostvars, 'ansible_
 monitoring_config_dir: "{{ playbook_dir | dirname }}/monitoring"
 
 # Authentification Basic de la stack d'observabilité : un utilisateur, un mot de passe par service.
-# Celui de Loki sert aussi aux nœuds Swarm (Alloy) : source /root/.monitoring-env avant tout playbook.
+# Celui de Loki sert aussi aux nœuds Swarm (Alloy). Valeurs lues dans Vault par vault-env.
 monitoring_auth_user: monitoring
 loki_auth_password: "{{ lookup('ansible.builtin.env', 'LOKI_AUTH_PASSWORD') }}"
 # VictoriaMetrics, vmagent et vmalert partagent le même mot de passe (aussi utilisé par le
@@ -35,6 +42,12 @@ vm_auth_password: "{{ lookup('ansible.builtin.env', 'VM_AUTH_PASSWORD') }}"
 # Compte Alertmanager du moteur de remédiation (utilisateur "remediation") : il lit les
 # alertes par l'API au lieu d'exposer un port de webhook. Secret Swarm remediation_alertmanager_password.
 remediation_am_password: "{{ lookup('ansible.builtin.env', 'REMEDIATION_AM_PASSWORD') }}"
+# Compte en LECTURE SEULE de l'assistant RAG (outils MCP de rag01, docs/rag.md) : routes de
+# requête de VictoriaMetrics (vmauth) et de Loki (nginx) uniquement. Secret Vault
+# secret/infra/rag-readonly, un mot de passe par service.
+rag_readonly_user: rag-readonly
+rag_vm_read_password: "{{ lookup('ansible.builtin.env', 'RAG_VM_READ_PASSWORD') }}"
+rag_loki_read_password: "{{ lookup('ansible.builtin.env', 'RAG_LOKI_READ_PASSWORD') }}"
 
 # VictoriaMetrics (binaires officiels GitHub, checksum vérifié ; même version pour l'image Docker)
 vm_version: v1.154.0

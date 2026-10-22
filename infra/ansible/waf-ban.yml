@@ -1,0 +1,214 @@
+# Bannissement automatique d'IP au WAF (waf01), déclenché par Alertmanager, voir docs/waf.md
+#   cd /srv/M2-EPSI-Workshop/infra/ansible
+#   vault-env ansible-playbook waf-ban.yml
+# Secret : WAF_BAN_TOKEN (secret/infra/waf-ban), jeton Bearer partagé avec Alertmanager
+# (monitoring.yml le dépose aussi sur monitoring01).
+# Le contenu de /opt/resilience-waf appartient à l'équipe cyber (accord donné le 21/10/2026) :
+# seules des lignes y sont ajoutées (include nginx, volume, règle nftables), avec une copie
+# *.bak-20261021-ban des fichiers d'origine. Fichiers sources : infra/waf/.
+
+- name: Bannissement automatique au WAF
+  hosts: waf
+  vars:
+    waf_dir: /opt/resilience-waf
+    waf_ban_token: "{{ lookup('ansible.builtin.env', 'WAF_BAN_TOKEN') }}"
+    waf_ban_port: 9095
+    waf_ban_duration_s: 900
+    waf_ban_max_active: 20
+    waf_ban_max_per_min: 5
+    waf_ban_alertmanager_ip: "{{ hostvars['monitoring01'].ansible_host }}"
+    # Jamais bannies (en plus des adresses protégées dans le code : bouclage, NPM, supervision,
+    # réseaux RA-*). Le poste de contrôle sert à l'exploitation.
+    waf_ban_allowlist:
+      - 10.0.1.110/32
+    waf_ban_backup: bak-20261021-ban
+  pre_tasks:
+    - name: Secret présent dans l'environnement
+      ansible.builtin.assert:
+        that:
+          - waf_ban_token | length >= 32
+        fail_msg: "Secret absent : lancer le playbook par vault-env (vault-env ansible-playbook waf-ban.yml)"
+        quiet: true
+      run_once: true
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+  tasks:
+    - name: Copie des fichiers de l'équipe cyber avant modification
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ item }}.{{ waf_ban_backup }}"
+        remote_src: true
+        force: false
+        mode: preserve
+      loop:
+        - "{{ waf_dir }}/compose.yml"
+        - "{{ waf_dir }}/default.conf.template"
+        - "{{ waf_dir }}/waf-firewall.nft"
+        - /etc/waf-firewall.nft
+
+    - name: Utilisateur du service (groupe docker pour recharger nginx)
+      ansible.builtin.user:
+        name: waf-ban
+        system: true
+        groups: docker
+        append: true
+        shell: /usr/sbin/nologin
+        create_home: false
+        home: /nonexistent
+
+    - name: Répertoires
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ waf_dir }}/waf-ban", owner: root, group: root, mode: "0755" }
+        - { path: "{{ waf_dir }}/waf-ban/banned", owner: waf-ban, group: waf-ban, mode: "0755" }
+        - { path: /etc/waf-ban, owner: root, group: waf-ban, mode: "0750" }
+
+    # Extraits nginx montés en lecture seule dans le conteneur (/etc/nginx/waf-ban)
+    - name: Extraits nginx
+      ansible.builtin.copy:
+        src: "../waf/nginx/{{ item.src }}"
+        dest: "{{ waf_dir }}/waf-ban/{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - { src: waf-ban-http.conf, dest: http.conf }
+        - { src: waf-ban-server.conf, dest: server.conf }
+      notify: Recharger nginx
+
+    # Contenu géré par le service : créé vide une seule fois
+    - name: Liste des IP bannies
+      ansible.builtin.copy:
+        dest: "{{ waf_dir }}/waf-ban/banned/banned.conf"
+        content: "# Généré par waf-ban (ne pas éditer à la main : waf-ban list|unban)\n"
+        owner: waf-ban
+        group: waf-ban
+        mode: "0644"
+        force: false
+
+    - name: Jeton partagé avec Alertmanager
+      ansible.builtin.copy:
+        dest: /etc/waf-ban/token
+        content: "{{ waf_ban_token }}"
+        owner: root
+        group: waf-ban
+        mode: "0640"
+      no_log: true
+      notify: Redémarrer waf-ban
+
+    - name: Liste blanche (relue à chaque alerte)
+      ansible.builtin.copy:
+        dest: /etc/waf-ban/allowlist
+        content: |
+          # Géré par Ansible (waf-ban.yml) : adresses ou réseaux jamais bannis, un par ligne
+          {% for net in waf_ban_allowlist %}
+          {{ net }}
+          {% endfor %}
+        owner: root
+        group: waf-ban
+        mode: "0640"
+
+    - name: Récepteur
+      ansible.builtin.copy:
+        src: ../waf/waf-ban.py
+        dest: /usr/local/sbin/waf-ban
+        owner: root
+        group: root
+        mode: "0755"
+      notify: Redémarrer waf-ban
+
+    - name: Unité systemd
+      ansible.builtin.template:
+        src: ../waf/waf-ban.service.j2
+        dest: /etc/systemd/system/waf-ban.service
+        mode: "0644"
+      notify: Redémarrer waf-ban
+
+    # Fichiers de l'équipe cyber : ajouts seulement
+    - name: Volume des extraits nginx dans le conteneur
+      ansible.builtin.lineinfile:
+        path: "{{ waf_dir }}/compose.yml"
+        line: "      - ./waf-ban:/etc/nginx/waf-ban:ro"
+        insertafter: 'default\.conf\.template:/etc/nginx/templates/conf\.d/default\.conf\.template'
+      notify: Recréer le WAF
+
+    - name: Extrait nginx de niveau http (début de default.conf)
+      ansible.builtin.blockinfile:
+        path: "{{ waf_dir }}/default.conf.template"
+        insertbefore: BOF
+        marker: "# {mark} bannissement automatique (waf-ban, géré par Ansible)"
+        block: "include /etc/nginx/waf-ban/http.conf;"
+      notify: Recréer le WAF
+
+    - name: Extrait nginx dans chaque serveur (8080 et 8443)
+      ansible.builtin.replace:
+        path: "{{ waf_dir }}/default.conf.template"
+        regexp: '^(    listen (?:8080|8443 ssl);\n)(?!    include /etc/nginx/waf-ban/server\.conf;)'
+        replace: '\1    include /etc/nginx/waf-ban/server.conf;\n'
+      notify: Recréer le WAF
+
+    - name: Port du récepteur ouvert à Alertmanager seulement
+      ansible.builtin.lineinfile:
+        path: "{{ item }}"
+        line: "    ip saddr {{ waf_ban_alertmanager_ip }}/32 tcp dport {{ waf_ban_port }} accept"
+        insertafter: 'tcp dport \{ 8080, 8443 \} accept'
+        validate: nft -c -f %s
+      loop:
+        - "{{ waf_dir }}/waf-firewall.nft"
+        - /etc/waf-firewall.nft
+      notify: Recharger le firewall
+
+    - name: Appliquer les changements
+      ansible.builtin.meta: flush_handlers
+
+    - name: Récepteur actif
+      ansible.builtin.systemd_service:
+        name: waf-ban
+        enabled: true
+        state: started
+
+    - name: Récepteur joignable
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:{{ waf_ban_port }}/healthz"
+      changed_when: false
+
+  handlers:
+    - name: Recharger le firewall
+      ansible.builtin.systemd_service:
+        name: waf-firewall
+        state: restarted
+
+    # Templates rendus au démarrage du conteneur (envsubst) : un changement impose de le recréer
+    - name: Recréer le WAF
+      ansible.builtin.command:
+        cmd: docker compose up -d --force-recreate waf
+        chdir: "{{ waf_dir }}"
+      changed_when: true
+      notify: WAF sain
+
+    - name: WAF sain
+      ansible.builtin.command:
+        cmd: docker inspect -f {% raw %}'{{.State.Health.Status}}'{% endraw %} resilience-waf
+      register: waf_health
+      until: waf_health.stdout == "healthy"
+      retries: 30
+      delay: 3
+      changed_when: false
+
+    - name: Recharger nginx
+      ansible.builtin.shell:
+        cmd: docker exec resilience-waf nginx -t -q && docker exec resilience-waf nginx -s reload
+      changed_when: true
+
+    - name: Redémarrer waf-ban
+      ansible.builtin.systemd_service:
+        name: waf-ban
+        state: restarted
+        daemon_reload: true

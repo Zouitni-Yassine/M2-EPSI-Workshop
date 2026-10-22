@@ -1,0 +1,37 @@
+- name: Dossier des dumps, root seulement (données de l'application)
+  ansible.builtin.file:
+    path: "{{ db_backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Scripts de sauvegarde et de test de restauration
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/usr/local/sbin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - paiement-db-backup
+    - paiement-db-restore-test
+
+- name: Service et minuterie systemd
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - paiement-db-backup.service
+    - paiement-db-backup.timer
+  register: db_backup_units
+
+- name: Minuterie active
+  ansible.builtin.systemd_service:
+    name: paiement-db-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ db_backup_units.changed }}"

@@ -16,7 +16,15 @@ swarm_drain_managers: true
 # Métriques applicatives : services Swarm scrapés par le vmagent du Swarm (stack "monitoring").
 # Chaque service doit être attaché au réseau overlay "monitoring" (docs/contrat-deploiement.md).
 # Exemple : - { service: paiement_api, port: 8000, path: /metrics }
-swarm_scrape_targets: []
+swarm_scrape_targets:
+  - { service: paiement_payment-api, port: 8000, path: /metrics }  # paiements, HTTP, dépendances
+  - { service: paiement_auth, port: 8300, path: /metrics }         # connexions, inscriptions
+  - { service: paiement_detector, port: 8100, path: /metrics }     # score du détecteur ML
+  - { service: probe_transactions, port: 9110, path: /metrics }    # sonde de transaction (stack probe)
+  # Base haute disponibilité : un membre Patroni par worker (rôle, réplication, etcd)
+  - { service: paiement_db1, port: 8008, path: /metrics }
+  - { service: paiement_db2, port: 8008, path: /metrics }
+  - { service: paiement_db3, port: 8008, path: /metrics }
 
 # Stacks dont le moteur de remédiation peut piloter les services (passerelle "remediate")
-remediation_allowed_stacks: [demo]
+remediation_allowed_stacks: [demo, paiement]

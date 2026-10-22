@@ -1,0 +1,16 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# Appelé par keepalived à chaque changement d'état : TYPE NOM ÉTAT PRIORITÉ.
+# Publie l'état pour node_exporter (collecteur textfile) : 1 = ce nœud porte {{ app_vip }}.
+# Écriture atomique (fichier temporaire puis rename) : node_exporter ne lit jamais un fichier partiel.
+DIR={{ app_vip_textfile_dir }}
+case "$3" in
+    MASTER) v=1 ;;
+    *) v=0 ;;
+esac
+cat > "$DIR/.app_vip.prom.$$" <<EOF
+# HELP app_vip_master 1 si ce nœud porte l'adresse virtuelle de l'application.
+# TYPE app_vip_master gauge
+app_vip_master{vip="{{ app_vip }}"} $v
+EOF
+mv "$DIR/.app_vip.prom.$$" "$DIR/app_vip.prom"

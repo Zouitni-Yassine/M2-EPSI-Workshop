@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Dump de chaque base de l'application (format custom pg_dump, restaurable base par base).
+# Lancé par paiement-db-backup.timer ({{ db_backup_calendar }}). Résultat dans le journal
+# (identifiant paiement-db-backup, donc dans Loki) : une ligne par base.
+set -euo pipefail
+DIR={{ db_backup_dir }}
+KEEP={{ db_backup_keep }}
+SSH=(ssh -n -o BatchMode=yes -o ConnectTimeout=5 -i {{ db_backup_ssh_key }})
+declare -A WORKER=({% for h in groups['swarm_workers'] %}[{{ h }}]={{ hostvars[h].ansible_host }} {% endfor %})
+
+log() { logger -t paiement-db-backup "$*"; echo "$*"; }
+
+# Primaire PostgreSQL : sur chaque worker, le conteneur de la base (label com.epsi.db) qui n'est
+# pas en recouvrement. Base haute disponibilité : il change de nœud à chaque bascule.
+node="" ip="" ctr=""
+for n in "${!WORKER[@]}"; do
+  c=$("${SSH[@]}" "debian@${WORKER[$n]}" "sudo docker ps -q --filter label=com.epsi.db={{ db_backup_label }}" 2>/dev/null | head -1) || true
+  [ -n "$c" ] || continue
+  r=$("${SSH[@]}" "debian@${WORKER[$n]}" "sudo docker exec $c psql -U postgres -tAc 'select pg_is_in_recovery()'" 2>/dev/null) || true
+  if [ "$r" = f ]; then node=$n ip=${WORKER[$n]} ctr=$c; break; fi
+done
+[ -n "$ctr" ] || { log "echec : primaire PostgreSQL introuvable"; exit 1; }
+
+rc=0
+stamp=$(date +%Y%m%d-%H%M%S)
+for db in {{ db_backup_databases | join(' ') }}; do
+  out="$DIR/$db-$stamp.dump"
+  start=$(date +%s.%N)
+  # pg_dump dans le conteneur (socket local, utilisateur postgres) : aucun mot de passe transmis
+  if "${SSH[@]}" "debian@$ip" "sudo docker exec $ctr pg_dump -U postgres -Fc $db" > "$out.part" \
+     && [ -s "$out.part" ]; then
+    mv "$out.part" "$out"
+    log "ok base=$db noeud=$node taille=$(stat -c %s "$out") duree_s=$(awk -v a="$start" -v b="$(date +%s.%N)" 'BEGIN { printf "%.1f", b - a }') fichier=$out"
+  else
+    rm -f "$out.part"
+    log "echec base=$db noeud=$node"
+    rc=1
+  fi
+  # Rotation : les KEEP dumps les plus récents de chaque base
+  ls -1t "$DIR"/"$db"-*.dump 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+done
+exit $rc

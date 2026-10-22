@@ -19,3 +19,7 @@ pve_monitor_token_id: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_ID') 
 pve_monitor_token_secret: "{{ lookup('ansible.builtin.env', 'PVE_MONITOR_TOKEN_SECRET') }}"
 alertmanager_auth_password: "{{ lookup('ansible.builtin.env', 'ALERTMANAGER_AUTH_PASSWORD') }}"
 
+# Bannissement automatique au WAF (waf-ban.yml) : jeton Bearer partagé avec le récepteur de waf01
+waf_ban_token: "{{ lookup('ansible.builtin.env', 'WAF_BAN_TOKEN') }}"
+waf_ban_url: "http://{{ hostvars['waf01'].ansible_host }}:9095/alertmanager"
+

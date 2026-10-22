@@ -162,6 +162,44 @@ Les cibles sont déclarées dans `swarm_scrape_targets` (`inventory/group_vars/s
 service devient un `job`, avec les labels `service` et `stack`. Règles côté développeurs :
 [contrat-deploiement.md](contrat-deploiement.md#4-métriques).
 
+### Métriques de l'application (stack `paiement`)
+
+| Job (= `service`) | Découverte | Métriques |
+|---|---|---|
+| `paiement_payment-api` | `tasks.paiement_payment-api:8000/metrics` | `payments_total{provider, status}` (stripe/paypal × ok/refused/error), `http_requests_total{method, route, code}`, `http_request_duration_seconds{method, route}` (histogramme), `payment_api_dependency_up{dependency}` (stripe, paypal, db) |
+| `paiement_auth` | `tasks.paiement_auth:8300/metrics` | `auth_login_total{result}` (success, failure, locked), `auth_signup_total{result}`, `auth_reset_total{result}` |
+| `probe_transactions` (stack `probe`) | `tasks.probe_transactions:9110/metrics` | `paiement_probe_*` : sonde de transaction par le relais public, recopie du score du détecteur et de l'état du moteur ([application.md](application.md#sonde-de-transaction-et-dashboard-démo)) |
+
+- `route` est le **modèle** de route FastAPI (`/api/payment_intents/{intent_id}`), jamais l'URL
+  brute ; une URL inconnue (scan) compte sous `route="unmatched"`. `/metrics` n'est pas compté.
+- Les sondes `/api/status` et `/api/health` (détecteur, moteur, canary : une par seconde chacun)
+  **sont comptées** dans `http_requests_total` : les requêtes métier s'obtiennent avec
+  `route!~"/api/(status|health)"`.
+- `payment_api_dependency_up{dependency="db"}` est rafraîchi en tâche de fond (2 s).
+  `stripe` et `paypal` ne le sont que par un appel à `/api/status` : une réplica que personne
+  ne sonde garde sa dernière valeur (0 au démarrage).
+- Le frontal (`paiement_frontend`, nginx) n'expose pas de métriques : sa disponibilité se lit
+  dans cAdvisor et ses logs dans Loki.
+
+Requêtes utiles (vmui, Grafana) :
+
+```promql
+# Paiements par minute, par issue
+sum by (status) (rate(payments_total[5m])) * 60
+# Taux de 5xx de payment-api, hors sondes
+sum(rate(http_requests_total{service="paiement_payment-api", route!~"/api/(status|health)", code=~"5.."}[5m]))
+  / sum(rate(http_requests_total{service="paiement_payment-api", route!~"/api/(status|health)"}[5m]))
+# Latence p95 par route
+histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket{service="paiement_payment-api"}[5m])))
+# Échecs de connexion par seconde
+sum by (result) (rate(auth_login_total[5m]))
+```
+
+Déploiement de la collecte : `vault-env ansible-playbook swarm.yml --limit 'swarm_managers[0]'`
+(rôle `swarm_monitoring` : nouvelle config Swarm nommée par empreinte, vmagent redéployé).
+Vérification sans accès au conteneur : `vm_promscrape_config_last_reload_successful{service="monitoring_vmagent"}`
+doit valoir 1, puis `up{stack="paiement"}` doit valoir 1 pour chaque réplica.
+
 ## 6. Logs
 
 ### Collecte
@@ -174,7 +212,7 @@ service devient un `job`, avec les labels `service` et `stack`. Règles côté d
 | 3 LXC de supervision, 3 LXC d'identité | `monitoring`, `identity` | `monitoring.yml`, `identity.yml` (avec `lxc_base`) |
 | 3 hyperviseurs | `pve` | `monitoring.yml`, play « Envoi des logs » |
 | Poste de contrôle (control01 = .110, connexion locale) | `control` | idem |
-| WAF de l'équipe cyber (waf01, .251) | `waf` | idem. **Seul le rôle `alloy`** y est appliqué : la VM et son firewall nftables appartiennent à l'équipe cyber. Alloy y suit les rotations du mot de passe de Loki |
+| WAF de l'équipe cyber (waf01, 10.30.2.251, RA-DMZ) | `waf` | idem. **Seul le rôle `alloy`** y est appliqué : la VM et son firewall nftables appartiennent à l'équipe cyber. Alloy y suit les rotations du mot de passe de Loki |
 
 - **journald** : Alloy lit le journal systemd (groupe `systemd-journal` seulement). Docker
   utilise le driver `journald` : les logs des conteneurs passent par le même chemin, sans accès
@@ -283,11 +321,67 @@ est réécrit dans VictoriaMetrics et survit à un redémarrage de vmalert.
 | `SwarmNoLeader` | aucun manager leader (quorum perdu) | 1 min | critical |
 | `VaultSealed` | Vault joignable mais pas descellé : `up{job="vault"} == 1 unless on(instance) vault_core_unsealed == 1`. Descellement : `vault-unseal` | 1 min | critical |
 
+### Règles de l'application (`rules/paiement.yml`)
+
+Labels du contrat ([contrat-deploiement.md](contrat-deploiement.md#8-intégration-du-moteur-de-remédiation)) :
+`remediation="auto"` est lu par le moteur de remédiation dans l'API d'Alertmanager,
+`remediation="manual"` est pour les humains (Discord). Toutes portent `service`, `stack="paiement"`
+et `action` (suggestion : le moteur reste libre de décider).
+
+| Alerte | Condition | Durée | Sévérité | `remediation` / `service` / `action` |
+|---|---|---|---|---|
+| `PaiementApiDown` | aucune réplica de payment-api ne répond (`absent(up == 1)`), service vu dans l'heure | 1 min | critical | auto / `paiement_payment-api` / restart |
+| `PaiementAuthDown` | idem pour le service d'authentification | 1 min | critical | auto / `paiement_auth` / restart |
+| `PaiementApiHighErrorRate` | plus de 5 % de 5xx (hors sondes, hors 502 = erreur Stripe) **et** plus de 0,02 erreur/s, sauf si la base est en panne | 2 min | critical | auto / `paiement_payment-api` / restart |
+| `PaiementApiHighLatency` | p95 hors sondes au-dessus de 2 s (5 s pour la confirmation, qui attend Stripe), avec au moins 3 requêtes/min dans le groupe | 3 min | warning | auto / `paiement_payment-api` / scale |
+| `PaiementDatabaseDown` | `payment_api_dependency_up{dependency="db"} == 0` sur toutes les réplicas | 1 min | critical | manual / `paiement_db` / restart |
+| `PaiementProviderDown` | Stripe ou PayPal en échec, sur les réplicas sondées dans les 2 dernières minutes | 3 min | warning | manual / `paiement_payment-api` / none |
+| `PaiementAuthBruteForce` | plus de 0,5 échec de connexion/s (`failure` + `locked`) | 2 min | warning | manual / `paiement_auth` / none |
+| `PaiementTransactionProbeFailing` | sonde de transaction : 2 échecs de suite ou aucun succès depuis 90 s | - | critical | manual / `paiement_payment-api` / none |
+| `PaiementProbeDown` | la sonde de transaction ne répond plus | 2 min | warning | manual / `probe_transactions` / none |
+
+Choix et limites :
+
+- **Service tombé = absence de cible.** Swarm retire du DNS une tâche arrêtée : quand toutes les
+  réplicas sont tombées, `tasks.<service>` est vide et il n'existe plus aucune série `up`, donc
+  `TargetDown` ne se déclenche pas. D'où `absent(up{service=...} == 1)`, limité aux services vus
+  dans l'heure (pas d'alerte avant le premier déploiement). Un `docker stack rm` volontaire
+  déclenche l'alerte pendant au plus une heure : poser un silence. `TargetDown` reste utile pour
+  une réplica qui ne répond plus sans être retirée.
+- **Base : remédiation manuelle.** Swarm relance déjà une base dont le healthcheck échoue ; la
+  base est épinglée sur un nœud (volume local) et la redémarrer coupe toutes les transactions.
+  Les 5xx causés par une panne de base ne déclenchent pas en plus un redémarrage de l'API.
+- **Prestataires externes : manuel.** Redémarrer payment-api ne répare pas Stripe.
+- **Délais de détection** : scrape toutes les 30 s et rafraîchissement DNS toutes les 30 s,
+  plus la durée `for`, plus 30 s de regroupement Alertmanager ; le moteur interroge Alertmanager
+  toutes les 5 s. Compter 2 à 3 minutes entre la panne et l'action pour `PaiementApiDown`. Le
+  détecteur de l'application (sondes à la seconde) reste le chemin rapide ; ces règles en sont
+  le filet de sécurité, indépendant de l'application.
+- Validées le 20/10/2026 : `vmalert -dryRun`, puis chargées par vmalert (`/api/v1/rules` :
+  7 règles, `health: ok`) ; l'expression d'absence a été testée sur le vmagent du Swarm (panne
+  simulée : 1 résultat ; service sain : aucun ; service jamais déployé : aucun).
+
 **`VaultSealed`, corrigée le 20/10/2026.** La première version testait `vault_core_unsealed == 0`.
 Or un Vault scellé n'expose plus cette métrique (page de métriques vide, mais `up = 1`) :
 l'alerte ne s'est pas déclenchée après le redémarrage du cluster. La nouvelle expression alerte
 dès que la cible répond sans se déclarer descellée. Testée de bout en bout : Vault scellé,
 alerte sur Discord, descellement, résolution sur Discord.
+
+### Règles sur les logs (Loki)
+
+Fichiers : `monitoring/loki/rules/*.yml`, copiés tels quels par le rôle `loki` dans
+`/etc/loki/rules/fake/`, évalués toutes les 15 s par le ruler de Loki, alertes envoyées à
+Alertmanager.
+
+| Alerte | Fichier | Condition (par IP source vue par le WAF) | Action |
+|---|---|---|---|
+| `WAFRepeatedBlocks` | `cyber.yml` (équipe cyber) | au moins 10 réponses 403 en 1 min | manuelle (Discord) |
+| `WafSourceFlood` | `waf-ban.yml` | plus de 1200 requêtes en 1 min (20/s), hors `/healthz` | **bannissement au WAF** |
+| `WafSourceBruteForce` | `waf-ban.yml` | au moins 10 échecs de connexion (POST `/auth/login` ou `/auth/token`, 401 ou 429) en 2 min | **bannissement au WAF** |
+| `WafSourceAttacks` | `waf-ban.yml` | au moins 10 réponses 403 en 2 min | **bannissement au WAF** |
+
+Les trois dernières portent `action="ban"` et `source_ip` : voir
+[waf.md, bannissement automatique](waf.md#5-bannissement-automatique).
 
 ### Routage (Alertmanager)
 
@@ -297,6 +391,11 @@ Fichier : `monitoring/alertmanager/alertmanager.yml.j2`.
   30 s avant le premier envoi, 5 min entre deux mises à jour d'un groupe, rappel toutes les 4 h.
   Les résolutions sont envoyées. Le message indique le statut (🔥 ALERTE / ✅ RÉSOLU), la
   sévérité, le résumé, l'hôte et les heures de début et de fin.
+- **`action="ban"` → récepteur de waf01 puis Discord** : regroupées par `alertname` et
+  `source_ip` (une notification par IP), 5 s d'attente, rappel au bout de 15 min, sans les
+  résolutions pour le récepteur (`http://10.30.2.251:9095/alertmanager`, jeton Bearer lu dans
+  `/etc/prometheus/waf_ban_token` par `credentials_file`). `continue: true` puis une seconde
+  route vers Discord : les humains sont prévenus de chaque bannissement.
 - **Watchdog → healthchecks.io**, renvoyé chaque minute, jamais vers Discord. C'est un *dead
   man's switch* : si vmalert, Alertmanager, monitoring01 ou le réseau tombent, les pings
   s'arrêtent et healthchecks.io prévient de son côté. Une panne de la chaîne d'alerte est donc
@@ -322,13 +421,14 @@ Le receiver `default` est vide et réservé au moteur de remédiation. Pour le b
 ## 8. Sécurité de la stack
 
 **Authentification Basic** : un utilisateur, `monitoring`, avec un mot de passe distinct par
-service.
+service. Depuis le 21/10/2026, un second compte, `rag-readonly`, limité aux routes de requête de
+VictoriaMetrics et de Loki, sert aux outils de l'assistant RAG (voir [rag.md](rag.md), section 8).
 
 | Service | Mécanisme | Mot de passe partagé avec |
 |---|---|---|
-| VictoriaMetrics `:8428` | `-httpAuth.*` natif, sur toute l'API (écriture, lecture, suppression de séries, vmui, `/metrics`) | vmagent `:8429` et vmalert `:8880`. Sans ça, l'endpoint d'ingestion de vmagent permettrait de contourner l'authentification de VictoriaMetrics |
+| VictoriaMetrics `:8428` | **vmauth** sur `:8428` (comptes et routes, `roles/vmsingle/tasks/vmauth.yml`) devant VictoriaMetrics, qui écoute sur `127.0.0.1:8427` et garde son `-httpAuth.*` natif sur toute l'API. `monitoring` : toute l'API ; `rag-readonly` : `query`, `query_range`, `series`, `labels`, valeurs de label | vmagent `:8429` et vmalert `:8880`. Sans ça, l'endpoint d'ingestion de vmagent permettrait de contourner l'authentification de VictoriaMetrics |
 | Alertmanager `:9093` | `--web.config.file` (exporter-toolkit), hash bcrypt. Alertmanager garde en cache les vérifications réussies | - |
-| Loki `:3100` | Loki n'a pas d'authentification intégrée. Il écoute sur `127.0.0.1:3101` et nginx, sur `:3100`, authentifie puis relaie, comme le recommande Grafana | - |
+| Loki `:3100` | Loki n'a pas d'authentification intégrée. Il écoute sur `127.0.0.1:3101` et nginx, sur `:3100`, authentifie puis relaie, comme le recommande Grafana. `rag-readonly` : routes de requête seulement (403 sinon) | - |
 
 Pour nginx, le hash est un SHA-512 crypt à 5000 tours, et non un bcrypt. nginx vérifie le mot de
 passe à chaque requête, sans cache, et chaque hôte pousse ses logs environ une fois par seconde :
@@ -338,7 +438,8 @@ nginx partent dans journald, donc dans Loki (`{unit="nginx.service"}`).
 Gestion des mots de passe :
 
 - **Sources** : `VM_AUTH_PASSWORD`, `ALERTMANAGER_AUTH_PASSWORD`, `LOKI_AUTH_PASSWORD` et
-  `REMEDIATION_AM_PASSWORD` sont dans Vault (`secret/infra/monitoring`), lus par `vault-env` au
+  `REMEDIATION_AM_PASSWORD` sont dans Vault (`secret/infra/monitoring`), ceux du compte
+  `rag-readonly` dans `secret/infra/rag-readonly`, lus par `vault-env` au
   lancement des playbooks, et nulle part dans le dépôt. Rotation :
   [comptes-et-rotation.md](comptes-et-rotation.md).
 - **Déploiement** : Ansible les dépose dans des fichiers 0640, lisibles par le seul groupe du
@@ -365,9 +466,9 @@ Limites assumées :
 
 - **HTTP en clair**, sans TLS, sur le LAN du lab : les mots de passe Basic passent en clair sur
   le réseau. En production, on mettrait TLS partout, avec une PKI interne.
-- **Un compte par service, avec tous les droits** : le compte VictoriaMetrics peut aussi écrire
-  et supprimer des séries. Un compte en lecture seule, par exemple pour le module ML,
-  demanderait `vmauth` devant VictoriaMetrics.
+- **Un compte par service, avec tous les droits** : le compte `monitoring` de VictoriaMetrics
+  peut aussi écrire et supprimer des séries. Seul l'assistant RAG a un compte en lecture seule
+  (`rag-readonly`, vmauth) ; le module ML pourrait en avoir un de la même façon.
 - **Points restés ouverts** : node_exporter, cAdvisor et les métriques Docker ne sont pas
   authentifiés, mais restent filtrés par le pare-feu. Le `/metrics` de Grafana est public.
 
@@ -381,6 +482,7 @@ Les dashboards sont provisionnés par fichiers depuis `monitoring/grafana/dashbo
 
 | Dossier | Dashboard | Origine |
 |---|---|---|
+| Démo | Démo / Remédiation (`demo-remediation`) | `monitoring/grafana/scripts/gen-demo-dashboard.py` : écran de la démonstration (sonde de transaction, détecteur, moteur de remédiation, alertes), rafraîchi toutes les 5 s ; voir [application.md](application.md#sonde-de-transaction-et-dashboard-démo) |
 | Vue centrale | Plateforme - vue centrale (`central`) | `monitoring/grafana/scripts/gen-central-dashboard.py` : un seul écran pour Proxmox, Ceph, Swarm, la supervision, les alertes et les logs, lisible de loin pendant la démo |
 | Infrastructure | Proxmox & Ceph (`proxmox`) | `monitoring/grafana/scripts/gen-proxmox-dashboard.py` : une cinquantaine de panneaux construits à partir des métriques réellement collectées (hyperviseurs, invités, stockages, capacité et pools Ceph, OSD/MON/MGR, latences) |
 | Infrastructure | Nœuds - Node Exporter Full | grafana.com 1860, adapté par `monitoring/grafana/scripts/fetch-dashboards.py` |
@@ -392,6 +494,7 @@ Pour regénérer : modifier le script, pas le JSON, puis lancer depuis `infra/mo
 ```sh
 python3 monitoring/grafana/scripts/gen-proxmox-dashboard.py
 python3 monitoring/grafana/scripts/gen-central-dashboard.py
+python3 monitoring/grafana/scripts/gen-demo-dashboard.py
 python3 monitoring/grafana/scripts/fetch-dashboards.py         # révisions figées, grafana.com n'est pas requis au déploiement
 cd ../../ansible && vault-env ansible-playbook monitoring.yml --limit monitoring_core
 ```

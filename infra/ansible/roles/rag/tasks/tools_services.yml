@@ -1,0 +1,25 @@
+# Démarrage et vérification du serveur MCP et de l'API (configurés par tools.yml)
+- name: Appliquer les changements des outils
+  ansible.builtin.meta: flush_handlers
+
+- name: Serveur MCP et API actifs
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: [rag-mcp, rag-api]
+
+- name: Serveur MCP à l'écoute (local)
+  ansible.builtin.wait_for:
+    host: "{{ rag_mcp_host }}"
+    port: "{{ rag_mcp_port }}"
+    timeout: 60
+
+- name: API de l'assistant joignable
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ rag_api_port }}/health"
+  register: rag_api_health
+  until: rag_api_health.status == 200
+  retries: 30
+  delay: 2

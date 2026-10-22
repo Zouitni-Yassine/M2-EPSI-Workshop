@@ -1,0 +1,152 @@
+# Registre d'images privé du Swarm (registry:2) : stack "registry" épinglée sur un worker,
+# TLS par la CA interne, authentification Basic (htpasswd bcrypt en secret Swarm).
+# Joué sur tout le groupe swarm : chaque tâche cible les nœuds qui la concernent.
+
+# --- Tous les nœuds : confiance TLS envers le registre ---------------------------------------
+# Le magasin système contient déjà la CA (rôle internal_ca) ; certs.d la rend explicite pour
+# Docker et ne dépend pas d'un redémarrage du daemon (lu à chaque connexion).
+- name: Répertoire de confiance du registre (Docker)
+  ansible.builtin.file:
+    path: "/etc/docker/certs.d/{{ app_registry }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: CA interne pour le registre (Docker)
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/ca.crt"
+    dest: "/etc/docker/certs.d/{{ app_registry }}/ca.crt"
+    owner: root
+    group: root
+    mode: "0644"
+
+# --- Nœud du registre : certificat serveur ---------------------------------------------------
+- name: Répertoire du certificat du registre
+  ansible.builtin.file:
+    path: "{{ app_registry_tls_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when: inventory_hostname == app_registry_node
+
+# SAN : nom court, nom DNS et IP du nœud (celle de app_registry)
+- name: Certificat TLS du registre (CA interne)
+  ansible.builtin.include_role:
+    name: internal_ca
+    tasks_from: issue
+  vars:
+    cert_dest_dir: "{{ app_registry_tls_dir }}"
+    cert_group: root
+    cert_notify: Redémarrer le registre
+  when: inventory_hostname == app_registry_node
+
+# --- Premier manager : secret htpasswd et stack ----------------------------------------------
+- name: Stack du registre
+  when: inventory_hostname == groups['swarm_managers'][0]
+  block:
+    - name: Module docker_stack (dépendance Python)
+      ansible.builtin.apt:
+        name: python3-jsondiff
+        state: present
+
+    # bcrypt est salé : le fichier htpasswd change à chaque génération. Le nom du secret porte
+    # donc une empreinte des identifiants (salée, tronquée) et n'est créé que s'il manque :
+    # une rotation dans Vault donne un nouveau nom, donc un nouveau secret et une mise à jour.
+    - name: Nom du secret htpasswd
+      ansible.builtin.set_fact:
+        app_registry_htpasswd_secret: >-
+          registry_htpasswd_{{ ('registry-htpasswd:' ~ app_registry_username ~ ':' ~ app_registry_password)
+          | hash('sha256') | truncate(12, true, '') }}
+      no_log: true
+
+    - name: Secrets htpasswd présents
+      ansible.builtin.command: docker secret ls --filter label=com.epsi.usage=registry --format "{{ '{{' }}.Name{{ '}}' }}"
+      register: app_registry_secrets
+      changed_when: false
+
+    - name: Bcrypt sur le poste de contrôle
+      ansible.builtin.apt:
+        name: python3-bcrypt
+        state: present
+      delegate_to: localhost
+      become: false
+      when: app_registry_htpasswd_secret not in app_registry_secrets.stdout_lines
+
+    - name: Empreinte bcrypt du mot de passe
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - "import bcrypt, sys; print(bcrypt.hashpw(sys.stdin.buffer.read(), bcrypt.gensalt(12)).decode())"
+        stdin: "{{ app_registry_password }}"
+        stdin_add_newline: false
+      delegate_to: localhost
+      become: false
+      register: app_registry_bcrypt
+      changed_when: false
+      no_log: true
+      when: app_registry_htpasswd_secret not in app_registry_secrets.stdout_lines
+
+    - name: Fichier htpasswd (secret Swarm)
+      community.docker.docker_secret:
+        name: "{{ app_registry_htpasswd_secret }}"
+        data: "{{ app_registry_username }}:{{ app_registry_bcrypt.stdout }}\n"
+        labels:
+          com.epsi.usage: registry
+      no_log: true
+      when: app_registry_htpasswd_secret not in app_registry_secrets.stdout_lines
+
+    - name: Répertoire de la stack
+      ansible.builtin.file:
+        path: /etc/swarm-stacks/registry
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Fichier de stack
+      ansible.builtin.template:
+        src: stack.yml.j2
+        dest: /etc/swarm-stacks/registry/stack.yml
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Stack registry
+      community.docker.docker_stack:
+        name: "{{ app_registry_stack }}"
+        compose:
+          - /etc/swarm-stacks/registry/stack.yml
+        state: present
+
+    - name: Supprimer les anciens secrets htpasswd
+      community.docker.docker_secret:
+        name: "{{ item }}"
+        state: absent
+      loop: "{{ app_registry_secrets.stdout_lines | select('match', '^registry_htpasswd_')
+                | reject('equalto', app_registry_htpasswd_secret) | list }}"
+      failed_when: false # encore utilisé pendant une mise à jour : supprimé au passage suivant
+
+    # 401 sans identifiants : TLS valide (CA interne) et authentification active
+    - name: Registre joignable en HTTPS
+      ansible.builtin.uri:
+        url: "https://{{ app_registry }}/v2/"
+        status_code: 401
+      register: app_registry_ping
+      until: app_registry_ping.status == 401
+      retries: 30
+      delay: 5
+      changed_when: false
+
+# --- Managers : identifiants pour docker stack deploy --with-registry-auth et pour le build ----
+# Les workers n'ont pas d'identifiants stockés : Swarm leur transmet ceux du manager qui
+# déploie (--with-registry-auth), le temps de télécharger l'image.
+- name: Connexion au registre (managers)
+  community.docker.docker_login:
+    registry_url: "{{ app_registry }}"
+    username: "{{ app_registry_username }}"
+    password: "{{ app_registry_password }}"
+  no_log: true
+  when: inventory_hostname in groups['swarm_managers']

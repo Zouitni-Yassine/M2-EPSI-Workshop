@@ -1,0 +1,58 @@
+# Une image du plan (app_image : service, name, version, context, args, tag)
+
+- name: "{{ app_image.name }} : tag figé dans le registre ?"
+  ansible.builtin.uri:
+    url: "https://{{ app_registry }}/v2/{{ app_image.name }}/manifests/{{ app_image.tag }}"
+    method: HEAD
+    url_username: "{{ app_registry_username }}"
+    url_password: "{{ app_registry_password }}"
+    force_basic_auth: true
+    headers:
+      Accept: "{{ app_build_manifest_types }}"
+    status_code: [200, 404]
+  register: app_image_fixed
+  changed_when: false
+
+- name: "{{ app_image.name }} : construire et pousser"
+  when: app_image_fixed.status == 404 or app_build_force | bool
+  block:
+    # Build args passés par l'environnement (--build-arg NOM sans valeur) : aucune valeur
+    # n'apparaît dans la ligne de commande ni dans la sortie d'Ansible
+    - name: "{{ app_image.name }} : docker build"
+      ansible.builtin.command:
+        argv: >-
+          {{ ['docker', 'build', '--quiet',
+              '-t', app_registry ~ '/' ~ app_image.name ~ ':' ~ app_image.tag,
+              '--label', 'org.opencontainers.image.revision=' ~ app_git_ref,
+              '--label', 'org.opencontainers.image.source=' ~ app_build_repo,
+              '--label', 'org.opencontainers.image.version=' ~ app_image.version]
+             + (app_image.args.keys() | map('regex_replace', '^', '--build-arg=') | list)
+             + [app_image.context] }}
+      environment: "{{ app_image.args }}"
+
+    - name: "{{ app_image.name }} : docker push"
+      ansible.builtin.command: docker push --quiet {{ app_registry }}/{{ app_image.name }}:{{ app_image.tag }}
+
+# Le tag du compose (<version>) suit la dernière révision construite : copié côté registre
+# (imagetools, sans re-téléchargement) quand il ne pointe pas sur le même manifeste
+- name: "{{ app_image.name }} : manifestes des deux tags"
+  ansible.builtin.uri:
+    url: "https://{{ app_registry }}/v2/{{ app_image.name }}/manifests/{{ item }}"
+    method: HEAD
+    url_username: "{{ app_registry_username }}"
+    url_password: "{{ app_registry_password }}"
+    force_basic_auth: true
+    headers:
+      Accept: "{{ app_build_manifest_types }}"
+    status_code: [200, 404]
+  loop: ["{{ app_image.tag }}", "{{ app_image.version }}"]
+  register: app_image_digests
+  changed_when: false
+
+- name: "{{ app_image.name }} : tag {{ app_image.version }} -> {{ app_image.tag }}"
+  ansible.builtin.command: >-
+    docker buildx imagetools create
+    -t {{ app_registry }}/{{ app_image.name }}:{{ app_image.version }}
+    {{ app_registry }}/{{ app_image.name }}:{{ app_image.tag }}
+  when: app_image_digests.results[1].docker_content_digest | default('')
+        != app_image_digests.results[0].docker_content_digest

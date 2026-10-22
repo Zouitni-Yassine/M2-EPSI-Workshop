@@ -1,0 +1,40 @@
+- name: Installer keepalived
+  ansible.builtin.apt:
+    name: keepalived
+    state: present
+
+# Le worker de rang le plus bas a la priorité la plus haute ; tous démarrent en BACKUP, VRRP
+# élit le maître. Communication en unicast entre workers (pas de multicast sur le vnet).
+# enable_script_security : le script doit appartenir à root et ne pas être modifiable par d'autres
+- name: Script de notification (état de l'adresse pour node_exporter)
+  ansible.builtin.template:
+    src: app-vip-state.j2
+    dest: /usr/local/sbin/app-vip-state
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Recharger keepalived
+
+- name: Configuration keepalived
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recharger keepalived
+
+- name: keepalived actif
+  ansible.builtin.systemd_service:
+    name: keepalived
+    enabled: true
+    state: started
+
+# Un rechargement ne rejoue pas la notification de l'état courant : premier fichier écrit
+# d'après la présence de l'adresse sur l'interface (sans redémarrer keepalived, donc sans bascule)
+- name: État initial de l'adresse pour node_exporter
+  ansible.builtin.shell: |
+    if ip -o addr show | grep -q " {{ app_vip }}/"; then s=MASTER; else s=BACKUP; fi
+    /usr/local/sbin/app-vip-state INSTANCE APP "$s" 0
+  args:
+    creates: "{{ app_vip_textfile_dir }}/app_vip.prom"

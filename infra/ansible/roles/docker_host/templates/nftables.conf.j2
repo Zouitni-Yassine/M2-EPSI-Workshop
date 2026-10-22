@@ -35,11 +35,16 @@ table inet host_fw {
 
         ip saddr @admin_nets tcp dport 22 accept comment "SSH admin"
 {% if inventory_hostname in groups['swarm_managers'] %}
+        # Moteur de remédiation (conteneur sur un worker) vers la passerelle SSH à actions fermées
+        ip saddr { {{ groups['swarm_workers'] | map('extract', hostvars, 'ansible_host') | join(', ') }} } tcp dport 22 accept comment "Passerelle de remediation"
         ip saddr @swarm_nodes tcp dport 2377 accept comment "Swarm : API de gestion du cluster"
 {% endif %}
         ip saddr @swarm_nodes tcp dport 7946 accept comment "Swarm : découverte des noeuds"
         ip saddr @swarm_nodes udp dport { 4789, 7946 } accept comment "Swarm : gossip et VXLAN overlay"
         ip saddr @swarm_nodes meta l4proto esp accept comment "Swarm : overlay chiffré (IPsec)"
+{% if inventory_hostname in groups['swarm_workers'] %}
+        ip saddr { {{ groups['swarm_workers'] | map('extract', hostvars, 'ansible_host') | join(', ') }} } ip protocol 112 accept comment "VRRP : adresse virtuelle de l'application (app_vip)"
+{% endif %}
 
         # node_exporter, métriques Docker{{ ', cAdvisor' if inventory_hostname in groups['swarm_workers'] else '' }} : uniquement depuis les vmagents
         ip saddr @scrapers tcp dport { 9100, 9323{{ ', 8080' if inventory_hostname in groups['swarm_workers'] else '' }} } accept comment "Supervision"

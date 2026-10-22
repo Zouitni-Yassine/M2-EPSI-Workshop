@@ -1,0 +1,205 @@
+- name: Révision figée
+  ansible.builtin.assert:
+    that: rag_git_ref is match('^[0-9a-f]{40}$')
+    fail_msg: "rag_git_ref doit être un commit complet (40 caractères hexadécimaux), pas une branche"
+    quiet: true
+
+- name: Utilisateur système rag (non privilégié)
+  ansible.builtin.user:
+    name: rag
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ rag_data_dir }}"
+    create_home: false
+
+# Code et venv à root : le service, qui tourne en rag, ne peut pas les modifier
+- name: Répertoires de l'assistant
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ rag_dir }}", owner: root, mode: "0755" }
+    - { path: "{{ rag_dir }}/releases", owner: root, mode: "0755" }
+    - { path: "{{ rag_data_dir }}", owner: rag, mode: "0750" }
+    - { path: "{{ rag_data_dir }}/chroma_db", owner: rag, mode: "0750" }
+
+# Unité installée avant le code : les tâches suivantes peuvent notifier son redémarrage
+- name: Service systemd rag-assistant
+  ansible.builtin.template:
+    src: rag-assistant.service.j2
+    dest: /etc/systemd/system/rag-assistant.service
+    mode: "0644"
+  notify: Redémarrer l'assistant
+
+# --- Code : dossier rag/ de la branche IA, extrait sur le poste de contrôle -----------------
+- name: Commit {{ rag_git_ref[:7] }} présent dans le dépôt du poste de contrôle
+  ansible.builtin.command: git -C {{ rag_repo_dir }} cat-file -e {{ rag_git_ref }}^{commit}
+  delegate_to: localhost
+  become: false
+  register: rag_ref_present
+  changed_when: false
+  failed_when: false
+
+- name: Récupérer la branche IA
+  ansible.builtin.command: git -C {{ rag_repo_dir }} fetch origin IA
+  delegate_to: localhost
+  become: false
+  when: rag_ref_present.rc != 0
+  changed_when: true
+
+- name: Archive du dossier rag/ à la révision {{ rag_git_ref[:7] }}
+  ansible.builtin.command:
+    cmd: git -C {{ rag_repo_dir }} archive --format=tar -o /tmp/rag-{{ rag_git_ref }}.tar {{ rag_git_ref }}:rag
+    creates: /tmp/rag-{{ rag_git_ref }}.tar
+  delegate_to: localhost
+  become: false
+
+- name: Répertoire de la révision {{ rag_git_ref[:7] }}
+  ansible.builtin.file:
+    path: "{{ rag_dir }}/releases/{{ rag_git_ref }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Extraire le code de la révision {{ rag_git_ref[:7] }}
+  ansible.builtin.unarchive:
+    src: /tmp/rag-{{ rag_git_ref }}.tar
+    dest: "{{ rag_dir }}/releases/{{ rag_git_ref }}"
+    owner: root
+    group: root
+    creates: "{{ rag_dir }}/releases/{{ rag_git_ref }}/chain.py"
+
+# Fiches de l'infra dans docs/infra/ : ingest.py lit docs/**/*.md
+- name: Répertoire du corpus infra
+  ansible.builtin.file:
+    path: "{{ rag_dir }}/releases/{{ rag_git_ref }}/docs/infra"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Fiches de procédures de l'infra
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ rag_dir }}/releases/{{ rag_git_ref }}/docs/infra/"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ query('ansible.builtin.fileglob', rag_infra_corpus_dir ~ '/*.md') | sort }}"
+  loop_control:
+    label: "{{ item | basename }}"
+
+- name: Fiches de l'infra présentes sur rag01
+  ansible.builtin.find:
+    paths: "{{ rag_dir }}/releases/{{ rag_git_ref }}/docs/infra"
+    patterns: "*.md"
+  register: rag_infra_deployed
+
+# Une fiche retirée du dépôt est retirée du corpus
+- name: Retirer les fiches supprimées du dépôt
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ rag_infra_deployed.files | map(attribute='path') | list }}"
+  when: (item | basename) not in (query('ansible.builtin.fileglob', rag_infra_corpus_dir ~ '/*.md') | map('basename') | list)
+
+# chain.py et ingest.py utilisent le chemin relatif "chroma_db" : lien vers le répertoire
+# de données, seul emplacement inscriptible par le service
+- name: Base vectorielle dans {{ rag_data_dir }}
+  ansible.builtin.file:
+    src: "{{ rag_data_dir }}/chroma_db"
+    dest: "{{ rag_dir }}/releases/{{ rag_git_ref }}/chroma_db"
+    state: link
+    force: true
+
+- name: Version active du code
+  ansible.builtin.file:
+    src: "{{ rag_dir }}/releases/{{ rag_git_ref }}"
+    dest: "{{ rag_dir }}/app"
+    state: link
+  notify: Redémarrer l'assistant
+
+# --- Dépendances Python ------------------------------------------------------------------
+- name: Contraintes de versions (pip freeze du premier déploiement)
+  ansible.builtin.copy:
+    src: constraints.txt
+    dest: "{{ rag_dir }}/constraints.txt"
+    owner: root
+    group: root
+    mode: "0644"
+  when: rag_pip_constraints | bool
+
+- name: Dépendances Python (venv)
+  ansible.builtin.pip:
+    requirements: "{{ rag_dir }}/app/requirements.txt"
+    virtualenv: "{{ rag_dir }}/venv"
+    virtualenv_command: python3 -m venv
+    extra_args: "{{ '-c ' ~ rag_dir ~ '/constraints.txt' if rag_pip_constraints | bool else omit }}"
+  notify: Redémarrer l'assistant
+
+# --- Indexation --------------------------------------------------------------------------
+# ingest.py ajoute à la base existante (doublons s'il est relancé) : la base est recréée,
+# et seulement si le corpus a changé. Empreinte : arbre docs/ de la révision IA, fiches de
+# l'infra, modèle d'embeddings.
+- name: Empreinte du corpus
+  ansible.builtin.set_fact:
+    rag_corpus_id: >-
+      {{ lookup('ansible.builtin.pipe', 'git -C ' ~ rag_repo_dir ~ ' rev-parse ' ~ rag_git_ref ~ ':rag/docs') }}
+      {{ lookup('ansible.builtin.pipe', 'cd ' ~ rag_infra_corpus_dir ~ ' && sha1sum -- *.md | sha1sum | cut -c1-40') }}
+      {{ rag_embed_model }}
+
+- name: Empreinte de l'index en place
+  ansible.builtin.slurp:
+    src: "{{ rag_data_dir }}/corpus.id"
+  register: rag_index_id
+  failed_when: false
+
+- name: Réindexer le corpus
+  when: (rag_index_id.content | default('') | b64decode | trim) != (rag_corpus_id | trim)
+  block:
+    - name: Vider la base vectorielle
+      ansible.builtin.shell: find {{ rag_data_dir }}/chroma_db -mindepth 1 -delete
+      changed_when: true
+
+    - name: Indexer les documents (ingest.py)
+      ansible.builtin.command:
+        cmd: "{{ rag_dir }}/venv/bin/python ingest.py"
+        chdir: "{{ rag_dir }}/app"
+      environment: "{{ rag_env }}"
+      become_user: rag
+      changed_when: true
+      notify: Redémarrer l'assistant
+
+    - name: Enregistrer l'empreinte de l'index
+      ansible.builtin.copy:
+        dest: "{{ rag_data_dir }}/corpus.id"
+        content: "{{ rag_corpus_id | trim }}\n"
+        owner: root
+        group: rag
+        mode: "0644"
+
+# --- Service -----------------------------------------------------------------------------
+- name: Appliquer les changements de l'assistant
+  ansible.builtin.meta: flush_handlers
+
+# Interface web (rag_ui_enabled) : désactivée par défaut, le bot Discord et l'API sont le seul
+# accès. Le code reste installé et l'index est construit par Ansible (ingest.py ci-dessus).
+- name: Interface web de l'assistant (Streamlit)
+  ansible.builtin.systemd_service:
+    name: rag-assistant
+    enabled: "{{ rag_ui_enabled | bool }}"
+    state: "{{ 'started' if rag_ui_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+
+- name: Interface Streamlit joignable
+  when: rag_ui_enabled | bool
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ rag_port }}/_stcore/health"
+  register: rag_health
+  until: rag_health.status == 200
+  retries: 30
+  delay: 2

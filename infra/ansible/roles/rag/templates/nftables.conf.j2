@@ -1,0 +1,66 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }}
+#
+# Docker est désactivé sur cette machine : seule cette table filtre le trafic entrant.
+# Ollama (11434), le relais (11430) et le serveur MCP (8610) écoutent sur 127.0.0.1 : jamais
+# ouverts ici.
+
+table inet host_fw
+delete table inet host_fw
+
+table inet host_fw {
+    set admin_nets {
+        type ipv4_addr
+        flags interval
+        elements = { {{ fw_ssh_allowed | join(', ') }} }
+    }
+
+    set monitoring_nets {
+        type ipv4_addr
+        flags interval
+        elements = { {{ fw_monitoring_allowed | join(', ') }} }
+    }
+
+    set admin_web_nets {
+        type ipv4_addr
+        flags interval
+        elements = { {{ fw_admin_web_allowed | join(', ') }} }
+    }
+
+    set api_nets {
+        type ipv4_addr
+        flags interval
+        elements = { {{ rag_api_allowed | join(', ') }} }
+    }
+
+    set scrapers {
+        type ipv4_addr
+        elements = { {{ monitoring_scrapers | join(', ') }} }
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        ct state established,related accept
+        ct state invalid drop
+        iif lo accept
+        meta l4proto { icmp, ipv6-icmp } accept
+
+        ip saddr @admin_nets tcp dport 22 accept comment "SSH admin"
+{% if fw_open_ports | length > 0 %}
+        ip saddr @monitoring_nets tcp dport { {{ fw_open_ports | join(', ') }} } accept comment "Services (LAN)"
+{% endif %}
+{% if fw_admin_ports | length > 0 %}
+        ip saddr @admin_web_nets tcp dport { {{ fw_admin_ports | join(', ') }} } accept comment "Interfaces web (VPN admin)"
+{% endif %}
+        ip saddr @api_nets tcp dport {{ rag_api_port }} accept comment "API de l'assistant (tests ; le bot local passe par lo)"
+        ip saddr @scrapers tcp dport 9100 accept comment "Supervision (node_exporter)"
+{% if rag_gpu_vpn_cidr | default('') | length > 0 %}
+        # Délestage IA : tunnel SSH vers Ollama depuis le PC à GPU (VPN EPSI-WS-IA) ; interface
+        # web seulement si elle est activée
+        ip saddr {{ rag_gpu_vpn_cidr }} tcp dport { 22{{ (', ' ~ rag_port) if rag_ui_enabled | bool else '' }} } accept comment "Delestage IA (VPN EPSI-WS-IA)"
+{% endif %}
+
+        limit rate 10/minute log prefix "host_fw drop: " level info
+    }
+}

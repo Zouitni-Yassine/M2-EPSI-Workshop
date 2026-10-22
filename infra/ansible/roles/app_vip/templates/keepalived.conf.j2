@@ -1,0 +1,41 @@
+# {{ ansible_managed }}
+# Adresse virtuelle {{ app_vip }} : entrée de l'application (frontal Swarm, port {{ app_vip_check_port }}).
+# Sans authentification VRRP (mot de passe en clair dans ce fichier, et faible) : seuls les
+# workers échangent en unicast, et le firewall n'accepte VRRP que d'eux.
+
+global_defs {
+    enable_script_security
+    script_user root
+}
+
+# Un nœud dont le frontal ne répond plus (Docker arrêté, ingress cassé) cède l'adresse
+vrrp_script frontal {
+    script "/usr/bin/curl -sf -o /dev/null --max-time 2 http://{{ ansible_host }}:{{ app_vip_check_port }}/"
+    interval 3
+    fall 2
+    rise 2
+}
+
+vrrp_instance APP {
+    state BACKUP
+    # Pas de reprise par le nœud prioritaire à son retour : une bascule = une seule coupure
+    nopreempt
+    interface {{ ansible_default_ipv4.interface }}
+    virtual_router_id {{ app_vip_router_id }}
+    priority {{ 150 - groups['swarm_workers'].index(inventory_hostname) * 10 }}
+    advert_int 1
+    unicast_src_ip {{ ansible_host }}
+    unicast_peer {
+{% for h in groups['swarm_workers'] if h != inventory_hostname %}
+        {{ hostvars[h].ansible_host }}
+{% endfor %}
+    }
+    virtual_ipaddress {
+        {{ app_vip }}/{{ app_vip_prefix }} dev {{ ansible_default_ipv4.interface }}
+    }
+    track_script {
+        frontal
+    }
+    # Métrique app_vip_master (node_exporter) : qui porte l'adresse, visible dans Grafana
+    notify /usr/local/sbin/app-vip-state
+}

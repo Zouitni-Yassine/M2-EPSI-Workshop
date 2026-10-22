@@ -3,3 +3,9 @@
     name: victoria-metrics
     state: restarted
     daemon_reload: true
+
+- name: Redémarrer vmauth
+  ansible.builtin.systemd_service:
+    name: vmauth
+    state: restarted
+    daemon_reload: true

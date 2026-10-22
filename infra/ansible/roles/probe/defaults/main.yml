@@ -1,0 +1,45 @@
+# Sonde de transaction de Resilience Pay (stack Swarm "probe"), voir docs/application.md
+#   cd /srv/M2-EPSI-Workshop/infra/ansible
+#   vault-env ansible-playbook probe.yml
+#
+# Sources : infra/monitoring/probe (probe.py, Dockerfile, requirements.txt, stack.yml.j2).
+# L'image est construite sur le manager à partir de ces fichiers (pas de GitHub : la sonde est
+# de l'infra) ; son tag est l'empreinte de leur contenu, une modification donne un nouveau tag.
+probe_src_dir: "{{ monitoring_config_dir }}/probe"
+probe_build_dir: /var/lib/probe-build
+probe_stack_name: probe
+probe_stack_dir: /etc/swarm-stacks/{{ probe_stack_name }}
+probe_image_name: resilience-probe
+probe_source_files: [Dockerfile, requirements.txt, probe.py]
+
+# Adresses du relais public, essayées dans l'ordre (repli si un nœud ne répond pas, comme le
+# WAF) : le port 5173 publié en ingress sur chaque worker. Quand app.slabreze.fr sera en place,
+# on peut y ajouter l'URL publique pour tester aussi le WAF.
+# Adresse virtuelle d'abord (chemin des vrais clients via NPM/WAF, rôle app_vip), puis chaque
+# worker en secours
+probe_base_urls: >-
+  {{ ['http://' ~ app_vip ~ ':5173'] + groups['swarm_workers'] | map('extract', hostvars, 'ansible_host')
+     | map('regex_replace', '^', 'http://') | map('regex_replace', '$', ':5173') | list }}
+
+# Cadences (secondes) : vérification légère (frontal + /api/health), transaction complète
+probe_health_interval: 5
+probe_transaction_interval: 30
+# Montant fixe et titulaire distinctifs : les paiements de la sonde se reconnaissent en base
+probe_amount: 100
+probe_holder: Sonde
+probe_metrics_port: 9110
+
+# Comptes semés par la stack paiement (rôle app_stack, app_seed_users) ; mots de passe lus dans
+# Vault (secret/infra/paiement-app) par vault-env. Session operateur : lecture seule du
+# détecteur et du moteur par le relais (GET uniquement).
+probe_client_user: client
+probe_operator_user: operateur
+probe_secret_values:
+  client_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_AUTH_PASSWORD_CLIENT') }}"
+  operateur_password: "{{ lookup('ansible.builtin.env', 'PAIEMENT_AUTH_PASSWORD_OPERATEUR') }}"
+
+app_registry_username: "{{ lookup('ansible.builtin.env', 'REGISTRY_USERNAME') }}"
+app_registry_password: "{{ lookup('ansible.builtin.env', 'REGISTRY_PASSWORD') }}"
+
+# Adresse virtuelle de l'application (doit rester alignée avec roles/app_vip/defaults/main.yml)
+app_vip: 10.30.1.200

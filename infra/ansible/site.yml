@@ -11,3 +11,9 @@
 
 - name: Identités et secrets
   ansible.builtin.import_playbook: identity.yml
+
+- name: Assistant RAG (IA)
+  ansible.builtin.import_playbook: rag.yml
+
+- name: Sauvegarde logique de la base de l'application
+  ansible.builtin.import_playbook: db-backup.yml

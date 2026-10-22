@@ -81,10 +81,13 @@
 
 # SHA-512 crypt à 5000 tours : nginx vérifie le mot de passe à chaque requête (un push Alloy
 # par seconde et par hôte), bcrypt y coûterait trop cher. Sel déterministe : tâche idempotente.
-- name: Utilisateur autorisé
+# Second compte : lecture seule de l'assistant RAG (routes filtrées dans nginx-loki.conf.j2)
+- name: Utilisateurs autorisés
   ansible.builtin.copy:
     dest: /etc/nginx/loki.htpasswd
-    content: "{{ monitoring_auth_user }}:{{ loki_auth_password | password_hash('sha512', salt=((inventory_hostname ~ '-loki') | hash('sha256'))[:16], rounds=5000) }}\n"
+    content: |
+      {{ monitoring_auth_user }}:{{ loki_auth_password | password_hash('sha512', salt=((inventory_hostname ~ '-loki') | hash('sha256'))[:16], rounds=5000) }}
+      {{ rag_readonly_user }}:{{ rag_loki_read_password | password_hash('sha512', salt=((inventory_hostname ~ '-loki-ro') | hash('sha256'))[:16], rounds=5000) }}
     owner: root
     group: www-data
     mode: "0640"

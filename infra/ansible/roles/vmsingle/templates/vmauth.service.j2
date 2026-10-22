@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+# vmauth : API de VictoriaMetrics publiée sur :{{ vm_public_port }}, par compte et par route
+[Unit]
+Description=VictoriaMetrics vmauth (authentification par compte)
+Wants=network-online.target
+After=network-online.target victoria-metrics.service
+
+[Service]
+User=victoriametrics
+Group=victoriametrics
+EnvironmentFile=/etc/victoria-metrics/vmauth.env
+ExecStart=/usr/local/bin/vmauth \
+  -httpListenAddr=:{{ vm_public_port }} \
+  -httpInternalListenAddr={{ vmauth_internal_listen }} \
+  -auth.config=/etc/victoria-metrics/vmauth.yml \
+  -loggerLevel=WARN
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=3
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

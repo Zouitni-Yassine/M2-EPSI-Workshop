@@ -16,3 +16,8 @@ fw_admin_ports:
 # Accès Grafana de Rémi via son profil WireGuard personnel
 fw_grafana_allowed:
   - "10.250.90.9/32"
+
+# Flux depuis les segments RA (mêmes ports que les règles UniFi ra-app-to-monitoring, ra-dmz-to-loki)
+fw_segment_rules:
+  - { source: "{{ ra_app_cidr }}", ports: [3100, 8428, 9093], comment: "RA-APP : logs, metriques, alertes" }
+  - { source: "{{ ra_dmz_cidr }}", ports: [3100], comment: "RA-DMZ : logs" }

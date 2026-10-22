@@ -1,0 +1,48 @@
+# {{ ansible_managed }}
+# Stack "probe" : sonde de transaction de Resilience Pay (rôle probe, playbook probe.yml).
+# Elle joue un client réel par le relais public de l'application ({{ probe_base_urls | join(', ') }}),
+# jamais par les réseaux internes de la stack paiement. Attachée au seul réseau "monitoring"
+# (collecte de /metrics par le vmagent du Swarm) ; ses requêtes sortent par docker_gwbridge.
+# Mots de passe des comptes client et operateur : secrets Swarm à nom versionné, montés en
+# fichiers ; aucune valeur dans ce fichier ni dans l'environnement du service.
+services:
+  transactions:
+    image: {{ app_registry }}/{{ probe_image_name }}:{{ probe_image_tag }}
+    read_only: true
+    cap_drop: [ALL]
+    environment:
+      PROBE_BASE_URLS: "{{ probe_base_urls | join(',') }}"
+      PROBE_HEALTH_INTERVAL: "{{ probe_health_interval }}"
+      PROBE_TRANSACTION_INTERVAL: "{{ probe_transaction_interval }}"
+      PROBE_AMOUNT: "{{ probe_amount }}"
+      PROBE_HOLDER: "{{ probe_holder }}"
+      PROBE_CLIENT_USER: "{{ probe_client_user }}"
+      PROBE_OPERATOR_USER: "{{ probe_operator_user }}"
+      PROBE_LISTEN_PORT: "{{ probe_metrics_port }}"
+    secrets:
+      - { source: client_password, target: client_password, uid: "10010", mode: 0400 }
+      - { source: operateur_password, target: operateur_password, uid: "10010", mode: 0400 }
+    networks: [monitoring]
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == worker]
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+      restart_policy: { condition: any, delay: 5s }
+      update_config: { order: start-first, failure_action: rollback, monitor: 10s }
+      labels:
+        com.epsi.role: probe
+
+networks:
+  monitoring:
+    name: monitoring
+    external: true
+
+secrets:
+  client_password:
+    name: {{ probe_swarm_secrets.client_password }}
+    external: true
+  operateur_password:
+    name: {{ probe_swarm_secrets.operateur_password }}
+    external: true

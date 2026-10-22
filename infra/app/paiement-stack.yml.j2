@@ -1,0 +1,435 @@
+# {{ ansible_managed }}
+# Stack "{{ app_stack_name }}" (Resilience Pay) sur le Swarm, rendue par le rôle app_stack
+# (infra/ansible/app-deploy.yml). Dérivée de docker-compose.yml à la racine du dépôt : mêmes
+# services, réseaux, limites et politiques, adaptés au cluster :
+#   - images construites et poussées par app-build.yml ({{ app_registry }}), tags figés ;
+#   - secrets Swarm externes, au nom versionné (empreinte du contenu), montés sous le nom
+#     attendu par le code (target) ; aucune valeur dans ce fichier ni dans l'environnement ;
+#   - pas de build, container_name, security_opt, env_file (ignorés ou refusés par Swarm) ;
+#   - pas de docker-socket-proxy : le moteur passe par la passerelle SSH des managers ;
+#   - tous les services sur les workers (managers drainés) ;
+#   - base PostgreSQL selon app_db_mode (docs/application.md, "Base de données") :
+#     ha = Patroni + etcd, un membre par worker, bascule automatique ; single = ancienne base
+#     unique épinglée (retour arrière) ; migration = les deux, clients sur la base unique.
+# Les "$$" ci-dessous sont des "$" échappés pour l'interpolation de docker stack deploy.
+{% set db_ha = app_db_mode in ['migration', 'ha'] %}
+{% set db_legacy = app_db_mode in ['single', 'migration'] %}
+{# Clients : base unique, ou tous les membres en multi-hôtes (libpq choisit le primaire) #}
+{% if app_db_mode == 'ha' %}
+{%   set ns = namespace(hosts=[]) %}
+{%   for n in app_db_nodes %}{% set ns.hosts = ns.hosts + ['host=db' ~ loop.index ~ ':5432'] %}{% endfor %}
+{%   set db_query = '?' ~ (ns.hosts | join('&')) ~ '&' ~ app_db_url_options %}
+{%   set db_host = '' %}
+{% else %}
+{%   set db_query = '' %}
+{%   set db_host = 'db:5432' %}
+{% endif %}
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+
+x-worker: &worker
+  constraints: [node.role == worker]
+  preferences:
+    - spread: node.labels.pve_node
+
+services:
+{% if db_ha %}
+  # PostgreSQL haute disponibilité : un membre Patroni par worker (volume local à chaque nœud),
+  # un primaire élu dans etcd, standbys en réplication synchrone par quorum. Si le nœud du
+  # primaire tombe, un standby à jour est promu (verrou expiré : ~20 s) ; l'ancien primaire
+  # revient en standby (pg_rewind). Les clients listent tous les membres et ne retiennent que
+  # celui qui accepte les écritures (target_session_attrs=read-write).
+{% for node in app_db_nodes %}
+  etcd{{ loop.index }}:
+    image: {{ app_etcd_image }}
+    <<: *hardening
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd{{ loop.index }}
+      - --data-dir=/var/lib/etcd
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd{{ loop.index }}:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd{{ loop.index }}:2380
+      - --initial-cluster={% for n in app_db_nodes %}etcd{{ loop.index }}=http://etcd{{ loop.index }}:2380{{ ',' if not loop.last }}{% endfor %}
+
+      - --initial-cluster-state=new
+      - --initial-cluster-token={{ app_stack_name }}-etcd
+    volumes:
+      - etcd-data:/var/lib/etcd
+    # Réseau dédié : seuls les membres Patroni joignent etcd
+    networks: [dcs]
+    deploy:
+      endpoint_mode: dnsrr
+      placement:
+        constraints: [node.hostname == {{ node }}]
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+      restart_policy: { condition: any, delay: 5s }
+
+  db{{ loop.index }}:
+    image: {{ app_db_image_ref }}
+    <<: *hardening
+    # Utilisateur postgres de l'image : volume à son nom, aucune capacité nécessaire
+    user: postgres
+    # Repère des sauvegardes, de chaos.sh et de demo-check (primaire = membre hors recouvrement).
+    # Valeur fixe : un label modifié redémarrerait les trois membres en même temps
+    labels:
+      com.epsi.db: "{{ app_stack_name }}"
+    environment:
+      PATRONI_NAME: db{{ loop.index }}
+      PATRONI_RESTAPI_CONNECT_ADDRESS: db{{ loop.index }}:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: db{{ loop.index }}:5432
+      # Lu par db-init (post_bootstrap de Patroni, script db/init/01-roles.sh)
+      POSTGRES_USER: postgres
+    secrets:
+      - { source: postgres_password, target: postgres_password }
+      - { source: replication_password, target: replication_password }
+      - { source: patroni_api_password, target: patroni_api_password }
+      - { source: auth_db_password, target: auth_db_password }
+      - { source: payments_db_password, target: payments_db_password }
+    configs:
+      - { source: patroni, target: /etc/patroni/patroni.yml, mode: 0444 }
+      # Crée les rôles et bases auth / payments, à l'initialisation du cluster seulement
+      - { source: db_init, target: /usr/local/bin/db-init, mode: 0555 }
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - { type: tmpfs, target: /var/run/postgresql }
+      - { type: tmpfs, target: /tmp }
+    # Arrêt propre : Patroni rend le verrou et laisse un standby prendre la main (~4 s)
+    stop_grace_period: 30s
+    # Patroni vivant (et non "PostgreSQL prêt") : une reconstruction de standby peut durer
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8008/liveness', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 6
+      start_period: 30s
+    # data : clients et réplication ; dcs : etcd ; monitoring : /metrics de Patroni (8008)
+    networks: [data, dcs, monitoring]
+    deploy:
+      # DNS = adresse de la tâche (pas d'adresse virtuelle IPVS) : un membre arrêté disparaît
+      # du DNS et les clients passent aussitôt au suivant
+      endpoint_mode: dnsrr
+      placement:
+        constraints: [node.hostname == {{ node }}]
+      resources:
+        limits: { cpus: "1", memory: 512M }
+      restart_policy: { condition: any, delay: 5s }
+
+{% endfor %}
+{% endif %}
+{% if db_legacy %}
+  # Base unique (retour arrière, app_db_mode=single) : volume db-data d'origine sur {{ app_db_node }}
+  db:
+    image: {{ app_postgres_image }}
+    <<: *hardening
+{% if app_db_mode == 'single' %}
+    labels:
+      com.epsi.db: "{{ app_stack_name }}"
+{% endif %}
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - { source: postgres_password, target: postgres_password }
+      - { source: auth_db_password, target: auth_db_password }
+      - { source: payments_db_password, target: payments_db_password }
+    configs:
+      # Crée un rôle et une base par service, au premier démarrage du volume seulement
+      - source: db_init
+        target: /docker-entrypoint-initdb.d/01-roles.sh
+        mode: 0555
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - { type: tmpfs, target: /var/run/postgresql }
+      - { type: tmpfs, target: /tmp }
+    # Le strict nécessaire à l'image officielle pour préparer ses dossiers, puis passer à postgres
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+    # Aucun port publié : seuls auth et payment-api la joignent, par le réseau interne "data"
+    networks: [data]
+    deploy:
+      replicas: 1
+      placement:
+        # Volume local au nœud : la base est épinglée sur {{ app_db_node }}. Pas de bascule :
+        # si ce nœud tombe, la base reste arrêtée jusqu'à son retour
+        constraints:
+          - node.role == worker
+          - node.hostname == {{ app_db_node }}
+      resources:
+        limits: { cpus: "1", memory: 512M }
+      restart_policy: { condition: any, delay: 5s }
+{% endif %}
+
+  # Boîte mail de démonstration (e-mails de réinitialisation). Non publiée sur le cluster :
+  # un port publié par Swarm l'est sur tous les nœuds et contourne le firewall des hôtes.
+  mailpit:
+    image: {{ app_mailpit_image }}
+    networks: [resilience]
+    deploy:
+      replicas: 1
+      placement: *worker
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+      restart_policy: { condition: any, delay: 5s }
+
+  auth:
+    image: {{ app_registry }}/auth:{{ app_image_tags['auth'] }}
+    <<: *hardening
+    environment:
+      # Uvicorn ne croit X-Forwarded-For (adresse réelle du client, posée par le frontal) que
+      # venant des réseaux overlay de la stack : le freinage de la force brute vise le bon client
+      FORWARDED_ALLOW_IPS: "{{ swarm_default_addr_pool }}"
+      CORS_ORIGINS: "{{ app_cors_origins }}"
+      APP_URL: "{{ app_url }}"
+      COOKIE_SECURE: "{{ 'true' if app_url.startswith('https://') else 'false' }}"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      DATABASE_URL: "postgresql+psycopg://auth@{{ db_host }}/auth{{ db_query }}"
+      DB_PASSWORD_FILE: /run/secrets/auth_db_password
+      # Partagée par toutes les réplicas : un jeton signé par l'une est vérifiable par toutes
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      # Comptes semés au démarrage, mots de passe en secrets (AUTH_PASSWORD_<COMPTE>_FILE)
+      AUTH_SEED_USERS: "{{ app_seed_users | map(attribute='username') | zip(app_seed_users | map(attribute='role')) | map('join', ':') | join(',') }}"
+{% for u in app_seed_users %}
+      AUTH_PASSWORD_{{ u.username | upper }}_FILE: /run/secrets/auth_password_{{ u.username }}
+{% endfor %}
+      TOKEN_TTL_MINUTES: "{{ app_token_ttl_minutes }}"
+      AUTH_MAX_FAILURES: "5"
+      AUTH_MAX_FAILURES_PER_IP: "20"
+      AUTH_LOCKOUT_SECONDS: "300"
+    secrets:
+      - { source: auth_db_password, target: auth_db_password }
+      - { source: jwt_private_key, target: jwt_private_key }
+{% for u in app_seed_users %}
+      - { source: auth_password_{{ u.username }}, target: auth_password_{{ u.username }} }
+{% endfor %}
+    volumes:
+      - { type: tmpfs, target: /tmp }
+    # Aucun port publié : joignable par le relais (/auth/) et par payment-api ;
+    # "monitoring" : /metrics (port 8300) collecté par le vmagent du Swarm
+    networks: [resilience, data, monitoring]
+    deploy:
+      # 1 : le freinage de la force brute compte les échecs en mémoire
+      replicas: 1
+      placement: *worker
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+      restart_policy: { condition: any, delay: 5s, window: 30s }
+      update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s }
+      rollback_config: { parallelism: 1, order: start-first }
+
+  payment-api:
+    image: {{ app_registry }}/payment-api:{{ app_image_tags['payment-api'] }}
+    <<: *hardening
+    # STRIPE_SECRET_KEY n'a pas de variante _FILE dans le code : lue dans le secret au
+    # démarrage, jamais dans la spec du service. Commande d'origine : backend/Dockerfile.
+    command:
+      - sh
+      - -c
+      - >-
+        if [ -r /run/secrets/stripe_secret_key ]; then
+        export STRIPE_SECRET_KEY="$$(cat /run/secrets/stripe_secret_key)"; fi;
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      CORS_ORIGINS: "{{ app_cors_origins }}"
+      AUTH_URL: http://auth:8300
+      DATABASE_URL: "postgresql+psycopg://payments@{{ db_host }}/payments{{ db_query }}"
+      DB_PASSWORD_FILE: /run/secrets/payments_db_password
+      FORWARDED_ALLOW_IPS: "*"
+      PAYPAL_MAX_RPS: "5"
+{% if app_paypal_client_id | length > 0 %}
+      PAYPAL_CLIENT_ID: "{{ app_paypal_client_id }}"
+{% endif %}
+{% if 'paypal_client_secret' in app_swarm_secrets %}
+      PAYPAL_CLIENT_SECRET_FILE: /run/secrets/paypal_client_secret
+{% endif %}
+    secrets:
+      - { source: payments_db_password, target: payments_db_password }
+{% if 'stripe_secret_key' in app_swarm_secrets %}
+      - { source: stripe_secret_key, target: stripe_secret_key }
+{% endif %}
+{% if 'paypal_client_secret' in app_swarm_secrets %}
+      - { source: paypal_client_secret, target: paypal_client_secret }
+{% endif %}
+    volumes:
+      - { type: tmpfs, target: /tmp }
+    # Aucun port publié : relais (/api/), détecteur, moteur ; /metrics (8000) via "monitoring"
+    networks: [resilience, data, monitoring]
+    deploy:
+      replicas: 1
+      placement: *worker
+      resources:
+        limits: { cpus: "1", memory: 512M }
+      restart_policy:
+        # on-failure : Swarm relance après un crash, mais un arrêt volontaire (l'attaque
+        # "docker stop", code 0) reste au moteur de remédiation : c'est la démonstration
+        condition: on-failure
+        delay: 5s
+        window: 30s
+      # monitor court : la passerelle attend la fin de la mise à jour, et le healthcheck (5 s)
+      # valide déjà la nouvelle tâche ; 30 s ajoutaient autant au temps de reprise (test du 20/10)
+      update_config: { parallelism: 1, order: start-first, failure_action: rollback, monitor: 5s }
+      rollback_config: { parallelism: 1, order: start-first }
+
+  detector:
+    image: {{ app_registry }}/detector:{{ app_image_tags['detector'] }}
+    <<: *hardening
+    # DETECTOR_ADMIN_TOKEN sans variante _FILE : même principe que STRIPE_SECRET_KEY
+    command:
+      - sh
+      - -c
+      - >-
+        export DETECTOR_ADMIN_TOKEN="$$(cat /run/secrets/detector_admin_token)";
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8100
+    environment:
+      API_URL: http://payment-api:8000/api
+      WARMUP_SECONDS: "{{ app_detector_warmup_seconds }}"
+      THRESHOLD: "0.55"
+      CORS_ORIGINS: "{{ app_cors_origins }}"
+    secrets:
+      - { source: detector_admin_token, target: detector_admin_token }
+    volumes:
+      - { type: tmpfs, target: /tmp }
+    # monitoring : collecte de /metrics (score ML) par le vmagent du Swarm
+    networks: [resilience, monitoring]
+    deploy:
+      # Une seule réplica : le modèle vit en mémoire
+      replicas: 1
+      placement: *worker
+      resources:
+        limits: { cpus: "1", memory: 512M }
+      restart_policy: { condition: any, delay: 5s, window: 30s }
+
+  remediation:
+    image: {{ app_registry }}/remediation:{{ app_image_tags['remediation'] }}
+    <<: *hardening
+    environment:
+      DETECTOR_URL: http://detector:8100
+      API_URL: http://payment-api:8000/api
+      CORS_ORIGINS: "{{ app_cors_origins }}"
+      # Mode SSH : actions par la passerelle "remediate" des managers (docs/remediation.md)
+      REMEDIATION_MODE: ssh
+      REMEDIATION_GATEWAYS: "{{ groups['swarm_managers'] | map('extract', hostvars, 'ansible_host') | join(',') }}"
+      REMEDIATION_SSH_USER: remediation
+      REMEDIATION_SSH_KEY_FILE: /run/secrets/remediation_ssh_key
+      REMEDIATION_KNOWN_HOSTS_FILE: /run/configs/remediation_known_hosts
+      TARGETS: {{ app_stack_name }}_payment-api
+      COOLDOWN_SECONDS: "45"
+      VERIFY_TIMEOUT: "40"
+    secrets:
+      # Créé par le rôle remediation_gateway. Clé SSH : lisible par l'utilisateur de l'image
+      # seulement (uid 10003, remediation/Dockerfile), sinon ssh la refuse
+      - source: remediation_ssh_key
+        target: remediation_ssh_key
+        uid: "{{ app_remediation_uid }}"
+        gid: "{{ app_remediation_uid }}"
+        mode: 0400
+    configs:
+      # Empreintes des managers (rôle remediation_gateway) : pas de confiance au premier contact
+      - source: remediation_known_hosts
+        target: /run/configs/remediation_known_hosts
+        mode: 0444
+    volumes:
+      - { type: tmpfs, target: /tmp }
+    networks: [resilience]
+    deploy:
+      # Une seule réplica : deux moteurs décideraient deux fois. Sur un worker obligatoirement :
+      # la clé n'est acceptée par les managers que depuis les adresses des workers
+      replicas: 1
+      placement: *worker
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+      restart_policy: { condition: any, delay: 5s, window: 30s }
+
+  frontend:
+    image: {{ app_registry }}/frontend:{{ app_image_tags['frontend'] }}
+    <<: *hardening
+    volumes:
+      - { type: tmpfs, target: /var/cache/nginx }
+      - { type: tmpfs, target: /var/run }
+      - { type: tmpfs, target: /tmp }
+    # Écouter sur le port 80, puis passer les workers à l'utilisateur nginx
+    cap_add: [CHOWN, SETGID, SETUID, NET_BIND_SERVICE]
+    # Le seul port publié de la plateforme (maillage ingress : tous les nœuds)
+    ports:
+      - { target: 80, published: {{ app_frontend_port }}, protocol: tcp, mode: ingress }
+    networks: [resilience]
+    deploy:
+      # 3 réplicas, une par worker : la perte d'un conteneur ou d'un nœud ne coupe plus l'entrée
+      # (le maillage de routage répartit les requêtes entre elles). Sans état : rien à partager
+      replicas: 3
+      placement:
+        <<: *worker
+        max_replicas_per_node: 1
+      resources:
+        limits: { cpus: "0.5", memory: 64M }
+      restart_policy: { condition: any, delay: 5s, window: 30s }
+      # stop-first : une réplica par worker, la nouvelle tâche ne peut pas démarrer à côté de
+      # l'ancienne (start-first bloquait la mise à jour) ; les deux autres servent pendant ce temps
+      update_config: { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 30s }
+      rollback_config: { parallelism: 1, order: stop-first }
+
+volumes:
+  # Base unique (app_db_mode=single) : gardée, jamais supprimée par la stack
+  db-data:
+{% if db_ha %}
+  # Un volume local par nœud (même nom sur chaque worker) : membre Patroni et membre etcd
+  pg-data:
+  etcd-data:
+{% endif %}
+
+networks:
+  resilience:
+    driver: overlay
+    driver_opts:
+      encrypted: "true"
+  # Base de données : pas d'accès sortant, rien de publié
+  data:
+    driver: overlay
+    internal: true
+    driver_opts:
+      encrypted: "true"
+{% if db_ha %}
+  # Verrou du primaire : etcd et membres Patroni seulement
+  dcs:
+    driver: overlay
+    internal: true
+    driver_opts:
+      encrypted: "true"
+{% endif %}
+  # Créé par la stack monitoring (rôle swarm_monitoring) : collecte des /metrics
+  monitoring:
+    name: monitoring
+    external: true
+
+# Secrets et configs Swarm immuables : nom = préfixe + empreinte du contenu (rôle app_stack).
+secrets:
+{% for key, name in app_swarm_secrets | dictsort %}
+  {{ key }}:
+    name: {{ name }}
+    external: true
+{% endfor %}
+  remediation_ssh_key:
+    name: remediation_ssh_key
+    external: true
+
+configs:
+  db_init:
+    name: {{ app_db_init_config_name }}
+    external: true
+{% if db_ha %}
+  patroni:
+    name: {{ app_patroni_config_name }}
+    external: true
+{% endif %}
+  remediation_known_hosts:
+    name: {{ app_known_hosts_config.stdout }}
+    external: true

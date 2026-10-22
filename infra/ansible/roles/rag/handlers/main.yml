@@ -1,0 +1,48 @@
+- name: Recharger nftables
+  ansible.builtin.systemd_service:
+    name: nftables
+    state: reloaded
+
+- name: Redémarrer Ollama
+  ansible.builtin.systemd_service:
+    name: ollama
+    state: restarted
+    daemon_reload: true
+
+# Interface web : redémarrée seulement si elle est activée (rag_ui_enabled)
+- name: Redémarrer l'assistant
+  ansible.builtin.systemd_service:
+    name: rag-assistant
+    state: restarted
+    daemon_reload: true
+  when: rag_ui_enabled | bool
+
+- name: Recharger SSH
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: reloaded
+
+- name: Recharger nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+
+# Même code et même venv que l'assistant : redémarrée avec lui
+- name: Redémarrer l'API de l'assistant
+  ansible.builtin.systemd_service:
+    name: rag-api
+    state: restarted
+    daemon_reload: true
+  listen: Redémarrer l'assistant
+
+- name: Redémarrer le serveur MCP
+  ansible.builtin.systemd_service:
+    name: rag-mcp
+    state: restarted
+    daemon_reload: true
+
+- name: Redémarrer le bot Discord
+  ansible.builtin.systemd_service:
+    name: discord-bot
+    state: restarted
+    daemon_reload: true

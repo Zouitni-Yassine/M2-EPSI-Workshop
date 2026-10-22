@@ -1,0 +1,71 @@
+# Bot Discord de l'équipe (docs/rag.md, section 9) : relaie les questions du salon autorisé vers
+# l'API locale de l'assistant. Utilisateur dédié, venv dédié, aucun accès au reste de la machine.
+
+- name: Utilisateur système du bot (non privilégié)
+  ansible.builtin.user:
+    name: "{{ discord_bot_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/discord-bot
+    create_home: false
+
+- name: Répertoires du bot
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ discord_bot_dir }}", group: root, mode: "0755" }
+    - { path: /etc/discord-bot, group: "{{ discord_bot_user }}", mode: "0750" }
+
+# Jeton Discord : lisible par le bot seul. Jeton de l'API : copie dédiée, lisible par son groupe
+- name: Jetons du bot
+  ansible.builtin.copy:
+    dest: "/etc/discord-bot/{{ item.name }}"
+    content: "{{ item.value }}"
+    owner: "{{ item.owner }}"
+    group: "{{ discord_bot_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { name: discord_token, value: "{{ discord_bot_token }}", owner: "{{ discord_bot_user }}", mode: "0600" }
+    - { name: api_token, value: "{{ rag_api_token }}", owner: root, mode: "0640" }
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  notify: Redémarrer le bot Discord
+
+- name: Code et dépendances figées du bot (infra/rag/discord_bot)
+  ansible.builtin.copy:
+    src: "{{ discord_bot_src }}/{{ item }}"
+    dest: "{{ discord_bot_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [bot.py, requirements.txt]
+  notify: Redémarrer le bot Discord
+
+- name: Dépendances Python du bot (venv dédié, versions figées)
+  ansible.builtin.pip:
+    requirements: "{{ discord_bot_dir }}/requirements.txt"
+    virtualenv: "{{ discord_bot_dir }}/venv"
+    virtualenv_command: python3 -m venv
+  notify: Redémarrer le bot Discord
+
+- name: Service systemd discord-bot
+  ansible.builtin.template:
+    src: discord-bot.service.j2
+    dest: /etc/systemd/system/discord-bot.service
+    mode: "0644"
+  notify: Redémarrer le bot Discord
+
+- name: Appliquer les changements du bot
+  ansible.builtin.meta: flush_handlers
+
+- name: Bot actif
+  ansible.builtin.systemd_service:
+    name: discord-bot
+    enabled: true
+    state: started
+    daemon_reload: true

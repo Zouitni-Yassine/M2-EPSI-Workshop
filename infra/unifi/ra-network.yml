@@ -1,0 +1,48 @@
+# Segmentation RESILIENCE-ALPHA sur la passerelle UniFi (UCG Ultra, Network 10.6).
+# Appliqué par ./unifi-ra (plan par défaut, --apply pour modifier). Le script ne gère QUE les
+# objets nommés RA-* (réseaux, zones) et ra-* (politiques) : le reste de la console n'est jamais
+# modifié ni supprimé. Doit rester aligné avec infra/terraform/network.tf (vnets SDN).
+
+# Réseau et zone existants servant de référence (non gérés)
+management_network: MANAGEMENT # VLAN 10, 10.0.1.0/24 : hyperviseurs, .110, supervision, identité
+internal_zone: Internal
+
+networks:
+  - { name: RA-APP, vlan: 301, gateway: 10.30.1.254/24 } # Swarm : l'application attaquée
+  - { name: RA-DMZ, vlan: 302, gateway: 10.30.2.254/24 } # exposé : NetBird, WAF
+  - { name: RA-VPN, vlan: 303, gateway: 10.30.3.254/24 } # passerelle NetBird vers le lab
+
+# Une zone par réseau (même nom). Zones personnalisées = tout refusé par défaut, sauf Internet,
+# la passerelle et le trafic de retour : seules les politiques ci-dessous ouvrent des flux.
+# from/to : un réseau RA-*, "management" (le réseau MANAGEMENT seul, jamais toute la zone
+# Internal), "ip:<adresse>" (machine de MANAGEMENT), "<zone RA>:<adresse>" (machine d'une zone
+# RA-*, ex. RA-APP:10.30.1.230) ou "net:<nom>" (réseau existant hors projet, ex. un serveur VPN,
+# jamais modifié). ports : liste, absent = tous.
+policies:
+  - { name: ra-mgmt-to-app, from: management, to: RA-APP, desc: "administration (Ansible, SSH) et collecte des métriques" }
+  - { name: ra-mgmt-to-dmz, from: management, to: RA-DMZ, desc: "administration et collecte des métriques" }
+  - { name: ra-mgmt-to-vpn, from: management, to: RA-VPN, desc: "administration et collecte des métriques" }
+  - { name: ra-app-to-monitoring, from: RA-APP, to: "ip:10.0.1.233", protocol: tcp, ports: [3100, 8428, 9093], desc: "Loki, VictoriaMetrics (remote write), Alertmanager (moteur de remédiation)" }
+  - { name: ra-app-to-vault, from: RA-APP, to: "ip:10.0.1.242", protocol: tcp, ports: [8200], desc: "secrets de l'application" }
+  - { name: ra-app-to-keycloak, from: RA-APP, to: "ip:10.0.1.241", protocol: tcp, ports: [443], desc: "SSO" }
+  - { name: ra-dmz-to-loki, from: RA-DMZ, to: "ip:10.0.1.233", protocol: tcp, ports: [3100], desc: "logs" }
+  - { name: ra-dmz-to-keycloak, from: RA-DMZ, to: "ip:10.0.1.241", protocol: tcp, ports: [443], desc: "SSO (NetBird)" }
+  # Exposition publique de l'application (docs/application.md, Exposition publique) : WAF (RA-DMZ) vers le
+  # frontal publié par Swarm sur tous les nœuds (maillage de routage, port 5173)
+  - { name: ra-dmz-to-app, from: RA-DMZ, to: RA-APP, protocol: tcp, ports: [5173], desc: "WAF vers le frontal de l'application (port publié par Swarm)" }
+  # NPM (172.16.1.10, réseau DMZ VLAN 9 de la zone Internal, hors projet) vers le WAF (RA-DMZ,
+  # 10.30.2.251) en HTTPS. Le script ne cible qu'une zone RA-* entière en destination : le
+  # firewall nftables du WAF limite ensuite 8443 à NPM.
+  - { name: ra-npm-to-waf, from: "ip:172.16.1.10", to: RA-DMZ, protocol: tcp, ports: [8443], desc: "reverse proxy NPM vers le WAF (HTTPS)" }
+  # Accès VPN : le filtrage par utilisateur et par groupe Keycloak est fait par NetBird
+  - { name: ra-vpn-to-mgmt, from: RA-VPN, to: management, desc: "VPN admin (droits par groupe dans NetBird)" }
+  - { name: ra-vpn-to-dmz, from: RA-VPN, to: RA-DMZ, desc: "VPN admin" }
+  - { name: ra-vpn-to-app, from: RA-VPN, to: RA-APP, desc: "VPN admin" }
+  # Délestage IA (docs/rag.md) : PC à GPU d'un membre de l'équipe, raccordé par le VPN WireGuard
+  # EPSI-WS-IA (192.168.2.0/24). Les membres du VPN EPSI-WG l'administrent (ping, SSH, RDP) ; lui
+  # ne joint que rag01 : tunnel SSH vers Ollama (22).
+  # Vpn -> Vpn est déjà autorisé par défaut sur la console : ces règles rendent le flux explicite.
+  - { name: ra-wg-to-iapc-icmp, from: "net:EPSI-WG", to: "net:EPSI-WS-IA", protocol: icmp, desc: "ping du PC de délestage IA" }
+  - { name: ra-wg-to-iapc, from: "net:EPSI-WG", to: "net:EPSI-WS-IA", protocol: tcp_udp, ports: [22, 3389], desc: "SSH et RDP vers le PC de délestage IA" }
+  - { name: ra-iapc-to-rag-icmp, from: "net:EPSI-WS-IA", to: "RA-APP:10.30.1.230", protocol: icmp, desc: "ping de rag01" }
+  - { name: ra-iapc-to-rag, from: "net:EPSI-WS-IA", to: "RA-APP:10.30.1.230", protocol: tcp, ports: [22], desc: "tunnel SSH vers Ollama sur rag01 (interface web désactivée)" }

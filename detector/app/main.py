@@ -21,8 +21,9 @@ from typing import Any
 
 import numpy as np
 import requests
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
 from sklearn.ensemble import IsolationForest
 
 API_URL = os.getenv("API_URL", "http://localhost:8000/api")
@@ -45,6 +46,21 @@ FEATURES = ["rps", "errRate", "p95", "stripeLatency", "apiUp", "stripeUp"]
 # a des variables quasi constantes ; sans plancher, la moindre requête
 # deviendrait un écart infini. Ce sont des unités, pas des règles.
 SCALE_FLOOR = np.array([1.0, 0.05, 100.0, 100.0, 0.5, 0.5])
+
+# Métriques Prometheus (/metrics), collectées par le vmagent du Swarm : le score entre dans la
+# supervision (historique, alerte, dashboard). La collecte a lieu toutes les 30 s alors que le
+# détecteur décide chaque seconde : les compteurs gardent la trace d'une anomalie plus brève
+# que l'intervalle de collecte.
+SCORE = Gauge("detector_anomaly_score", "Score d'anomalie lissé (0 normal, 1 très anormal)")
+THRESHOLD_GAUGE = Gauge("detector_threshold", "Seuil au-delà duquel une seconde compte comme anormale")
+ANOMALY = Gauge("detector_anomaly", "1 si l'anomalie est confirmée (seuil dépassé PERSISTENCE secondes de suite)")
+READY = Gauge("detector_ready", "1 quand le modèle a appris la normale, 0 pendant l'échauffement")
+TRAIN_SAMPLES = Gauge("detector_training_samples", "Observations apprises pendant l'échauffement")
+FEATURE = Gauge("detector_feature", "Dernière valeur observée de chaque variable du modèle", ["feature"])
+OBSERVATIONS = Counter("detector_observations_total", "Observations de payment-api (une par seconde)")
+OVER_SECONDS = Counter("detector_over_threshold_seconds_total", "Secondes dont le score brut dépasse le seuil")
+ANOMALIES = Counter("detector_anomalies_total", "Anomalies confirmées (passage de normal à anormal)")
+THRESHOLD_GAUGE.set(THRESHOLD)
 
 app = FastAPI(title="Resilience Pay — détecteur", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=["GET"], allow_headers=["*"])
@@ -127,12 +143,25 @@ def loop() -> None:
                 # Lissage pour l'affichage, persistance pour la décision.
                 _state["ema"] = raw if _state["ema"] is None else 0.5 * _state["ema"] + 0.5 * raw
                 _state["streak"] = _state["streak"] + 1 if raw >= THRESHOLD else 0
+                was_over = _state["over"]
                 _state["over"] = _state["streak"] >= PERSISTENCE
                 score = _state["ema"]
+                if raw >= THRESHOLD:
+                    OVER_SECONDS.inc()
+                if _state["over"] and not was_over:
+                    ANOMALIES.inc()
             _state["seq"] += 1
             if score is not None:
                 _state["points"].append({"seq": _state["seq"], "score": round(score, 3)})
             _state["last"] = dict(zip(FEATURES, x))
+            OBSERVATIONS.inc()
+            READY.set(1 if _state["model"] is not None else 0)
+            TRAIN_SAMPLES.set(len(_state["train"]))
+            ANOMALY.set(1 if _state["over"] else 0)
+            if score is not None:
+                SCORE.set(score)
+            for name, value in zip(FEATURES, x):
+                FEATURE.labels(name).set(value)
         time.sleep(max(0.0, 1.0 - (time.time() - started)))
 
 
@@ -165,6 +194,12 @@ def score() -> dict[str, Any]:
         }
 
 
+@app.get("/metrics", include_in_schema=False)
+def metrics() -> Response:
+    """Format Prometheus. Non relayé par le frontal : seul le réseau interne du Swarm y accède."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.post("/reset")
 def reset(x_admin_token: str = Header(default="")) -> dict[str, Any]:
     """Réapprend la normale à partir de maintenant. Réservé à l'opérateur qui détient le jeton."""
@@ -175,4 +210,5 @@ def reset(x_admin_token: str = Header(default="")) -> dict[str, Any]:
     with _lock:
         _state.update(status="learning", model=None, mu=None, sd=None, train=[], trained_at=None, ema=None, streak=0, over=False)
         _state["points"].clear()
+        SCORE.set(0)  # plus de score tant que la nouvelle normale n'est pas apprise
     return {"ok": True}

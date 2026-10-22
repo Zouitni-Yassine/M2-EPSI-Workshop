@@ -1,0 +1,10 @@
+#!/bin/sh
+# patronictl avec les mots de passe de l'entrypoint (sinon il refuse la configuration) :
+#   docker exec <conteneur> pctl list | switchover | failover | reinit <scope> <membre> ...
+set -eu
+secret() { tr -d '\r\n' < "/run/secrets/$1"; }
+PATRONI_SUPERUSER_PASSWORD="$(secret postgres_password)"
+PATRONI_REPLICATION_PASSWORD="$(secret replication_password)"
+PATRONI_RESTAPI_PASSWORD="$(secret patroni_api_password)"
+export PATRONI_SUPERUSER_PASSWORD PATRONI_REPLICATION_PASSWORD PATRONI_RESTAPI_PASSWORD
+exec patronictl -c "${PATRONI_CONFIG:-/etc/patroni/patroni.yml}" "$@"

@@ -55,6 +55,13 @@ des deux régimes.
 | `GET /health` | état et nombre d'échantillons appris |
 | `GET /score` | score courant, verdict `over`, 120 derniers points, seuil, dernières variables |
 | `POST /reset` | réapprend la normale à partir de maintenant |
+| `GET /metrics` | métriques Prometheus, collectées par le vmagent du Swarm (non relayé par le frontal) |
+
+Métriques : `detector_anomaly_score` (score lissé), `detector_threshold`, `detector_anomaly`
+(1 = anomalie confirmée), `detector_ready`, `detector_training_samples`,
+`detector_feature{feature}` (les 6 variables), et les compteurs `detector_observations_total`,
+`detector_over_threshold_seconds_total`, `detector_anomalies_total`. La collecte a lieu toutes
+les 30 s : les compteurs gardent la trace d'une anomalie plus courte que cet intervalle.
 
 ## Limites, à dire au jury
 

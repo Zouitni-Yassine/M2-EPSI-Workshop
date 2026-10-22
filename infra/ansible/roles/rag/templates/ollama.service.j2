@@ -1,0 +1,35 @@
+# {{ ansible_managed }}
+# Ollama {{ ollama_version }} : API sur {{ ollama_listen }} uniquement (jamais exposée au réseau)
+[Unit]
+Description=Ollama (modèles de l'assistant RAG)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ollama
+Group=ollama
+ExecStart={{ ollama_dir }}/{{ ollama_version }}/bin/ollama serve
+Environment=HOME={{ ollama_data_dir }}
+Environment=OLLAMA_HOST={{ ollama_listen }}
+Environment=OLLAMA_MODELS={{ ollama_data_dir }}/models
+Environment=OLLAMA_KEEP_ALIVE={{ ollama_keep_alive }}
+Restart=on-failure
+RestartSec=3
+
+# Durcissement : seul le répertoire des modèles est inscriptible
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ ollama_data_dir }}
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

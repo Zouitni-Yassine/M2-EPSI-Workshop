@@ -48,14 +48,17 @@ infra/
 | Machine | Type | IP | Rôle |
 |---|---|---|---|
 | ceph01-03 | Proxmox VE 9 + Ceph | 10.0.1.100-102 | Hyperviseurs, stockage Ceph partagé |
-| dockermgr01-03 | VM 2 vCPU / 4 Go | 10.0.1.211-213 | Managers Swarm (Raft), drainés |
-| dockerwrk01-03 | VM 4 vCPU / 12 Go | 10.0.1.221-223 | Workers Swarm : conteneurs applicatifs |
+| dockermgr01-03 | VM 2 vCPU / 4 Go | 10.30.1.211-213 (VLAN 301) | Managers Swarm (Raft), drainés |
+| dockerwrk01-03 | VM 4 vCPU / 12 Go | 10.30.1.221-223 (VLAN 301) | Workers Swarm : conteneurs applicatifs |
 | vmagent01-02 | LXC 1 vCPU / 1 Go | 10.0.1.231-232 | Collecteurs de métriques redondants |
 | monitoring01 | LXC 4 vCPU / 8 Go | 10.0.1.233 | VictoriaMetrics, vmalert, Alertmanager, Loki, Grafana |
 | iam01 | LXC 2 vCPU / 3 Go | 10.0.1.241 | Keycloak (SSO), PostgreSQL |
 | vault01 | LXC 1 vCPU / 1 Go | 10.0.1.242 | HashiCorp Vault |
 | vaultwarden01 | LXC 1 vCPU / 1 Go | 10.0.1.243 | Vaultwarden (mots de passe de l'équipe) |
-| waf01 | VM (équipe cyber) | 10.0.1.251 | WAF ; seul l'envoi des logs y est géré par l'infra |
+| waf01 | VM (équipe cyber) | 10.30.2.251 (RA-DMZ) | WAF ; VM importée dans Terraform, seul l'envoi des logs y est géré par Ansible ([docs/waf.md](docs/waf.md)) |
+
+Le Swarm est isolé dans le VLAN `RA-APP` ; le reste est sur `MANAGEMENT` (10.0.1.0/24). Flux autorisés
+et procédure : [docs/reseau.md](docs/reseau.md).
 
 Chaque hyperviseur porte un manager et un worker : la perte d'un hôte ne coûte qu'un nœud de
 chaque type, et la HA Proxmox redémarre ses machines sur les deux autres.

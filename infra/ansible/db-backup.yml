@@ -1,0 +1,9 @@
+# Sauvegarde logique de la base de l'application (pg_dump toutes les 15 min) et test de restauration
+#   cd /srv/M2-EPSI-Workshop/infra/ansible
+#   vault-env ansible-playbook db-backup.yml
+#   paiement-db-restore-test        (sur 10.0.1.110 : test de restauration, mesure RPO / RTO)
+
+- name: Sauvegarde de la base de l'application
+  hosts: control
+  roles:
+    - db_backup

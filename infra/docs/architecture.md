@@ -54,7 +54,7 @@ flowchart TB
 | .221-.223 | Workers Swarm | VMID = dernier octet |
 | .231-.233 | LXC de supervision | VMID = dernier octet |
 | .241-.243 | LXC d'identité : Keycloak, Vault, Vaultwarden | VMID = dernier octet |
-| .251 | WAF de l'équipe cyber (waf01, hors Terraform) | VMID = dernier octet |
+| .251 | WAF de l'équipe cyber (waf01) : **déplacé en RA-DMZ, 10.30.2.251**, le 21/10 ([waf.md](waf.md)) | VMID = dernier octet |
 
 Groupes Ansible hors du socle : `pve` (hyperviseurs : CA interne, SSO, logs), `control` (.110,
 connexion locale : logs) et `waf` (waf01 : **logs seulement**, son firewall appartient à l'équipe
@@ -266,7 +266,7 @@ Détails dans [supervision.md](supervision.md).
 
 | Limite actuelle | Risque | En production |
 |---|---|---|
-| Réseau plat 10.0.1.0/24 (admin, Ceph, applications, supervision) | Un composant compromis voit tout le LAN | VLAN séparés : admin, stockage, applicatif, supervision ; Ceph sur un réseau dédié |
+| Application isolée en VLAN (`RA-APP`), mais supervision et identité partagent `MANAGEMENT` avec les hyperviseurs ([reseau.md](reseau.md)) | Une compromission de la supervision ou de l'identité donne accès au réseau d'administration | VLAN dédiés pour la supervision, l'identité et le stockage |
 | Un seul lien corosync | Une coupure de ce lien peut déclencher un fencing | Deux liens corosync sur des réseaux distincts |
 | VictoriaMetrics single-node, Loki monolithique | Point unique, atténué par la HA Proxmox et le tampon vmagent | Cluster VictoriaMetrics et Loki en mode distribué avec stockage objet |
 | HTTP sans TLS dans la supervision (les services d'identité sont en HTTPS) | Identifiants Basic lisibles sur le LAN | TLS partout avec la CA interne, SSO / OIDC pour Grafana |

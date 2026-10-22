@@ -1,0 +1,82 @@
+# Construit les images de Resilience Pay sur un manager (Docker y est installé ; le poste de
+# contrôle est un LXC sans Docker) et les pousse dans le registre du Swarm.
+# Tags : <version du compose>-<commit court>[-<empreinte des build args>] (figé, jamais réécrit)
+# et <version du compose> (celui du docker-compose.yml, pointé sur la dernière construction).
+# Idempotent : une image dont le tag figé existe déjà dans le registre n'est pas reconstruite.
+
+- name: Révision figée
+  ansible.builtin.assert:
+    that: app_git_ref is match('^[0-9a-f]{40}$')
+    fail_msg: "app_git_ref doit être un commit complet (40 caractères hexadécimaux), pas une branche"
+    quiet: true
+
+- name: Dossier de travail
+  ansible.builtin.file:
+    path: "{{ app_build_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Code source à la révision {{ app_git_ref[:7] }}
+  ansible.builtin.git:
+    repo: "{{ app_build_repo }}"
+    dest: "{{ app_build_dir }}/src"
+    version: "{{ app_git_ref }}"
+    force: true
+
+- name: Lire docker-compose.yml
+  ansible.builtin.slurp:
+    src: "{{ app_build_dir }}/src/docker-compose.yml"
+  register: app_build_compose_raw
+
+- name: Services du compose
+  ansible.builtin.set_fact:
+    app_build_compose: "{{ app_build_compose_raw.content | b64decode | from_yaml }}"
+    app_build_plan: []
+
+- name: Images demandées présentes dans le compose
+  ansible.builtin.assert:
+    that: item in app_build_compose.services and app_build_compose.services[item].build is defined
+    fail_msg: "{{ item }} : service absent du docker-compose.yml ou sans build"
+    quiet: true
+  loop: "{{ app_build_images }}"
+
+# Nom et version tirés de "image: ${REGISTRY:-resilience}/<nom>:<version>" ; contexte et build
+# args tirés de "build:". Les build args ${VAR} prennent leur valeur dans app_build_arg_values.
+- name: Plan de construction
+  ansible.builtin.set_fact:
+    app_build_plan: >-
+      {{ app_build_plan + [{
+           'service': item,
+           'name': _ref.split(':')[0],
+           'version': _ref.split(':')[1],
+           'context': app_build_dir ~ '/src/' ~ (_build if _build is string else _build.context),
+           'args': _args,
+           'tag': _ref.split(':')[1] ~ '-' ~ app_git_ref[:7]
+                  ~ (('-' ~ (_args | to_json(sort_keys=true) | hash('sha256'))[:8]) if _args else '')
+         }] }}
+  vars:
+    _ref: "{{ app_build_compose.services[item].image | regex_replace('^.*/', '') }}"
+    _build: "{{ app_build_compose.services[item].build }}"
+    _raw_args: "{{ (_build.args | default({})) if _build is mapping else {} }}"
+    _args: >-
+      {{ _raw_args | combine(app_build_arg_values | dict2items
+                             | selectattr('key', 'in', _raw_args.keys() | list) | items2dict) }}
+  loop: "{{ app_build_images }}"
+  no_log: true # build args du frontend (clé Stripe publiable)
+
+- name: Construire et pousser chaque image
+  ansible.builtin.include_tasks: image.yml
+  loop: "{{ app_build_plan }}"
+  loop_control:
+    loop_var: app_image
+    label: "{{ app_image.name }}:{{ app_image.tag }}"
+
+- name: Images disponibles dans le registre
+  ansible.builtin.debug:
+    msg: "{{ app_registry }}/{{ app_image.name }}:{{ app_image.tag }} (aussi :{{ app_image.version }})"
+  loop: "{{ app_build_plan }}"
+  loop_control:
+    loop_var: app_image
+    label: "{{ app_image.name }}"

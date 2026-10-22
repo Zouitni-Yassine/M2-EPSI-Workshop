@@ -1,0 +1,40 @@
+# {{ ansible_managed }}
+# Serveur MCP « supervision » de l'assistant : outils en LECTURE SEULE (compte {{ rag_readonly_user }}
+# de VictoriaMetrics et de Loki). Écoute {{ rag_mcp_host }}:{{ rag_mcp_port }} uniquement.
+[Unit]
+Description=Outils de supervision de l'assistant RAG (MCP, lecture seule)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=rag
+Group=rag
+WorkingDirectory={{ rag_dir }}/mcp_supervision
+Environment=HOME={{ rag_data_dir }}
+Environment=LANG=C.UTF-8
+Environment=RAG_MCP_HOST={{ rag_mcp_host }}
+Environment=RAG_MCP_PORT={{ rag_mcp_port }}
+Environment=RAG_VM_URL={{ rag_vm_url }}
+Environment=RAG_LOKI_URL={{ rag_loki_url }}
+Environment=RAG_READONLY_USER={{ rag_readonly_user }}
+Environment=RAG_VM_PASSWORD_FILE={{ rag_secrets_dir }}/vm_password
+Environment=RAG_LOKI_PASSWORD_FILE={{ rag_secrets_dir }}/loki_password
+ExecStart={{ rag_dir }}/venv/bin/python {{ rag_dir }}/mcp_supervision/server.py
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
