@@ -20,6 +20,10 @@ Consortium **M2 · Groupe G\<n\>**
 
 De l'attaque au paiement vérifié, **sans humain dans la boucle** :
 
+**Reprise de la partie cyber :** [guide de passation](cyber/README.md),
+[exploitation et travail restant](cyber/EXPLOITATION.md),
+[présentation et questions du jury](cyber/JURY.md).
+
 ```
 Attaque ─▶ Collecte (métriques + journaux) ─▶ Détection ML (2–4 s) ─▶ Décision
    │                                                                      │
@@ -29,20 +33,17 @@ Attaque ─▶ Collecte (métriques + journaux) ─▶ Détection ML (2–4 s) �
 WAF : IP bannie (27 s)                         Service redémarré ─▶ Paiement de contrôle ✅
 ```
 
----
-
-## Sommaire
-
-- [Les cinq piliers](#les-cinq-piliers)
-- [Démarrage rapide](#démarrage-rapide)
-- [Architecture en bref](#architecture-en-bref)
-- [Résultats mesurés](#résultats-mesurés)
-- [Navigation du dépôt](#navigation-du-dépôt)
-- [Documentation](#documentation)
-- [Contributions de l'équipe](#contributions-de-léquipe)
-- [Livrables & sécurité](#livrables--sécurité)
-
----
+| Dossier | Rôle | Doc |
+| --- | --- | --- |
+| `frontend/` | Boutique, connexion, paiement, journal, supervision ; son nginx est le relais unique | [README](frontend/README.md) |
+| `auth/` | Comptes, rôles client / opérateur, jetons signés, freinage de la force brute | [README](auth/README.md) |
+| `backend/` | API de paiement, porte la clé Stripe, vérifie les jetons, journal en base, expose métriques et sonde | [README](backend/README.md) |
+| `db/` | PostgreSQL : une base et un rôle par service, secrets Docker | [README](db/README.md) |
+| `detector/` | Score d'anomalie chaque seconde, appris sur le trafic normal | [README](detector/README.md) |
+| Mailpit | Boîte mail de démonstration (réinitialisation de mot de passe), UI sur `http://localhost:8025` | — |
+| `remediation/` | Écoute le verdict, redémarre la cible, vérifie la reprise | [README](remediation/README.md) |
+| `redteam/` | Tests WAF/SOC et stimuli applicatifs bornés depuis le PC attaquant | [Guide de démarrage](redteam/README.md) |
+| `cyber/` | Passation cyber/gouvernance, exploitation, preuves et discours jury | [Guide de passation](cyber/README.md) |
 
 ## Les cinq piliers
 

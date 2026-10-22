@@ -1,0 +1,12 @@
+{
+  "name": "RESILIENCE-ALPHA - entrée publique autorisée",
+  "allowed_origins": [
+    "https://app.slabreze.fr"
+  ],
+  "default_origin": "https://app.slabreze.fr",
+  "ca_file": null,
+  "max_requests": 40,
+  "max_rate": 2,
+  "timeout_seconds": 3,
+  "burst_max_requests": 800
+}
