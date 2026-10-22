@@ -3,6 +3,10 @@
 Démonstrateur de cyber-résilience : une plateforme de paiement qui détecte une
 anomalie et se répare seule, sans intervention humaine.
 
+**Reprise de la partie cyber :** [guide de passation](cyber/README.md),
+[exploitation et travail restant](cyber/EXPLOITATION.md),
+[présentation et questions du jury](cyber/JURY.md).
+
 ```
                  seul port publié (:5173)
 navigateur ──► frontend : nginx, relais ──/auth/──► auth (jetons Ed25519, cookie httpOnly) ──┐
@@ -22,6 +26,7 @@ navigateur ──► frontend : nginx, relais ──/auth/──► auth (jetons
 | Mailpit | Boîte mail de démonstration (réinitialisation de mot de passe), UI sur `http://localhost:8025` | — |
 | `remediation/` | Écoute le verdict, redémarre la cible, vérifie la reprise | [README](remediation/README.md) |
 | `redteam/` | Tests WAF/SOC et stimuli applicatifs bornés depuis le PC attaquant | [Guide de démarrage](redteam/README.md) |
+| `cyber/` | Passation cyber/gouvernance, exploitation, preuves et discours jury | [Guide de passation](cyber/README.md) |
 
 ## Lancer le démonstrateur
 
