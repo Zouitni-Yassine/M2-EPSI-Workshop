@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { AccessPage } from './admin/AccessPage'
 import { LoginPage } from './auth/LoginPage'
 import { useAuth } from './auth/session'
 import { LedgerPage } from './payments/LedgerPage'
@@ -46,7 +47,7 @@ export default function App() {
     return <LoginPage notice={notice} onBack={() => setView('shop')} resetToken={resetToken} onClearReset={() => setResetToken(undefined)} />
   }
 
-  const adminView: AdminView | null = operator && (view === 'ledger' || view === 'ops') ? view : null
+  const adminView: AdminView | null = operator && (view === 'ledger' || view === 'ops' || view === 'access') ? view : null
 
   return (
     <div className="min-h-full">
@@ -61,6 +62,8 @@ export default function App() {
 
       {adminView === 'ops' ? (
         <OpsPage />
+      ) : adminView === 'access' ? (
+        <AccessPage />
       ) : adminView === 'ledger' ? (
         <LedgerPage version={version} operator />
       ) : view === 'orders' && user ? (
