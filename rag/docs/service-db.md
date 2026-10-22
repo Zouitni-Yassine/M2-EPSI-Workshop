@@ -44,3 +44,13 @@ rôles ne sont créés qu'à l'initialisation du volume.
 Même fichier `docker-compose.yml` (secrets et config `db_init` déclarés en `file:`). Le volume
 est local au nœud : épingler le service sur un nœud (contrainte de placement) ou utiliser un
 volume partagé, sinon la base repart vide si elle change de nœud.
+
+## En production (lab RESILIENCE-ALPHA)
+
+Sur le lab, la base n’est plus une instance unique : PostgreSQL 16 est **répliqué sur trois
+membres** (Patroni 4.1.5 + etcd 3.6.15), un par worker Swarm, en réplication synchrone par
+quorum. Les services se connectent avec plusieurs hôtes et `target_session_attrs=read-write` :
+ils suivent seuls le primaire. Mesuré : perte de la VM portant le primaire = 0 s de panne vue
+par un client (92 s avec l’ancienne instance unique), aucun paiement perdu. Une sauvegarde
+`pg_dump` est faite toutes les 15 min. Détails : `doc-infra/application.md` et
+`doc-infra/pca-pra-technique.md`.
