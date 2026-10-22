@@ -207,6 +207,40 @@ class Store:
             rows = c.execute(select(users.c.username, users.c.role, users.c.disabled).order_by(users.c.id))
             return [(r.username, r.role, r.disabled) for r in rows]
 
+    def accounts(self) -> list[dict]:
+        """Tous les comptes, désactivés compris, pour la page des habilitations."""
+        with self.engine.connect() as c:
+            rows = c.execute(select(users).order_by(users.c.role.desc(), users.c.username))
+            return [
+                {
+                    "username": r.username,
+                    "role": r.role,
+                    "disabled": bool(r.disabled),
+                    "firstName": r.first_name or "",
+                    "lastName": r.last_name or "",
+                    "createdAt": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
+
+    def exists(self, username: str) -> bool:
+        with self.engine.connect() as c:
+            return c.execute(select(users.c.id).where(users.c.username == username)).first() is not None
+
+    def update(self, username: str, *, role: str | None = None, disabled: bool | None = None) -> bool:
+        """Change le rôle ou l'état d'un compte. False si le compte n'existe pas."""
+        values: dict = {}
+        if role is not None:
+            values["role"] = role
+        if disabled is not None:
+            values["disabled"] = disabled
+        with self.engine.begin() as c:
+            if c.execute(select(users.c.id).where(users.c.username == username)).first() is None:
+                return False
+            if values:
+                c.execute(users.update().where(users.c.username == username).values(**values))
+            return True
+
     def _set_hash(self, username: str, stored: str) -> None:
         with self.engine.begin() as c:
             c.execute(users.update().where(users.c.username == username).values(password_hash=stored))
